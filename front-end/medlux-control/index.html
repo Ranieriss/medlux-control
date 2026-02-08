@@ -6,7 +6,7 @@
   <title>MEDLUX Control</title>
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="stylesheet" href="./styles.css" />
-  <script src="./app.js" defer></script>
+  <script type="module" src="./app.js" defer></script>
 </head>
 <body>
   <main class="wrap">
@@ -77,9 +77,9 @@
               <select id="statusFilter">
                 <option value="">Todos</option>
                 <option value="ATIVO">ATIVO</option>
-                <option value="EM CAUTELA">EM CAUTELA</option>
-                <option value="EM CALIBRAÇÃO">EM CALIBRAÇÃO</option>
-                <option value="MANUTENÇÃO">MANUTENÇÃO</option>
+                <option value="EM_CAUTELA">EM CAUTELA</option>
+                <option value="EM_CALIBRACAO">EM CALIBRAÇÃO</option>
+                <option value="MANUTENCAO">MANUTENÇÃO</option>
                 <option value="VENCIDO">VENCIDO</option>
               </select>
             </div>
@@ -101,10 +101,9 @@
                   <th>Tipo</th>
                   <th>Modelo</th>
                   <th>Nº Série</th>
-                  <th>Status</th>
-                  <th>Últ. Calib.</th>
-                  <th>Vencimento</th>
                   <th>Responsável</th>
+                  <th>Status</th>
+                  <th>Vencimento</th>
                   <th>Ações</th>
                 </tr>
               </thead>
@@ -175,9 +174,9 @@
             <label for="equipTipo">Tipo *</label>
             <select id="equipTipo" name="tipo" required>
               <option value="">Selecione</option>
-              <option value="Horizontal">Horizontal</option>
-              <option value="Vertical">Vertical</option>
-              <option value="Tachas">Tachas</option>
+              <option value="HORIZONTAL">Horizontal</option>
+              <option value="VERTICAL">Vertical</option>
+              <option value="TACHAS">Tachas</option>
             </select>
           </div>
           <div class="field">
@@ -193,27 +192,34 @@
             <input id="equipAquisicao" name="dataAquisicao" type="date" />
           </div>
           <div class="field">
-            <label for="equipStatus">Status</label>
-            <select id="equipStatus" name="status">
-              <option value="ATIVO">ATIVO</option>
-              <option value="EM CAUTELA">EM CAUTELA</option>
-              <option value="EM CALIBRAÇÃO">EM CALIBRAÇÃO</option>
-              <option value="MANUTENÇÃO">MANUTENÇÃO</option>
-              <option value="VENCIDO">VENCIDO</option>
-            </select>
-          </div>
-          <div class="field">
             <label for="equipCalibracao">Data última calibração</label>
-            <input id="equipCalibracao" name="dataUltimaCalibracao" type="date" />
+            <input id="equipCalibracao" name="dataCalibracao" type="date" />
             <button class="btn secondary" id="markCalibrated" type="button">Marcar como calibrado hoje</button>
           </div>
           <div class="field">
             <label for="equipVencimento">Vencimento calibração</label>
-            <input id="equipVencimento" name="dataVencimentoCalibracao" type="date" readonly />
+            <input id="equipVencimento" name="dataVencimento" type="date" readonly />
+          </div>
+          <div class="field">
+            <label for="equipCertificado">Certificado</label>
+            <input id="equipCertificado" name="certificado" />
+          </div>
+          <div class="field">
+            <label for="equipFabricante">Fabricante</label>
+            <input id="equipFabricante" name="fabricante" />
           </div>
           <div class="field">
             <label for="equipResponsavel">Responsável atual</label>
             <input id="equipResponsavel" name="responsavelAtual" />
+          </div>
+          <div class="field">
+            <label for="equipSituacao">Situação manual</label>
+            <select id="equipSituacao" name="situacaoManual">
+              <option value="ATIVO">ATIVO</option>
+              <option value="EM_CAUTELA">EM CAUTELA</option>
+              <option value="EM_CALIBRACAO">EM CALIBRAÇÃO</option>
+              <option value="MANUTENCAO">MANUTENÇÃO</option>
+            </select>
           </div>
           <div class="field field-full">
             <label for="equipObs">Observações</label>

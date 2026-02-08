@@ -1,9 +1,11 @@
-const CACHE_NAME = "medlux-control-v1";
+const CACHE_NAME = "medlux-control-v2";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./db.js",
+  "./seed.js",
   "./manifest.webmanifest",
   "./icons/icon-192.svg",
   "./icons/icon-512.svg"

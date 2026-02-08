@@ -1,6 +1,11 @@
-const DB_NAME = "medlux_control_db";
-const DB_VERSION = 1;
-const STORE_NAME = "equipamentos";
+import {
+  getAllEquipamentos,
+  saveEquipamento,
+  deleteEquipamento,
+  clearEquipamentos,
+  bulkSaveEquipamentos
+} from "./db.js";
+import { seedEquipamentos } from "./seed.js";
 
 const tabs = document.querySelectorAll(".tab");
 const panels = document.querySelectorAll("[data-panel]");
@@ -17,7 +22,7 @@ const prevPage = document.getElementById("prevPage");
 const nextPage = document.getElementById("nextPage");
 const pageInfo = document.getElementById("pageInfo");
 const newEquipamento = document.getElementById("newEquipamento");
-const seedEquipamentos = document.getElementById("seedEquipamentos");
+const seedButton = document.getElementById("seedEquipamentos");
 const exportBackup = document.getElementById("exportBackup");
 const importFile = document.getElementById("importFile");
 const importBackup = document.getElementById("importBackup");
@@ -39,53 +44,49 @@ const formFields = {
   numeroSerie: document.getElementById("equipSerie"),
   modelo: document.getElementById("equipModelo"),
   dataAquisicao: document.getElementById("equipAquisicao"),
-  status: document.getElementById("equipStatus"),
-  dataUltimaCalibracao: document.getElementById("equipCalibracao"),
-  dataVencimentoCalibracao: document.getElementById("equipVencimento"),
+  dataCalibracao: document.getElementById("equipCalibracao"),
+  dataVencimento: document.getElementById("equipVencimento"),
+  certificado: document.getElementById("equipCertificado"),
+  fabricante: document.getElementById("equipFabricante"),
   responsavelAtual: document.getElementById("equipResponsavel"),
+  situacaoManual: document.getElementById("equipSituacao"),
   observacoes: document.getElementById("equipObs")
+};
+
+const STATUS_LABELS = {
+  ATIVO: "ATIVO",
+  EM_CAUTELA: "EM CAUTELA",
+  EM_CALIBRACAO: "EM CALIBRAÇÃO",
+  MANUTENCAO: "MANUTENÇÃO",
+  VENCIDO: "VENCIDO"
+};
+
+const normalizeTipo = (value) => {
+  const raw = String(value || "").trim().toUpperCase();
+  if (raw === "HORIZONTAL" || raw === "VERTICAL" || raw === "TACHAS") {
+    return raw;
+  }
+  return "";
+};
+
+const normalizeSituacao = (value) => {
+  const raw = String(value || "").trim().toUpperCase();
+  const map = {
+    "EM CALIBRAÇÃO": "EM_CALIBRACAO",
+    "EM CALIBRACAO": "EM_CALIBRACAO",
+    "EM CAUTELA": "EM_CAUTELA",
+    "MANUTENÇÃO": "MANUTENCAO",
+    "MANUTENCAO": "MANUTENCAO"
+  };
+  if (raw === "ATIVO") return "ATIVO";
+  if (raw === "EM_CALIBRACAO" || raw === "EM_CAUTELA" || raw === "MANUTENCAO") return raw;
+  if (map[raw]) return map[raw];
+  return "ATIVO";
 };
 
 let equipamentos = [];
 let currentPage = 1;
 let editingId = null;
-
-const STATUS_OPTIONS = ["ATIVO", "EM CAUTELA", "EM CALIBRAÇÃO", "MANUTENÇÃO", "VENCIDO"];
-
-const openDB = () => new Promise((resolve, reject) => {
-  const request = indexedDB.open(DB_NAME, DB_VERSION);
-  request.onupgradeneeded = () => {
-    const db = request.result;
-    if (!db.objectStoreNames.contains(STORE_NAME)) {
-      db.createObjectStore(STORE_NAME, { keyPath: "id" });
-    }
-  };
-  request.onsuccess = () => resolve(request.result);
-  request.onerror = () => reject(request.error);
-});
-
-const withStore = async (mode, callback) => {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction(STORE_NAME, mode);
-    const store = transaction.objectStore(STORE_NAME);
-    const result = callback(store);
-    transaction.oncomplete = () => resolve(result);
-    transaction.onerror = () => reject(transaction.error);
-  });
-};
-
-const getAllEquipamentos = () => withStore("readonly", (store) => {
-  return new Promise((resolve, reject) => {
-    const request = store.getAll();
-    request.onsuccess = () => resolve(request.result || []);
-    request.onerror = () => reject(request.error);
-  });
-});
-
-const saveEquipamento = (equipamento) => withStore("readwrite", (store) => store.put(equipamento));
-const deleteEquipamento = (id) => withStore("readwrite", (store) => store.delete(id));
-const clearEquipamentos = () => withStore("readwrite", (store) => store.clear());
 
 const setStatusMessage = (message) => {
   statusMessage.textContent = message;
@@ -98,12 +99,12 @@ const toISODate = (date) => {
   return d.toISOString().split("T")[0];
 };
 
-const addOneYear = (dateString) => {
+const addDays = (dateString, days) => {
   if (!dateString) return "";
-  const d = new Date(dateString);
+  const d = new Date(dateString + "T00:00:00");
   if (Number.isNaN(d.getTime())) return "";
   const next = new Date(d);
-  next.setFullYear(d.getFullYear() + 1);
+  next.setDate(next.getDate() + days);
   return toISODate(next);
 };
 
@@ -117,18 +118,42 @@ const formatDate = (dateString) => {
 const daysUntil = (dateString) => {
   if (!dateString) return null;
   const today = new Date();
-  const target = new Date(dateString + "T00:00:00");
+  const target = new Date(`${dateString}T00:00:00`);
   if (Number.isNaN(target.getTime())) return null;
   const diff = target.setHours(0, 0, 0, 0) - today.setHours(0, 0, 0, 0);
   return Math.ceil(diff / (1000 * 60 * 60 * 24));
 };
 
-const computedStatus = (equipamento) => {
-  const days = daysUntil(equipamento.dataVencimentoCalibracao);
+const computeStatus = (equipamento) => {
+  const days = daysUntil(equipamento.dataVencimento);
   if (days !== null && days < 0) {
     return "VENCIDO";
   }
-  return equipamento.status || "ATIVO";
+  if (equipamento.situacaoManual === "EM_CALIBRACAO") return "EM_CALIBRACAO";
+  if (equipamento.situacaoManual === "EM_CAUTELA") return "EM_CAUTELA";
+  if (equipamento.situacaoManual === "MANUTENCAO") return "MANUTENCAO";
+  return "ATIVO";
+};
+
+const normalizeEquipamento = (data) => {
+  const id = String(data.id || "").trim().toUpperCase();
+  const tipo = normalizeTipo(data.tipo);
+  const dataCalibracao = data.dataCalibracao ? toISODate(data.dataCalibracao) : "";
+  const dataVencimento = dataCalibracao ? addDays(dataCalibracao, 365) : "";
+  return {
+    id,
+    tipo,
+    modelo: String(data.modelo || "").trim(),
+    numeroSerie: String(data.numeroSerie || "").trim(),
+    dataAquisicao: data.dataAquisicao ? toISODate(data.dataAquisicao) : "",
+    dataCalibracao,
+    dataVencimento,
+    certificado: data.certificado ? String(data.certificado).trim() : "",
+    fabricante: data.fabricante ? String(data.fabricante).trim() : "",
+    responsavelAtual: data.responsavelAtual ? String(data.responsavelAtual).trim() : "",
+    situacaoManual: normalizeSituacao(data.situacaoManual),
+    observacoes: data.observacoes ? String(data.observacoes).trim() : ""
+  };
 };
 
 const getFilteredEquipamentos = () => {
@@ -141,7 +166,7 @@ const getFilteredEquipamentos = () => {
       equipamento.numeroSerie,
       equipamento.responsavelAtual
     ].some((field) => (field || "").toLowerCase().includes(term));
-    const statusValue = computedStatus(equipamento);
+    const statusValue = computeStatus(equipamento);
     const matchesStatus = !status || statusValue === status;
     return matchesTerm && matchesStatus;
   });
@@ -149,24 +174,34 @@ const getFilteredEquipamentos = () => {
 
 const renderStatusCards = () => {
   statusCards.textContent = "";
-  const counts = STATUS_OPTIONS.reduce((acc, status) => {
-    acc[status] = 0;
-    return acc;
-  }, {});
+  const counts = {
+    total: equipamentos.length,
+    ativos: 0,
+    vencidos: 0,
+    cautela: 0
+  };
+
   equipamentos.forEach((equipamento) => {
-    const status = computedStatus(equipamento);
-    if (counts[status] !== undefined) {
-      counts[status] += 1;
-    }
+    const status = computeStatus(equipamento);
+    if (status === "VENCIDO") counts.vencidos += 1;
+    if (status === "EM_CAUTELA") counts.cautela += 1;
+    if (status === "ATIVO") counts.ativos += 1;
   });
 
-  STATUS_OPTIONS.forEach((status) => {
+  const cards = [
+    { label: "Total", value: counts.total },
+    { label: "Ativos", value: counts.ativos },
+    { label: "Vencidos", value: counts.vencidos },
+    { label: "Em cautela", value: counts.cautela }
+  ];
+
+  cards.forEach((cardInfo) => {
     const card = document.createElement("div");
     card.className = "status-card";
     const label = document.createElement("span");
-    label.textContent = status;
+    label.textContent = cardInfo.label;
     const value = document.createElement("strong");
-    value.textContent = String(counts[status] || 0);
+    value.textContent = String(cardInfo.value || 0);
     card.append(label, value);
     statusCards.appendChild(card);
   });
@@ -177,7 +212,7 @@ const renderUpcoming = () => {
   const upcoming = equipamentos
     .map((equipamento) => ({
       equipamento,
-      days: daysUntil(equipamento.dataVencimentoCalibracao)
+      days: daysUntil(equipamento.dataVencimento)
     }))
     .filter((item) => item.days !== null && item.days >= 0 && item.days <= 30)
     .sort((a, b) => a.days - b.days);
@@ -207,13 +242,11 @@ const renderQuickResults = () => {
     return;
   }
 
-  const results = equipamentos.filter((equipamento) => {
-    return [
-      equipamento.id,
-      equipamento.modelo,
-      equipamento.numeroSerie
-    ].some((field) => (field || "").toLowerCase().includes(term));
-  }).slice(0, 5);
+  const results = equipamentos.filter((equipamento) => [
+    equipamento.id,
+    equipamento.modelo,
+    equipamento.numeroSerie
+  ].some((field) => (field || "").toLowerCase().includes(term))).slice(0, 5);
 
   if (results.length === 0) {
     const empty = document.createElement("p");
@@ -249,40 +282,32 @@ const renderTable = () => {
 
   pageItems.forEach((equipamento) => {
     const row = document.createElement("tr");
+    const statusValue = computeStatus(equipamento);
 
     const cells = [
       equipamento.id,
       equipamento.tipo,
       equipamento.modelo,
       equipamento.numeroSerie,
-      equipamento.status,
-      formatDate(equipamento.dataUltimaCalibracao),
-      formatDate(equipamento.dataVencimentoCalibracao),
-      equipamento.responsavelAtual || "-"
+      equipamento.responsavelAtual || "-",
+      statusValue,
+      formatDate(equipamento.dataVencimento)
     ];
 
     cells.forEach((value, index) => {
       const cell = document.createElement("td");
-      if (index === 4) {
-        const statusValue = computedStatus(equipamento);
+      if (index === 5) {
         const pill = document.createElement("span");
         pill.className = "status-pill";
-        if (statusValue === "VENCIDO") {
+        if (statusValue === "VENCIDO" || statusValue === "MANUTENCAO") {
           pill.classList.add("danger");
-        } else if (statusValue === "EM CALIBRAÇÃO") {
+        } else if (statusValue === "EM_CALIBRACAO" || statusValue === "EM_CAUTELA") {
           pill.classList.add("warning");
         } else if (statusValue === "ATIVO") {
           pill.classList.add("success");
         }
-        pill.textContent = statusValue;
+        pill.textContent = STATUS_LABELS[statusValue] || statusValue;
         cell.appendChild(pill);
-        const days = daysUntil(equipamento.dataVencimentoCalibracao);
-        if (days !== null && days < 0 && equipamento.status !== "VENCIDO") {
-          const note = document.createElement("div");
-          note.className = "muted";
-          note.textContent = "Ajustado automaticamente";
-          cell.appendChild(note);
-        }
       } else {
         cell.textContent = value || "-";
       }
@@ -330,7 +355,7 @@ const loadEquipamentos = async () => {
 
 const resetForm = () => {
   form.reset();
-  formFields.dataVencimentoCalibracao.value = "";
+  formFields.dataVencimento.value = "";
   editingId = null;
   formFields.id.disabled = false;
   formHint.textContent = "Campos com * são obrigatórios.";
@@ -359,10 +384,12 @@ const openEditModal = (id) => {
   formFields.numeroSerie.value = equipamento.numeroSerie || "";
   formFields.modelo.value = equipamento.modelo || "";
   formFields.dataAquisicao.value = equipamento.dataAquisicao || "";
-  formFields.status.value = equipamento.status || "ATIVO";
-  formFields.dataUltimaCalibracao.value = equipamento.dataUltimaCalibracao || "";
-  formFields.dataVencimentoCalibracao.value = equipamento.dataVencimentoCalibracao || "";
+  formFields.dataCalibracao.value = equipamento.dataCalibracao || "";
+  formFields.dataVencimento.value = equipamento.dataVencimento || "";
+  formFields.certificado.value = equipamento.certificado || "";
+  formFields.fabricante.value = equipamento.fabricante || "";
   formFields.responsavelAtual.value = equipamento.responsavelAtual || "";
+  formFields.situacaoManual.value = equipamento.situacaoManual || "ATIVO";
   formFields.observacoes.value = equipamento.observacoes || "";
   formHint.textContent = "Atualize os campos e pressione salvar.";
   openModal();
@@ -386,13 +413,14 @@ const handleDelete = async (id) => {
 const handleFormSubmit = async (event) => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(form).entries());
-  const id = data.id.trim().toUpperCase();
+  const id = String(data.id || "").trim().toUpperCase();
+
   if (!id) {
     formHint.textContent = "Identificação é obrigatória.";
     return;
   }
 
-  if (!data.tipo || !data.numeroSerie || !data.modelo) {
+  if (!normalizeTipo(data.tipo) || !data.numeroSerie || !data.modelo) {
     formHint.textContent = "Preencha os campos obrigatórios.";
     return;
   }
@@ -403,36 +431,22 @@ const handleFormSubmit = async (event) => {
     return;
   }
 
-  const isEditing = Boolean(editingId);
-  const calibracao = data.dataUltimaCalibracao ? toISODate(data.dataUltimaCalibracao) : "";
-  const vencimento = calibracao ? addOneYear(calibracao) : "";
-
-  const equipamento = {
+  const equipamento = normalizeEquipamento({
+    ...data,
     id,
-    tipo: data.tipo,
-    numeroSerie: data.numeroSerie.trim(),
-    modelo: data.modelo.trim(),
-    dataAquisicao: data.dataAquisicao ? toISODate(data.dataAquisicao) : "",
-    status: data.status || "ATIVO",
-    dataUltimaCalibracao: calibracao,
-    dataVencimentoCalibracao: vencimento,
-    responsavelAtual: data.responsavelAtual ? data.responsavelAtual.trim() : "",
-    observacoes: data.observacoes ? data.observacoes.trim() : ""
-  };
+    tipo: normalizeTipo(data.tipo),
+    situacaoManual: normalizeSituacao(data.situacaoManual)
+  });
 
   await saveEquipamento(equipamento);
   await loadEquipamentos();
   closeModalHandler();
-  setStatusMessage(isEditing ? `Equipamento ${id} atualizado.` : `Equipamento ${id} cadastrado.`);
+  setStatusMessage(editingId ? `Equipamento ${id} atualizado.` : `Equipamento ${id} cadastrado.`);
 };
 
 const handleCalibrationUpdate = () => {
-  const value = formFields.dataUltimaCalibracao.value;
-  formFields.dataVencimentoCalibracao.value = value ? addOneYear(value) : "";
-};
-
-const handleQuickSearch = () => {
-  renderQuickResults();
+  const value = formFields.dataCalibracao.value;
+  formFields.dataVencimento.value = value ? addDays(value, 365) : "";
 };
 
 const handleImport = async () => {
@@ -459,23 +473,12 @@ const handleImport = async () => {
   const confirmed = window.confirm("Importar backup vai substituir todos os dados atuais. Deseja continuar?");
   if (!confirmed) return;
 
+  const normalized = items
+    .map((item) => normalizeEquipamento(item || {}))
+    .filter((item) => item.id);
+
   await clearEquipamentos();
-  for (const item of items) {
-    if (item && item.id) {
-      await saveEquipamento({
-        id: String(item.id).trim().toUpperCase(),
-        tipo: item.tipo || "Horizontal",
-        numeroSerie: item.numeroSerie || "",
-        modelo: item.modelo || "",
-        dataAquisicao: item.dataAquisicao || "",
-        status: item.status || "ATIVO",
-        dataUltimaCalibracao: item.dataUltimaCalibracao || "",
-        dataVencimentoCalibracao: item.dataVencimentoCalibracao || "",
-        responsavelAtual: item.responsavelAtual || "",
-        observacoes: item.observacoes || ""
-      });
-    }
-  }
+  await bulkSaveEquipamentos(normalized);
   await loadEquipamentos();
   setStatusMessage("Backup importado com sucesso.");
   importFile.value = "";
@@ -490,7 +493,7 @@ const handleExport = () => {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `medlux-backup-${new Date().toISOString().slice(0,10)}.json`;
+  link.download = `medlux-backup-${new Date().toISOString().slice(0, 10)}.json`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
@@ -506,87 +509,11 @@ const handleReset = async () => {
   setStatusMessage("Dados locais apagados.");
 };
 
-const seedData = async () => {
+const handleSeed = async () => {
   const confirmed = window.confirm("Carregar dados de exemplo? Isso adiciona registros ao banco.");
   if (!confirmed) return;
-  const sample = [
-    {
-      id: "RH01",
-      tipo: "Horizontal",
-      numeroSerie: "HX-8321",
-      modelo: "MTLX-300",
-      dataAquisicao: "2022-01-12",
-      status: "ATIVO",
-      dataUltimaCalibracao: "2024-02-15",
-      dataVencimentoCalibracao: addOneYear("2024-02-15"),
-      responsavelAtual: "Donevir",
-      observacoes: "Em operação padrão."
-    },
-    {
-      id: "RV02",
-      tipo: "Vertical",
-      numeroSerie: "VX-2210",
-      modelo: "MTLX-280",
-      dataAquisicao: "2021-08-05",
-      status: "EM CAUTELA",
-      dataUltimaCalibracao: "2023-11-01",
-      dataVencimentoCalibracao: addOneYear("2023-11-01"),
-      responsavelAtual: "Leonardo",
-      observacoes: "Retirado para obras." 
-    },
-    {
-      id: "RT03",
-      tipo: "Tachas",
-      numeroSerie: "TX-901",
-      modelo: "MTLX-150",
-      dataAquisicao: "2020-03-20",
-      status: "MANUTENÇÃO",
-      dataUltimaCalibracao: "2023-05-20",
-      dataVencimentoCalibracao: addOneYear("2023-05-20"),
-      responsavelAtual: "Cesar",
-      observacoes: "Aguardando reparo no sensor." 
-    },
-    {
-      id: "RH04",
-      tipo: "Horizontal",
-      numeroSerie: "HX-4433",
-      modelo: "MTLX-310",
-      dataAquisicao: "2022-11-11",
-      status: "ATIVO",
-      dataUltimaCalibracao: "2024-01-10",
-      dataVencimentoCalibracao: addOneYear("2024-01-10"),
-      responsavelAtual: "Equipe Norte",
-      observacoes: "Reserva estratégica." 
-    },
-    {
-      id: "RV05",
-      tipo: "Vertical",
-      numeroSerie: "VX-3002",
-      modelo: "MTLX-290",
-      dataAquisicao: "2021-06-18",
-      status: "EM CALIBRAÇÃO",
-      dataUltimaCalibracao: "2024-03-02",
-      dataVencimentoCalibracao: addOneYear("2024-03-02"),
-      responsavelAtual: "Laboratório",
-      observacoes: "Processo em andamento." 
-    },
-    {
-      id: "RT06",
-      tipo: "Tachas",
-      numeroSerie: "TX-404",
-      modelo: "MTLX-160",
-      dataAquisicao: "2023-09-07",
-      status: "ATIVO",
-      dataUltimaCalibracao: "2024-04-12",
-      dataVencimentoCalibracao: addOneYear("2024-04-12"),
-      responsavelAtual: "Sandra",
-      observacoes: "Equipamento recém-calibrado." 
-    }
-  ];
-
-  for (const item of sample) {
-    await saveEquipamento(item);
-  }
+  const sample = seedEquipamentos().map((item) => normalizeEquipamento(item));
+  await bulkSaveEquipamentos(sample);
   await loadEquipamentos();
   setStatusMessage("Dados de exemplo carregados.");
 };
@@ -624,10 +551,10 @@ cancelModal.addEventListener("click", closeModalHandler);
 newEquipamento.addEventListener("click", openNewModal);
 markCalibrated.addEventListener("click", () => {
   const today = toISODate(new Date());
-  formFields.dataUltimaCalibracao.value = today;
+  formFields.dataCalibracao.value = today;
   handleCalibrationUpdate();
 });
-formFields.dataUltimaCalibracao.addEventListener("change", handleCalibrationUpdate);
+formFields.dataCalibracao.addEventListener("change", handleCalibrationUpdate);
 
 modal.addEventListener("click", (event) => {
   if (event.target === modal) {
@@ -641,7 +568,7 @@ window.addEventListener("keydown", (event) => {
   }
 });
 
-quickSearch.addEventListener("input", handleQuickSearch);
+quickSearch.addEventListener("input", renderQuickResults);
 clearSearch.addEventListener("click", () => {
   quickSearch.value = "";
   renderQuickResults();
@@ -664,7 +591,7 @@ nextPage.addEventListener("click", () => {
   renderTable();
 });
 
-seedEquipamentos.addEventListener("click", seedData);
+seedButton.addEventListener("click", handleSeed);
 exportBackup.addEventListener("click", handleExport);
 importBackup.addEventListener("click", handleImport);
 resetData.addEventListener("click", handleReset);
