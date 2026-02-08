@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#7c5cff"/>
+      <stop offset="1" stop-color="#00d4ff"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="#0b1226"/>
+  <circle cx="150" cy="150" r="60" fill="url(#g)"/>
+  <text x="256" y="300" text-anchor="middle" font-family="Arial, sans-serif" font-size="72" fill="#eaf0ff" font-weight="700">MEDLUX</text>
+  <text x="256" y="360" text-anchor="middle" font-family="Arial, sans-serif" font-size="36" fill="#b9c6ff">CONTROL</text>
+</svg>
