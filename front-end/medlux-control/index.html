@@ -1,0 +1,931 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#070a12" />
+  <link rel="manifest" href="../manifest.webmanifest" />
+  <title>Medlux Control</title>
+  <style>
+    :root{
+      --bg1:#070A12;
+      --bg2:#0C1328;
+      --card:#0f1a33cc;
+      --stroke:#23335f;
+      --text:#eaf0ff;
+      --muted:#b9c6ff;
+      --accent:#7c5cff;
+      --accent2:#00d4ff;
+      --danger:#ff5b5b;
+      --shadow: 0 18px 45px rgba(0,0,0,.45);
+      --radius: 18px;
+    }
+
+    *{ box-sizing:border-box; }
+    html,body{ height:100%; margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    body{
+      color:var(--text);
+      background:
+        radial-gradient(1200px 700px at 15% 10%, rgba(124,92,255,.35), transparent 55%),
+        radial-gradient(1000px 600px at 90% 20%, rgba(0,212,255,.20), transparent 60%),
+        linear-gradient(160deg, var(--bg1), var(--bg2));
+      padding: 18px;
+    }
+
+    header{
+      display:flex;
+      flex-wrap:wrap;
+      gap: 16px;
+      align-items:center;
+      justify-content:space-between;
+      margin-bottom: 18px;
+    }
+
+    .brand{
+      display:flex;
+      flex-direction:column;
+      gap: 6px;
+    }
+
+    .brand h1{
+      margin:0;
+      font-size: clamp(22px, 3vw, 34px);
+      letter-spacing:.2px;
+    }
+
+    .brand p{
+      margin:0;
+      color: var(--muted);
+      max-width: 60ch;
+    }
+
+    .status-pill{
+      padding: 8px 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.06);
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .offline{
+      display:none;
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,91,91,.35);
+      background: rgba(255,91,91,.12);
+      color: #ffd1d1;
+      font-size: 13px;
+      margin-bottom: 16px;
+    }
+    .offline.show{ display:block; }
+
+    .layout{
+      display:grid;
+      grid-template-columns: 240px 1fr;
+      gap: 18px;
+    }
+
+    @media (max-width: 980px){
+      .layout{ grid-template-columns: 1fr; }
+      nav{ display:flex; flex-wrap:wrap; gap: 10px; }
+      nav button{ flex:1 1 160px; }
+    }
+
+    nav{
+      display:grid;
+      gap: 10px;
+    }
+
+    nav button{
+      appearance:none;
+      border: 1px solid rgba(255,255,255,.14);
+      background: rgba(255,255,255,.06);
+      color: var(--text);
+      padding: 12px 14px;
+      border-radius: 14px;
+      cursor:pointer;
+      text-align:left;
+      transition: transform .08s ease, background .2s ease, border-color .2s ease;
+    }
+    nav button.active{ border-color: rgba(124,92,255,.6); background: rgba(124,92,255,.15); }
+    nav button:hover{ background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.22); }
+    nav button:active{ transform: scale(.985); }
+
+    .content{
+      display:grid;
+      gap: 16px;
+    }
+
+    .card{
+      background: var(--card);
+      border: 1px solid var(--stroke);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 18px;
+    }
+
+    .card h2{
+      margin:0 0 12px;
+      font-size: 18px;
+    }
+
+    .grid{
+      display:grid;
+      gap: 14px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+
+    .stat{
+      padding: 16px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,.08);
+      background: rgba(0,0,0,.14);
+      display:grid;
+      gap: 6px;
+    }
+
+    .stat span{
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .stat strong{
+      font-size: 24px;
+    }
+
+    form{
+      display:grid;
+      gap: 12px;
+    }
+
+    label{
+      font-size: 13px;
+      color: var(--muted);
+      display:grid;
+      gap: 6px;
+    }
+
+    input, select, textarea{
+      background: rgba(10,16,32,.8);
+      border: 1px solid rgba(255,255,255,.14);
+      border-radius: 10px;
+      padding: 10px 12px;
+      color: var(--text);
+      font-size: 14px;
+    }
+
+    textarea{ min-height: 80px; resize: vertical; }
+
+    .row{
+      display:grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    }
+
+    .btn{
+      appearance:none;
+      border: 1px solid rgba(255,255,255,.14);
+      background: rgba(255,255,255,.06);
+      color: var(--text);
+      padding: 10px 14px;
+      border-radius: 10px;
+      cursor:pointer;
+      transition: transform .08s ease, background .2s ease, border-color .2s ease;
+    }
+    .btn:hover{ background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.22); }
+    .btn:active{ transform: scale(.985); }
+    .btn.primary{ background: linear-gradient(90deg, rgba(124,92,255,.4), rgba(0,212,255,.3)); border-color: rgba(124,92,255,.5); }
+    .btn.danger{ border-color: rgba(255,91,91,.5); color: #ffd1d1; }
+
+    table{
+      width:100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th, td{
+      text-align:left;
+      padding: 10px 8px;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+      vertical-align: top;
+    }
+
+    th{ color: var(--muted); font-weight:600; }
+
+    .tag{
+      display:inline-flex;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      border: 1px solid rgba(255,255,255,.2);
+      background: rgba(255,255,255,.08);
+    }
+
+    .muted{ color: var(--muted); }
+
+    .actions-inline{
+      display:flex;
+      flex-wrap:wrap;
+      gap: 6px;
+    }
+
+    .hidden{ display:none; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>MEDLUX Control</h1>
+      <p>Gestão offline-first de equipamentos, cautelas, calibrações e auditoria.</p>
+    </div>
+    <div class="status-pill">IndexedDB • Offline ready</div>
+  </header>
+
+  <div class="offline" id="offlineBanner">Você está offline. As alterações serão salvas localmente.</div>
+
+  <div class="layout">
+    <nav>
+      <button data-tab="dashboard" class="active">Dashboard</button>
+      <button data-tab="equipamentos">Equipamentos</button>
+      <button data-tab="cautelas">Cautelas</button>
+      <button data-tab="calibracao">Calibração</button>
+      <button data-tab="auditoria">Auditoria & Backup</button>
+      <a class="btn" href="../index.html">Voltar ao início</a>
+    </nav>
+
+    <section class="content">
+      <div class="card" data-section="dashboard">
+        <h2>Visão geral</h2>
+        <div class="grid" id="dashboardStats"></div>
+      </div>
+
+      <div class="card hidden" data-section="equipamentos">
+        <h2>Equipamentos</h2>
+        <form id="equipmentForm">
+          <div class="row">
+            <label>
+              Nome do equipamento
+              <input type="text" name="name" required />
+            </label>
+            <label>
+              Número de série
+              <input type="text" name="serial" required />
+            </label>
+            <label>
+              Status
+              <select name="status">
+                <option value="Disponível">Disponível</option>
+                <option value="Em cautela">Em cautela</option>
+              </select>
+            </label>
+          </div>
+          <div class="actions-inline">
+            <button class="btn primary" type="submit">Salvar equipamento</button>
+            <button class="btn" type="button" id="equipmentReset">Limpar</button>
+          </div>
+        </form>
+        <div class="card" style="margin-top:16px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Nome</th>
+                <th>Série</th>
+                <th>Status</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="equipmentTable"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card hidden" data-section="cautelas">
+        <h2>Cautelas</h2>
+        <form id="cautelaForm">
+          <div class="row">
+            <label>
+              Equipamento
+              <select name="equipmentId" required></select>
+            </label>
+            <label>
+              Tipo
+              <select name="type" required>
+                <option value="saida">Saída</option>
+                <option value="retorno">Retorno</option>
+              </select>
+            </label>
+            <label>
+              Responsável
+              <input type="text" name="responsible" required />
+            </label>
+          </div>
+          <div class="row">
+            <label>
+              Data e hora
+              <input type="datetime-local" name="datetime" required />
+            </label>
+            <label>
+              Observação
+              <textarea name="note"></textarea>
+            </label>
+          </div>
+          <button class="btn primary" type="submit">Registrar cautela</button>
+        </form>
+        <div class="card" style="margin-top:16px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Equipamento</th>
+                <th>Tipo</th>
+                <th>Responsável</th>
+                <th>Data</th>
+                <th>Observação</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="cautelaTable"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card hidden" data-section="calibracao">
+        <h2>Calibração</h2>
+        <form id="calibrationForm">
+          <div class="row">
+            <label>
+              Equipamento
+              <select name="equipmentId" required></select>
+            </label>
+            <label>
+              Número do certificado
+              <input type="text" name="certificate" required />
+            </label>
+            <label>
+              Validade
+              <input type="date" name="validUntil" required />
+            </label>
+          </div>
+          <div class="row">
+            <label>
+              URL do certificado (opcional)
+              <input type="url" name="certificateUrl" placeholder="https://" />
+            </label>
+            <label>
+              Upload do certificado (opcional)
+              <input type="file" name="certificateFile" accept="application/pdf,image/*" />
+            </label>
+          </div>
+          <button class="btn primary" type="submit">Registrar calibração</button>
+        </form>
+        <div class="card" style="margin-top:16px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Equipamento</th>
+                <th>Certificado</th>
+                <th>Validade</th>
+                <th>Arquivo/URL</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="calibrationTable"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card hidden" data-section="auditoria">
+        <h2>Auditoria & Backup</h2>
+        <div class="grid">
+          <div class="card">
+            <h3>Backup</h3>
+            <p class="muted">Exporte ou restaure os dados completos do sistema em JSON.</p>
+            <div class="actions-inline">
+              <button class="btn primary" id="exportBackup">Exportar backup</button>
+              <label class="btn">
+                Importar backup
+                <input type="file" id="importBackup" accept="application/json" style="display:none" />
+              </label>
+            </div>
+            <p class="muted" style="margin-top:10px;">O backup substitui os dados atuais.</p>
+          </div>
+          <div class="card">
+            <h3>Log de ações</h3>
+            <div style="max-height:320px; overflow:auto;">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>Ação</th>
+                  </tr>
+                </thead>
+                <tbody id="auditTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const state = {
+      equipments: [],
+      cautelas: [],
+      calibrations: [],
+      audits: []
+    };
+
+    let db;
+    let editingEquipmentId = null;
+
+    const offlineBanner = document.getElementById("offlineBanner");
+    const updateOnlineStatus = () => {
+      offlineBanner.classList.toggle("show", !navigator.onLine);
+    };
+
+    window.addEventListener("online", updateOnlineStatus);
+    window.addEventListener("offline", updateOnlineStatus);
+    updateOnlineStatus();
+
+    const openDb = () =>
+      new Promise((resolve, reject) => {
+        const request = indexedDB.open("medlux-control", 1);
+        request.onupgradeneeded = (event) => {
+          const dbInstance = event.target.result;
+          if (!dbInstance.objectStoreNames.contains("equipments")) {
+            dbInstance.createObjectStore("equipments", { keyPath: "id", autoIncrement: true });
+          }
+          if (!dbInstance.objectStoreNames.contains("cautelas")) {
+            dbInstance.createObjectStore("cautelas", { keyPath: "id", autoIncrement: true });
+          }
+          if (!dbInstance.objectStoreNames.contains("calibrations")) {
+            dbInstance.createObjectStore("calibrations", { keyPath: "id", autoIncrement: true });
+          }
+          if (!dbInstance.objectStoreNames.contains("audits")) {
+            dbInstance.createObjectStore("audits", { keyPath: "id", autoIncrement: true });
+          }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+
+    const getAll = (storeName) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, "readonly");
+        const store = tx.objectStore(storeName);
+        const request = store.getAll();
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+
+    const addRecord = (storeName, record) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, "readwrite");
+        const store = tx.objectStore(storeName);
+        const request = store.add(record);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+
+    const updateRecord = (storeName, record) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, "readwrite");
+        const store = tx.objectStore(storeName);
+        const request = store.put(record);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+
+    const deleteRecord = (storeName, id) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, "readwrite");
+        const store = tx.objectStore(storeName);
+        const request = store.delete(id);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+      });
+
+    const clearStore = (storeName) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, "readwrite");
+        const store = tx.objectStore(storeName);
+        const request = store.clear();
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+      });
+
+    const logAction = async (action) => {
+      await addRecord("audits", {
+        action,
+        timestamp: new Date().toISOString()
+      });
+    };
+
+    const mutate = async (actionFn, auditMessage) => {
+      await actionFn();
+      if (auditMessage) {
+        await logAction(auditMessage);
+      }
+      await loadInitialData();
+      safeRender();
+    };
+
+    const loadInitialData = async () => {
+      state.equipments = await getAll("equipments");
+      state.cautelas = await getAll("cautelas");
+      state.calibrations = await getAll("calibrations");
+      state.audits = await getAll("audits");
+    };
+
+    const formatDate = (value) => {
+      if (!value) return "-";
+      const date = new Date(value);
+      return new Intl.DateTimeFormat("pt-BR", {
+        dateStyle: "medium",
+        timeStyle: "short"
+      }).format(date);
+    };
+
+    const safeRender = () => {
+      renderDashboard();
+      renderEquipmentTable();
+      renderCautelaTable();
+      renderCalibrationTable();
+      renderAuditTable();
+      renderSelects();
+    };
+
+    const renderDashboard = () => {
+      const total = state.equipments.length;
+      const cautela = state.equipments.filter((item) => item.status === "Em cautela").length;
+      const disponiveis = total - cautela;
+
+      const stats = [
+        { label: "Total de equipamentos", value: total },
+        { label: "Em cautela", value: cautela },
+        { label: "Disponíveis", value: disponiveis }
+      ];
+
+      const container = document.getElementById("dashboardStats");
+      container.innerHTML = stats
+        .map(
+          (stat) => `
+          <div class="stat">
+            <span>${stat.label}</span>
+            <strong>${stat.value}</strong>
+          </div>`
+        )
+        .join("");
+    };
+
+    const renderEquipmentTable = () => {
+      const table = document.getElementById("equipmentTable");
+      table.innerHTML = state.equipments
+        .map(
+          (item) => `
+          <tr>
+            <td>${item.name}</td>
+            <td>${item.serial}</td>
+            <td><span class="tag">${item.status}</span></td>
+            <td>
+              <div class="actions-inline">
+                <button class="btn" data-action="edit" data-id="${item.id}">Editar</button>
+                <button class="btn danger" data-action="delete" data-id="${item.id}">Excluir</button>
+              </div>
+            </td>
+          </tr>`
+        )
+        .join("");
+    };
+
+    const renderCautelaTable = () => {
+      const table = document.getElementById("cautelaTable");
+      table.innerHTML = state.cautelas
+        .sort((a, b) => new Date(b.datetime) - new Date(a.datetime))
+        .map((item) => {
+          const equipment = state.equipments.find((eq) => eq.id === item.equipmentId);
+          return `
+          <tr>
+            <td>${equipment ? equipment.name : "Equipamento removido"}</td>
+            <td><span class="tag">${item.type === "saida" ? "Saída" : "Retorno"}</span></td>
+            <td>${item.responsible}</td>
+            <td>${formatDate(item.datetime)}</td>
+            <td>${item.note || "-"}</td>
+            <td>
+              <button class="btn danger" data-action="delete" data-id="${item.id}">Excluir</button>
+            </td>
+          </tr>`;
+        })
+        .join("");
+    };
+
+    const renderCalibrationTable = () => {
+      const table = document.getElementById("calibrationTable");
+      table.innerHTML = state.calibrations
+        .sort((a, b) => new Date(b.validUntil) - new Date(a.validUntil))
+        .map((item) => {
+          const equipment = state.equipments.find((eq) => eq.id === item.equipmentId);
+          const links = [];
+          if (item.certificateUrl) {
+            links.push(`<a class="btn" href="${item.certificateUrl}" target="_blank" rel="noreferrer">Abrir URL</a>`);
+          }
+          if (item.certificateFile && item.certificateFile.data) {
+            links.push(`<a class="btn" href="${item.certificateFile.data}" download="${item.certificateFile.name}">Baixar arquivo</a>`);
+          }
+          return `
+          <tr>
+            <td>${equipment ? equipment.name : "Equipamento removido"}</td>
+            <td>${item.certificate}</td>
+            <td>${item.validUntil}</td>
+            <td>
+              <div class="actions-inline">${links.join("") || "-"}</div>
+            </td>
+            <td>
+              <button class="btn danger" data-action="delete" data-id="${item.id}">Excluir</button>
+            </td>
+          </tr>`;
+        })
+        .join("");
+    };
+
+    const renderAuditTable = () => {
+      const table = document.getElementById("auditTable");
+      table.innerHTML = state.audits
+        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+        .map(
+          (item) => `
+          <tr>
+            <td>${formatDate(item.timestamp)}</td>
+            <td>${item.action}</td>
+          </tr>`
+        )
+        .join("");
+    };
+
+    const renderSelects = () => {
+      const equipmentOptions = state.equipments
+        .map((item) => `<option value="${item.id}">${item.name}</option>`)
+        .join("");
+      document.querySelectorAll("select[name=equipmentId]").forEach((select) => {
+        const current = select.value;
+        select.innerHTML = equipmentOptions || "<option value=\"\">Cadastre um equipamento</option>";
+        if (current) {
+          select.value = current;
+        }
+      });
+    };
+
+    const setupTabs = () => {
+      const buttons = document.querySelectorAll("nav button[data-tab]");
+      const sections = document.querySelectorAll("[data-section]");
+      buttons.forEach((button) => {
+        button.addEventListener("click", () => {
+          buttons.forEach((btn) => btn.classList.remove("active"));
+          button.classList.add("active");
+          const tab = button.dataset.tab;
+          sections.forEach((section) => {
+            section.classList.toggle("hidden", section.dataset.section !== tab);
+          });
+        });
+      });
+    };
+
+    const setupEquipmentForm = () => {
+      const form = document.getElementById("equipmentForm");
+      const reset = document.getElementById("equipmentReset");
+
+      const resetForm = () => {
+        form.reset();
+        editingEquipmentId = null;
+      };
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const formData = new FormData(form);
+        const payload = {
+          name: formData.get("name").trim(),
+          serial: formData.get("serial").trim(),
+          status: formData.get("status")
+        };
+
+        if (!payload.name || !payload.serial) return;
+
+        if (editingEquipmentId) {
+          await mutate(
+            () => updateRecord("equipments", { id: editingEquipmentId, ...payload }),
+            `Atualizou equipamento ${payload.name}`
+          );
+        } else {
+          await mutate(
+            () => addRecord("equipments", payload),
+            `Adicionou equipamento ${payload.name}`
+          );
+        }
+        resetForm();
+      });
+
+      reset.addEventListener("click", resetForm);
+
+      document.getElementById("equipmentTable").addEventListener("click", async (event) => {
+        const action = event.target.dataset.action;
+        const id = Number(event.target.dataset.id);
+        if (!action || !id) return;
+
+        const equipment = state.equipments.find((item) => item.id === id);
+        if (!equipment) return;
+
+        if (action === "edit") {
+          form.name.value = equipment.name;
+          form.serial.value = equipment.serial;
+          form.status.value = equipment.status;
+          editingEquipmentId = id;
+          return;
+        }
+
+        if (action === "delete") {
+          await mutate(
+            () => deleteRecord("equipments", id),
+            `Removeu equipamento ${equipment.name}`
+          );
+        }
+      });
+    };
+
+    const setupCautelaForm = () => {
+      const form = document.getElementById("cautelaForm");
+      const table = document.getElementById("cautelaTable");
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const formData = new FormData(form);
+        const equipmentId = Number(formData.get("equipmentId"));
+        const type = formData.get("type");
+        const responsible = formData.get("responsible").trim();
+        const datetime = formData.get("datetime");
+        const note = formData.get("note").trim();
+
+        const equipment = state.equipments.find((item) => item.id === equipmentId);
+        if (!equipment) return;
+
+        await mutate(async () => {
+          await addRecord("cautelas", {
+            equipmentId,
+            type,
+            responsible,
+            datetime,
+            note
+          });
+
+          const nextStatus = type === "saida" ? "Em cautela" : "Disponível";
+          await updateRecord("equipments", { ...equipment, status: nextStatus });
+        }, `Registrou ${type === "saida" ? "saída" : "retorno"} do equipamento ${equipment.name}`);
+
+        form.reset();
+      });
+
+      table.addEventListener("click", async (event) => {
+        const action = event.target.dataset.action;
+        const id = Number(event.target.dataset.id);
+        if (action !== "delete" || !id) return;
+
+        const record = state.cautelas.find((item) => item.id === id);
+        if (!record) return;
+
+        await mutate(
+          () => deleteRecord("cautelas", id),
+          `Removeu registro de cautela do equipamento ${record.equipmentId}`
+        );
+      });
+    };
+
+    const setupCalibrationForm = () => {
+      const form = document.getElementById("calibrationForm");
+      const table = document.getElementById("calibrationTable");
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const formData = new FormData(form);
+        const equipmentId = Number(formData.get("equipmentId"));
+        const certificate = formData.get("certificate").trim();
+        const validUntil = formData.get("validUntil");
+        const certificateUrl = formData.get("certificateUrl").trim();
+        const file = form.querySelector("input[name=certificateFile]").files[0];
+
+        let fileData = null;
+        if (file) {
+          fileData = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve({ name: file.name, data: reader.result });
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(file);
+          });
+        }
+
+        const equipment = state.equipments.find((item) => item.id === equipmentId);
+        if (!equipment) return;
+
+        await mutate(
+          () =>
+            addRecord("calibrations", {
+              equipmentId,
+              certificate,
+              validUntil,
+              certificateUrl,
+              certificateFile: fileData
+            }),
+          `Registrou calibração do equipamento ${equipment.name}`
+        );
+
+        form.reset();
+      });
+
+      table.addEventListener("click", async (event) => {
+        const action = event.target.dataset.action;
+        const id = Number(event.target.dataset.id);
+        if (action !== "delete" || !id) return;
+
+        const record = state.calibrations.find((item) => item.id === id);
+        if (!record) return;
+
+        await mutate(
+          () => deleteRecord("calibrations", id),
+          `Removeu calibração do equipamento ${record.equipmentId}`
+        );
+      });
+    };
+
+    const setupBackup = () => {
+      const exportBtn = document.getElementById("exportBackup");
+      const importInput = document.getElementById("importBackup");
+
+      exportBtn.addEventListener("click", async () => {
+        const payload = {
+          exportedAt: new Date().toISOString(),
+          equipments: state.equipments,
+          cautelas: state.cautelas,
+          calibrations: state.calibrations,
+          audits: state.audits
+        };
+
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `medlux-backup-${new Date().toISOString().slice(0, 10)}.json`;
+        link.click();
+        URL.revokeObjectURL(url);
+      });
+
+      importInput.addEventListener("change", async (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const content = await file.text();
+        const data = JSON.parse(content);
+
+        await mutate(async () => {
+          await clearStore("equipments");
+          await clearStore("cautelas");
+          await clearStore("calibrations");
+          await clearStore("audits");
+
+          for (const item of data.equipments || []) {
+            await addRecord("equipments", item);
+          }
+          for (const item of data.cautelas || []) {
+            await addRecord("cautelas", item);
+          }
+          for (const item of data.calibrations || []) {
+            await addRecord("calibrations", item);
+          }
+          for (const item of data.audits || []) {
+            await addRecord("audits", item);
+          }
+        }, "Importou backup JSON");
+
+        importInput.value = "";
+      });
+    };
+
+    const init = async () => {
+      db = await openDb();
+      await loadInitialData();
+      safeRender();
+      setupTabs();
+      setupEquipmentForm();
+      setupCautelaForm();
+      setupCalibrationForm();
+      setupBackup();
+    };
+
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("../sw.js").catch(() => undefined);
+      });
+    }
+
+    init();
+  </script>
+</body>
+</html>

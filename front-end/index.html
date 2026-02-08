@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#070a12" />
+  <link rel="manifest" href="./manifest.webmanifest" />
   <title>MEDLUX Control</title>
 
   <style>
@@ -185,6 +187,18 @@
       box-shadow: 0 0 18px rgba(0,212,255,.25);
       margin-right:8px;
     }
+
+    .offline{
+      display:none;
+      margin: 0 18px 18px;
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,91,91,.35);
+      background: rgba(255,91,91,.12);
+      color: #ffd1d1;
+      font-size: 13px;
+    }
+    .offline.show{ display:block; }
   </style>
 </head>
 
@@ -193,11 +207,13 @@
     <section class="card">
       <header>
         <div class="brand">
-          <h1><span class="dot"></span>medlux-control</h1>
-          <p>Sistema de gerenciamento de equipamentos MEDLUX (controle, calibração, cautela e rastreabilidade).</p>
+          <h1><span class="dot"></span>MEDLUX</h1>
+          <p>Sistema de gerenciamento de equipamentos MEDLUX com suporte offline e instalação como app.</p>
         </div>
-        <div class="badge">Versão inicial • Web (GitHub Pages)</div>
+        <div class="badge">PWA • Offline-first</div>
       </header>
+
+      <div class="offline" id="offlineBanner">Você está offline. O aplicativo continua disponível no modo local.</div>
 
       <div class="grid">
         <div class="panel">
@@ -206,27 +222,27 @@
             <li>Cadastro de retrorrefletômetros e responsáveis</li>
             <li>Controle de cautela (entrega / devolução / termos)</li>
             <li>Calibração: vencimentos, certificados e histórico</li>
-            <li>Dashboard com status: ATIVO • ESPERA • MANUTENÇÃO • VENDIDO</li>
-            <li>Relatórios e rastreabilidade</li>
+            <li>Dashboard com status e disponibilidade</li>
+            <li>Backups em JSON para auditoria</li>
           </ul>
         </div>
 
         <div class="actions">
-          <button class="btn" id="btnControl">
+          <a class="btn" href="./medlux-control/index.html">
             <div class="top">
-              <div class="title">MEDLUX Control</div>
+              <div class="title">Medlux Control</div>
               <div class="pill">Entrar</div>
             </div>
             <p class="desc">Gestão completa: equipamentos, cautelas, responsáveis e calibração.</p>
-          </button>
+          </a>
 
-          <button class="btn" id="btnReflective">
+          <a class="btn" href="./reflective-control/index.html">
             <div class="top">
-              <div class="title">MEDLUX Reflective Control</div>
+              <div class="title">Medlux Reflective Control</div>
               <div class="pill">Em breve</div>
             </div>
             <p class="desc">Medições, critérios, geração de PDF e histórico de retrorefletância.</p>
-          </button>
+          </a>
         </div>
       </div>
 
@@ -241,15 +257,20 @@
   </main>
 
   <script>
-    // Rotas provisórias (vamos criar essas páginas depois)
-    document.getElementById("btnControl").addEventListener("click", () => {
-      // Futuro: front-end/control/index.html
-      alert("Próximo passo: criar a tela do MEDLUX Control (cadastro, dashboard e cautelas).");
-    });
+    const offlineBanner = document.getElementById("offlineBanner");
+    const updateOnlineStatus = () => {
+      offlineBanner.classList.toggle("show", !navigator.onLine);
+    };
 
-    document.getElementById("btnReflective").addEventListener("click", () => {
-      alert("Em breve: MEDLUX Reflective Control (medições + PDF).");
-    });
+    window.addEventListener("online", updateOnlineStatus);
+    window.addEventListener("offline", updateOnlineStatus);
+    updateOnlineStatus();
+
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("./sw.js").catch(() => undefined);
+      });
+    }
   </script>
 </body>
 </html>
