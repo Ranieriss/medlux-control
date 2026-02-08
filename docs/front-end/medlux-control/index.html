@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MEDLUX Control</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <main class="wrap">
+    <section class="card">
+      <header>
+        <div class="brand">
+          <h1><span class="dot"></span>MEDLUX Control</h1>
+          <p>Módulo principal para controle de equipamentos, cautelas e pessoas.</p>
+        </div>
+        <div class="badge">Ambiente inicial • Em desenvolvimento</div>
+      </header>
+
+      <nav class="nav" aria-label="Abas do módulo">
+        <button class="tab" type="button" data-section="dashboard" aria-selected="true">Dashboard</button>
+        <button class="tab" type="button" data-section="equipamentos" aria-selected="false">Equipamentos</button>
+        <button class="tab" type="button" data-section="cautelas" aria-selected="false">Cautelas</button>
+        <button class="tab" type="button" data-section="pessoas" aria-selected="false">Pessoas</button>
+      </nav>
+
+      <div class="content">
+        <div class="panel">
+          <h2>Bem-vindo ao MEDLUX Control</h2>
+          <p>Esta é a base do módulo principal. Aqui vamos acompanhar o ciclo completo dos equipamentos MEDLUX.</p>
+          <ul class="list">
+            <li>Dashboard com status e alertas prioritários.</li>
+            <li>Cadastro e acompanhamento de equipamentos.</li>
+            <li>Fluxo de cautelas com registro de responsáveis.</li>
+            <li>Histórico organizado por pessoa e equipamento.</li>
+          </ul>
+        </div>
+
+        <div class="panel">
+          <h2 id="sectionTitle">Dashboard geral</h2>
+          <p id="sectionText">Resumo rápido do status dos equipamentos e alertas de calibração.</p>
+          <p><strong>Próximos passos:</strong> configurar dados iniciais e integrações locais.</p>
+          <a class="back" href="../index.html">Voltar para a home</a>
+        </div>
+      </div>
+
+      <footer>
+        <span>✅ Navegação local pronta</span>
+        <span>•</span>
+        <span>Rotas relativas compatíveis com GitHub Pages</span>
+      </footer>
+    </section>
+  </main>
+</body>
+</html>

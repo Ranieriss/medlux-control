@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="MEDLUX icon">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7c5cff"/>
+      <stop offset="1" stop-color="#00d4ff"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="110" fill="#0C1328"/>
+  <circle cx="176" cy="176" r="96" fill="url(#g)"/>
+  <rect x="192" y="242" width="224" height="44" rx="22" fill="#eaf0ff"/>
+  <rect x="192" y="320" width="160" height="32" rx="16" fill="#b9c6ff"/>
+</svg>
