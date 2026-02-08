@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>MEDLUX Control</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="stylesheet" href="./styles.css" />
   <script src="./app.js" defer></script>
 </head>
@@ -13,44 +14,221 @@
       <header>
         <div class="brand">
           <h1><span class="dot"></span>MEDLUX Control</h1>
-          <p>Módulo principal para controle de equipamentos, cautelas e pessoas.</p>
+          <p>Controle offline-first de equipamentos MEDLUX, calibrações e responsáveis.</p>
         </div>
-        <div class="badge">Ambiente inicial • Em desenvolvimento</div>
+        <div class="badge" id="syncStatus">Offline pronto • IndexedDB</div>
       </header>
 
       <nav class="nav" aria-label="Abas do módulo">
         <button class="tab" type="button" data-section="dashboard" aria-selected="true">Dashboard</button>
         <button class="tab" type="button" data-section="equipamentos" aria-selected="false">Equipamentos</button>
-        <button class="tab" type="button" data-section="cautelas" aria-selected="false">Cautelas</button>
-        <button class="tab" type="button" data-section="pessoas" aria-selected="false">Pessoas</button>
+        <button class="tab" type="button" data-section="auditoria" aria-selected="false">Auditoria &amp; Backup</button>
       </nav>
 
       <div class="content">
-        <div class="panel">
-          <h2>Bem-vindo ao MEDLUX Control</h2>
-          <p>Esta é a base do módulo principal. Aqui vamos acompanhar o ciclo completo dos equipamentos MEDLUX.</p>
-          <ul class="list">
-            <li>Dashboard com status e alertas prioritários.</li>
-            <li>Cadastro e acompanhamento de equipamentos.</li>
-            <li>Fluxo de cautelas com registro de responsáveis.</li>
-            <li>Histórico organizado por pessoa e equipamento.</li>
-          </ul>
-        </div>
+        <section class="panel" data-panel="dashboard">
+          <div class="panel-head">
+            <div>
+              <h2>Dashboard</h2>
+              <p>Status geral e alertas de calibração.</p>
+            </div>
+            <a class="back" href="../index.html">Voltar para a home</a>
+          </div>
 
-        <div class="panel">
-          <h2 id="sectionTitle">Dashboard geral</h2>
-          <p id="sectionText">Resumo rápido do status dos equipamentos e alertas de calibração.</p>
-          <p><strong>Próximos passos:</strong> configurar dados iniciais e integrações locais.</p>
-          <a class="back" href="../index.html">Voltar para a home</a>
-        </div>
+          <div class="status-grid" id="statusCards"></div>
+
+          <div class="panel-split">
+            <div class="subpanel">
+              <h3>Vencendo em até 30 dias</h3>
+              <p class="muted">Equipamentos com calibração próxima do vencimento.</p>
+              <ul class="list" id="upcomingList"></ul>
+            </div>
+            <div class="subpanel">
+              <h3>Busca rápida</h3>
+              <p class="muted">Pesquise por ID, modelo ou Nº de série.</p>
+              <div class="search">
+                <input type="search" id="quickSearch" placeholder="Ex: RH01, MTLX-300, 12345" />
+                <button class="btn secondary" type="button" id="clearSearch">Limpar</button>
+              </div>
+              <div class="search-results" id="quickResults"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" data-panel="equipamentos" hidden>
+          <div class="panel-head">
+            <div>
+              <h2>Equipamentos</h2>
+              <p>Cadastro completo com controle de calibração e status.</p>
+            </div>
+            <div class="toolbar">
+              <button class="btn" id="newEquipamento" type="button">Novo equipamento</button>
+              <button class="btn secondary" id="seedEquipamentos" type="button">Carregar dados de exemplo</button>
+            </div>
+          </div>
+
+          <div class="filters">
+            <div class="filter">
+              <label for="tableSearch">Busca</label>
+              <input id="tableSearch" type="search" placeholder="Pesquisar por ID, modelo, série ou responsável" />
+            </div>
+            <div class="filter">
+              <label for="statusFilter">Status</label>
+              <select id="statusFilter">
+                <option value="">Todos</option>
+                <option value="ATIVO">ATIVO</option>
+                <option value="EM CAUTELA">EM CAUTELA</option>
+                <option value="EM CALIBRAÇÃO">EM CALIBRAÇÃO</option>
+                <option value="MANUTENÇÃO">MANUTENÇÃO</option>
+                <option value="VENCIDO">VENCIDO</option>
+              </select>
+            </div>
+            <div class="filter">
+              <label for="pageSize">Mostrar</label>
+              <select id="pageSize">
+                <option value="25">25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="table-wrapper">
+            <table class="table" aria-label="Tabela de equipamentos">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Tipo</th>
+                  <th>Modelo</th>
+                  <th>Nº Série</th>
+                  <th>Status</th>
+                  <th>Últ. Calib.</th>
+                  <th>Vencimento</th>
+                  <th>Responsável</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="equipamentosBody"></tbody>
+            </table>
+          </div>
+
+          <div class="pagination">
+            <button class="btn secondary" id="prevPage" type="button">Anterior</button>
+            <span class="muted" id="pageInfo">Página 1</span>
+            <button class="btn secondary" id="nextPage" type="button">Próxima</button>
+          </div>
+        </section>
+
+        <section class="panel" data-panel="auditoria" hidden>
+          <div class="panel-head">
+            <div>
+              <h2>Auditoria &amp; Backup</h2>
+              <p>Exportação, importação e limpeza total do armazenamento local.</p>
+            </div>
+          </div>
+
+          <div class="audit-grid">
+            <div class="subpanel">
+              <h3>Exportar backup</h3>
+              <p class="muted">Gera um arquivo JSON com todos os equipamentos.</p>
+              <button class="btn" id="exportBackup" type="button">Exportar JSON</button>
+            </div>
+            <div class="subpanel">
+              <h3>Importar backup</h3>
+              <p class="muted">Substitui os dados atuais após confirmação.</p>
+              <input type="file" id="importFile" accept="application/json" />
+              <button class="btn secondary" id="importBackup" type="button">Importar JSON</button>
+            </div>
+            <div class="subpanel">
+              <h3>Resetar dados locais</h3>
+              <p class="muted">Remove todo o conteúdo do IndexedDB.</p>
+              <button class="btn danger" id="resetData" type="button">Resetar dados</button>
+            </div>
+          </div>
+        </section>
       </div>
 
       <footer>
-        <span>✅ Navegação local pronta</span>
+        <span id="statusMessage">Sem pendências.</span>
         <span>•</span>
-        <span>Rotas relativas compatíveis com GitHub Pages</span>
+        <span>Base path GitHub Pages: /medlux-control/</span>
       </footer>
     </section>
   </main>
+
+  <div class="modal" id="equipamentoModal" aria-hidden="true" role="dialog" aria-labelledby="modalTitle">
+    <div class="modal-card">
+      <header class="modal-head">
+        <div>
+          <h2 id="modalTitle">Novo equipamento</h2>
+          <p class="muted">Preencha os campos obrigatórios para salvar.</p>
+        </div>
+        <button class="icon-btn" type="button" id="closeModal" aria-label="Fechar">×</button>
+      </header>
+      <form id="equipamentoForm" class="modal-body">
+        <div class="form-grid">
+          <div class="field">
+            <label for="equipId">Identificação *</label>
+            <input id="equipId" name="id" required maxlength="20" />
+          </div>
+          <div class="field">
+            <label for="equipTipo">Tipo *</label>
+            <select id="equipTipo" name="tipo" required>
+              <option value="">Selecione</option>
+              <option value="Horizontal">Horizontal</option>
+              <option value="Vertical">Vertical</option>
+              <option value="Tachas">Tachas</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="equipSerie">Nº de série *</label>
+            <input id="equipSerie" name="numeroSerie" required />
+          </div>
+          <div class="field">
+            <label for="equipModelo">Modelo *</label>
+            <input id="equipModelo" name="modelo" required />
+          </div>
+          <div class="field">
+            <label for="equipAquisicao">Data de aquisição</label>
+            <input id="equipAquisicao" name="dataAquisicao" type="date" />
+          </div>
+          <div class="field">
+            <label for="equipStatus">Status</label>
+            <select id="equipStatus" name="status">
+              <option value="ATIVO">ATIVO</option>
+              <option value="EM CAUTELA">EM CAUTELA</option>
+              <option value="EM CALIBRAÇÃO">EM CALIBRAÇÃO</option>
+              <option value="MANUTENÇÃO">MANUTENÇÃO</option>
+              <option value="VENCIDO">VENCIDO</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="equipCalibracao">Data última calibração</label>
+            <input id="equipCalibracao" name="dataUltimaCalibracao" type="date" />
+            <button class="btn secondary" id="markCalibrated" type="button">Marcar como calibrado hoje</button>
+          </div>
+          <div class="field">
+            <label for="equipVencimento">Vencimento calibração</label>
+            <input id="equipVencimento" name="dataVencimentoCalibracao" type="date" readonly />
+          </div>
+          <div class="field">
+            <label for="equipResponsavel">Responsável atual</label>
+            <input id="equipResponsavel" name="responsavelAtual" />
+          </div>
+          <div class="field field-full">
+            <label for="equipObs">Observações</label>
+            <textarea id="equipObs" name="observacoes" rows="3"></textarea>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <span class="muted" id="formHint">Campos com * são obrigatórios.</span>
+          <div>
+            <button class="btn secondary" type="button" id="cancelModal">Cancelar</button>
+            <button class="btn" type="submit">Salvar</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
 </body>
 </html>
