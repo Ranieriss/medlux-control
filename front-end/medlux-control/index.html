@@ -37,15 +37,38 @@
 
           <div class="status-grid" id="statusCards"></div>
 
+          <div class="dashboard-filters">
+            <div>
+              <p class="muted">Filtros rápidos por tipo</p>
+              <div class="chip-group" id="quickTipoFilters">
+                <button class="chip active" type="button" data-filter-type="">Todos</button>
+                <button class="chip" type="button" data-filter-type="HORIZONTAL">Horizontal</button>
+                <button class="chip" type="button" data-filter-type="VERTICAL">Vertical</button>
+                <button class="chip" type="button" data-filter-type="TACHAS">Tachas</button>
+              </div>
+            </div>
+            <div>
+              <p class="muted">Filtros rápidos por status</p>
+              <div class="chip-group" id="quickStatusFilters">
+                <button class="chip active" type="button" data-filter-status="">Todos</button>
+                <button class="chip" type="button" data-filter-status="ATIVO">Ativo</button>
+                <button class="chip" type="button" data-filter-status="EM_CAUTELA">Em cautela</button>
+                <button class="chip" type="button" data-filter-status="EM_CALIBRACAO">Em calibração</button>
+                <button class="chip" type="button" data-filter-status="MANUTENCAO">Manutenção</button>
+                <button class="chip" type="button" data-filter-status="VENCIDO">Vencido</button>
+              </div>
+            </div>
+          </div>
+
           <div class="panel-split">
             <div class="subpanel">
-              <h3>Vencendo em até 30 dias</h3>
-              <p class="muted">Equipamentos com calibração próxima do vencimento.</p>
-              <ul class="list" id="upcomingList"></ul>
+              <h3>Atenção</h3>
+              <p class="muted">Vencidos e em cautela, ordenados pelo vencimento mais próximo.</p>
+              <ul class="list" id="attentionList"></ul>
             </div>
             <div class="subpanel">
               <h3>Busca rápida</h3>
-              <p class="muted">Pesquise por ID, modelo ou Nº de série.</p>
+              <p class="muted">Pesquise por ID, modelo, Nº de série ou responsável.</p>
               <div class="search">
                 <input type="search" id="quickSearch" placeholder="Ex: RH01, MTLX-300, 12345" />
                 <button class="btn secondary" type="button" id="clearSearch">Limpar</button>
@@ -73,6 +96,15 @@
               <input id="tableSearch" type="search" placeholder="Pesquisar por ID, modelo, série ou responsável" />
             </div>
             <div class="filter">
+              <label for="typeFilter">Tipo</label>
+              <select id="typeFilter">
+                <option value="">Todos</option>
+                <option value="HORIZONTAL">Horizontal</option>
+                <option value="VERTICAL">Vertical</option>
+                <option value="TACHAS">Tachas</option>
+              </select>
+            </div>
+            <div class="filter">
               <label for="statusFilter">Status</label>
               <select id="statusFilter">
                 <option value="">Todos</option>
@@ -97,13 +129,15 @@
             <table class="table" aria-label="Tabela de equipamentos">
               <thead>
                 <tr>
-                  <th>ID</th>
+                  <th><button class="sort-btn" type="button" data-sort="id">ID</button></th>
                   <th>Tipo</th>
                   <th>Modelo</th>
                   <th>Nº Série</th>
                   <th>Responsável</th>
-                  <th>Status</th>
+                  <th>Últ. calibração</th>
                   <th>Vencimento</th>
+                  <th><button class="sort-btn" type="button" data-sort="dias">Dias p/ vencer</button></th>
+                  <th><button class="sort-btn" type="button" data-sort="status">Status</button></th>
                   <th>Ações</th>
                 </tr>
               </thead>
@@ -133,17 +167,30 @@
               <button class="btn" id="exportBackup" type="button">Exportar JSON</button>
             </div>
             <div class="subpanel">
-              <h3>Importar backup</h3>
-              <p class="muted">Substitui os dados atuais após confirmação.</p>
+              <h3>Importar JSON</h3>
+              <p class="muted">Valida e permite mesclar ou substituir todos os dados.</p>
               <input type="file" id="importFile" accept="application/json" />
+              <div class="radio-group">
+                <label><input type="radio" name="importMode" value="merge" checked /> Mesclar</label>
+                <label><input type="radio" name="importMode" value="replace" /> Substituir tudo</label>
+              </div>
               <button class="btn secondary" id="importBackup" type="button">Importar JSON</button>
             </div>
             <div class="subpanel">
+              <h3>Importar CSV</h3>
+              <p class="muted">Aceita cabeçalhos semelhantes ao padrão da planilha.</p>
+              <input type="file" id="importCsvFile" accept="text/csv" />
+              <button class="btn secondary" id="importCsv" type="button">Importar CSV</button>
+              <a class="download-link" href="./seed.csv" download>Baixar CSV de exemplo</a>
+            </div>
+            <div class="subpanel">
               <h3>Resetar dados locais</h3>
-              <p class="muted">Remove todo o conteúdo do IndexedDB.</p>
+              <p class="muted">Remove todo o conteúdo salvo no IndexedDB.</p>
               <button class="btn danger" id="resetData" type="button">Resetar dados</button>
             </div>
           </div>
+
+          <div class="import-feedback" id="importFeedback"></div>
         </section>
       </div>
 
@@ -180,12 +227,12 @@
             </select>
           </div>
           <div class="field">
-            <label for="equipSerie">Nº de série *</label>
-            <input id="equipSerie" name="numeroSerie" required />
+            <label for="equipSerie">Nº de série</label>
+            <input id="equipSerie" name="numeroSerie" />
           </div>
           <div class="field">
-            <label for="equipModelo">Modelo *</label>
-            <input id="equipModelo" name="modelo" required />
+            <label for="equipModelo">Modelo</label>
+            <input id="equipModelo" name="modelo" />
           </div>
           <div class="field">
             <label for="equipAquisicao">Data de aquisição</label>
@@ -216,7 +263,6 @@
             <label for="equipSituacao">Situação manual</label>
             <select id="equipSituacao" name="situacaoManual">
               <option value="ATIVO">ATIVO</option>
-              <option value="EM_CAUTELA">EM CAUTELA</option>
               <option value="EM_CALIBRACAO">EM CALIBRAÇÃO</option>
               <option value="MANUTENCAO">MANUTENÇÃO</option>
             </select>
@@ -228,7 +274,8 @@
         </div>
         <div class="modal-actions">
           <span class="muted" id="formHint">Campos com * são obrigatórios.</span>
-          <div>
+          <div class="action-buttons">
+            <button class="btn danger" type="button" id="deleteEquipamento">Excluir</button>
             <button class="btn secondary" type="button" id="cancelModal">Cancelar</button>
             <button class="btn" type="submit">Salvar</button>
           </div>
