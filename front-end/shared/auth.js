@@ -1,8 +1,8 @@
 import {
   saveUser,
-  getAllUsers,
-  saveAuditoria
+  getAllUsers
 } from "./db.js";
+import { AUDIT_ACTIONS, logAudit } from "./audit.js";
 
 const SESSION_KEY = "medlux_session";
 const ITERATIONS = 100000;
@@ -88,10 +88,28 @@ const createUserWithPin = async ({ user_id, id, nome, role, ativo, status, pin }
 
 const authenticate = async (userId, pin) => {
   const usuario = await resolveUserByNormalizedId(userId);
-  if (!usuario || usuario.status !== "ATIVO") return { success: false, message: "Usuário inválido/inativo" };
+  if (!usuario || usuario.status !== "ATIVO") {
+    await logAudit({
+      action: AUDIT_ACTIONS.LOGIN_FAIL,
+      entity_type: "auth",
+      entity_id: normalizeId(userId),
+      actor_user_id: usuario?.id || null,
+      summary: "Falha no login (usuário inválido/inativo)."
+    });
+    return { success: false, message: "Usuário inválido/inativo" };
+  }
   const salt = fromBase64(usuario.salt);
   const pinHash = await hashPin(pin, salt);
-  if (pinHash !== usuario.pinHash) return { success: false, message: "PIN incorreto" };
+  if (pinHash !== usuario.pinHash) {
+    await logAudit({
+      action: AUDIT_ACTIONS.LOGIN_FAIL,
+      entity_type: "auth",
+      entity_id: usuario.id,
+      actor_user_id: usuario.id,
+      summary: "Falha no login (PIN incorreto)."
+    });
+    return { success: false, message: "PIN incorreto" };
+  }
   const session = {
     id: usuario.id,
     user_id: usuario.id,
@@ -101,12 +119,12 @@ const authenticate = async (userId, pin) => {
     loginAt: new Date().toISOString()
   };
   sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
-  await saveAuditoria({
-    auditoria_id: crypto.randomUUID(),
-    entity: "login",
-    action: "login",
-    data_hora: new Date().toISOString(),
-    payload: { user_id: usuario.id }
+  await logAudit({
+    action: AUDIT_ACTIONS.LOGIN_SUCCESS,
+    entity_type: "auth",
+    entity_id: usuario.id,
+    actor_user_id: usuario.id,
+    summary: "Login efetuado com sucesso."
   });
   return { success: true, session };
 };

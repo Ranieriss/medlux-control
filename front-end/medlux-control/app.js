@@ -17,10 +17,17 @@ import {
   deleteObra,
   exportSnapshot,
   importSnapshot,
+  buildImportPreview,
   clearAllStores,
-  saveAuditoria
+  getStoreCounts,
+  getRecentErrors,
+  DB_VERSION
 } from "./db.js";
 import { ensureDefaultAdmin, authenticate, updatePin, createUserWithPin, logout, requireAuth, getSession } from "../shared/auth.js";
+import { AUDIT_ACTIONS, buildDiff, logAudit } from "../shared/audit.js";
+import { validateUser, validateEquipamento, validateVinculo } from "../shared/validation.js";
+import { initGlobalErrorHandling, logError } from "../shared/errors.js";
+import { getAppVersion, sanitizeText } from "../shared/utils.js";
 
 // normalizarTexto precisa ficar no topo para evitar TDZ na avaliação do módulo.
 const normalizarTexto = (value) => String(value || "").trim().replace(/\s+/g, " ");
@@ -54,6 +61,7 @@ const importXlsxFile = document.getElementById("importXlsxFile");
 const previewXlsx = document.getElementById("previewXlsx");
 const importXlsx = document.getElementById("importXlsx");
 const xlsxPreview = document.getElementById("xlsxPreview");
+const importPreview = document.getElementById("importPreview");
 const resetData = document.getElementById("resetData");
 const bulkPaste = document.getElementById("bulkPaste");
 const importBulk = document.getElementById("importBulk");
@@ -112,6 +120,12 @@ const obraHint = document.getElementById("obraHint");
 const loginModal = document.getElementById("loginModal");
 const loginForm = document.getElementById("loginForm");
 const loginHint = document.getElementById("loginHint");
+
+const diagnosticoPanel = document.getElementById("diagnosticoPanel");
+const diagnosticoVersion = document.getElementById("diagnosticoVersion");
+const diagnosticoCounts = document.getElementById("diagnosticoCounts");
+const diagnosticoErrors = document.getElementById("diagnosticoErrors");
+const diagnosticoExport = document.getElementById("diagnosticoExport");
 
 const formFields = {
   id: document.getElementById("equipId"),
@@ -240,6 +254,8 @@ let activeSession = null;
 let sortState = { key: "id", direction: "asc" };
 let currentPage = 1;
 
+initGlobalErrorHandling("medlux-control");
+
 const ensureLogin = async () => {
   await ensureDefaultAdmin();
   const authorized = requireAuth({
@@ -253,13 +269,6 @@ const ensureLogin = async () => {
   if (!authorized) return null;
   activeSession = getSession();
   return activeSession;
-};
-
-const validateEquipamento = (data) => {
-  if (!data.id) return "ID obrigatório.";
-  if (!data.funcao) return "Função obrigatória.";
-  if (data.funcao === "HORIZONTAL" && !data.geometria) return "Geometria obrigatória para horizontais.";
-  return "";
 };
 
 const normalizeEquipamento = (data) => {
@@ -583,7 +592,16 @@ const refreshSelectOptions = () => {
 const handleDelete = async (id) => {
   const confirmed = window.confirm(`Excluir equipamento ${id}?`);
   if (!confirmed) return;
+  const existing = equipamentos.find((item) => item.id === id);
   await deleteEquipamento(id);
+  await logAudit({
+    action: AUDIT_ACTIONS.ENTITY_DELETED,
+    entity_type: "equipamentos",
+    entity_id: id,
+    actor_user_id: activeSession?.user_id || null,
+    summary: `Equipamento ${id} removido.`,
+    diff: buildDiff(existing, null, ["id", "statusLocal", "funcao", "modelo", "numeroSerie"])
+  });
   await loadData();
   renderAll();
   setStatusMessage(`Equipamento ${id} removido.`);
@@ -634,9 +652,9 @@ const handleFormSubmit = async (event) => {
   const data = Object.fromEntries(new FormData(form).entries());
   const resolvedId = data.id || editingId || "";
   const normalized = normalizeEquipamento({ ...data, id: resolvedId });
-  const error = validateEquipamento(normalized);
-  if (error) {
-    formHint.textContent = error;
+  const validation = validateEquipamento(normalized);
+  if (!validation.ok) {
+    formHint.textContent = validation.errors.map((item) => item.message).join(" ");
     return;
   }
   if (!editingId && equipamentos.some((item) => item.id === normalized.id)) {
@@ -655,12 +673,13 @@ const handleFormSubmit = async (event) => {
     created_at: existing?.created_at || now,
     updated_at: now
   });
-  await saveAuditoria({
-    auditoria_id: crypto.randomUUID(),
-    entity: "equipamentos",
-    action: editingId ? "update" : "create",
-    data_hora: new Date().toISOString(),
-    payload: { id: normalized.id, user_id: activeSession?.user_id }
+  await logAudit({
+    action: editingId ? AUDIT_ACTIONS.ENTITY_UPDATED : AUDIT_ACTIONS.ENTITY_CREATED,
+    entity_type: "equipamentos",
+    entity_id: normalized.id,
+    actor_user_id: activeSession?.user_id || null,
+    summary: editingId ? `Equipamento ${normalized.id} atualizado.` : `Equipamento ${normalized.id} criado.`,
+    diff: buildDiff(existing, normalized, ["id", "statusLocal", "funcao", "modelo", "numeroSerie"])
   });
   await loadData();
   renderAll();
@@ -673,8 +692,9 @@ const handleUsuarioSubmit = async (event) => {
   const data = Object.fromEntries(new FormData(usuarioForm).entries());
   const userId = normalizeUserId(data.user_id);
   const userIdComparable = normalizeUserIdComparable(userId);
-  if (!userId || !data.nome || !data.role) {
-    usuarioHint.textContent = "ID, nome e perfil são obrigatórios.";
+  const validation = validateUser({ ...data, id: userId, user_id: userId });
+  if (!validation.ok) {
+    usuarioHint.textContent = validation.errors.map((item) => item.message).join(" ");
     return;
   }
   if (!editingUserId && usuarios.some((item) => normalizeUserIdComparable(item.user_id || item.id) === userIdComparable)) {
@@ -707,6 +727,14 @@ const handleUsuarioSubmit = async (event) => {
   } else {
     await saveUsuario(updated);
   }
+  await logAudit({
+    action: existing ? AUDIT_ACTIONS.ENTITY_UPDATED : AUDIT_ACTIONS.ENTITY_CREATED,
+    entity_type: "users",
+    entity_id: userId,
+    actor_user_id: activeSession?.user_id || null,
+    summary: existing ? `Usuário ${userId} atualizado.` : `Usuário ${userId} criado.`,
+    diff: buildDiff(existing, updated, ["id", "role", "status", "nome"])
+  });
   await loadData();
   renderAll();
   closeModalElement(usuarioModal);
@@ -748,7 +776,16 @@ const handleResetPin = async (userId) => {
 const handleDeleteUsuario = async (userId) => {
   const confirmed = window.confirm(`Excluir usuário ${userId}?`);
   if (!confirmed) return;
+  const existing = usuarios.find((item) => normalizeUserIdComparable(item.user_id || item.id) === normalizeUserIdComparable(userId));
   await deleteUsuario(userId);
+  await logAudit({
+    action: AUDIT_ACTIONS.ENTITY_DELETED,
+    entity_type: "users",
+    entity_id: userId,
+    actor_user_id: activeSession?.user_id || null,
+    summary: `Usuário ${userId} removido.`,
+    diff: buildDiff(existing, null, ["id", "role", "status", "nome"])
+  });
   await loadData();
   renderAll();
   setStatusMessage(`Usuário ${userId} removido.`);
@@ -764,8 +801,15 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
 const handleVinculoSubmit = async (event) => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(vinculoForm).entries());
-  if (!data.equip_id || !data.user_id || !data.data_inicio) {
-    vinculoHint.textContent = "Selecione equipamento, usuário e data.";
+  const validation = validateVinculo({
+    equipamento_id: data.equip_id,
+    equip_id: data.equip_id,
+    user_id: data.user_id,
+    inicio: data.data_inicio,
+    data_inicio: data.data_inicio
+  });
+  if (!validation.ok) {
+    vinculoHint.textContent = validation.errors.map((item) => item.message).join(" ");
     return;
   }
   const termoFile = vinculoTermo.files[0];
@@ -790,6 +834,14 @@ const handleVinculoSubmit = async (event) => {
     updated_at: now
   };
   await saveVinculo(vinculo);
+  await logAudit({
+    action: AUDIT_ACTIONS.ENTITY_CREATED,
+    entity_type: "vinculos",
+    entity_id: vinculoId,
+    actor_user_id: activeSession?.user_id || null,
+    summary: `Vínculo criado para equipamento ${data.equip_id}.`,
+    diff: buildDiff(null, vinculo, ["id", "equipamento_id", "user_id", "status", "inicio"])
+  });
   const equipamento = equipamentos.find((item) => item.id === data.equip_id);
   if (equipamento) {
     await saveEquipamento({
@@ -810,6 +862,7 @@ const handleVinculoSubmit = async (event) => {
 const handleEncerrarVinculo = async (vinculoId) => {
   const confirmed = window.confirm("Encerrar vínculo? O equipamento volta para Stand-by.");
   if (!confirmed) return;
+  const existing = vinculos.find((item) => item.id === vinculoId || item.vinculo_id === vinculoId);
   const encerrado = await encerrarVinculo(vinculoId, new Date().toISOString());
   if (encerrado) {
     const equipamentoId = encerrado.equipamento_id || encerrado.equip_id;
@@ -828,6 +881,14 @@ const handleEncerrarVinculo = async (vinculoId) => {
   await loadData();
   renderAll();
   setStatusMessage("Vínculo encerrado.");
+  await logAudit({
+    action: AUDIT_ACTIONS.ENTITY_UPDATED,
+    entity_type: "vinculos",
+    entity_id: vinculoId,
+    actor_user_id: activeSession?.user_id || null,
+    summary: `Vínculo ${vinculoId} encerrado.`,
+    diff: buildDiff(existing, encerrado, ["id", "equipamento_id", "user_id", "status", "fim"])
+  });
 };
 
 const openVinculoModal = () => {
@@ -879,10 +940,19 @@ const handleObraSubmit = async (event) => {
     return;
   }
   const now = new Date().toISOString();
+  const existing = obras.find((item) => item.id === normalized.id);
   await saveObra({
     ...normalized,
-    created_at: obras.find((item) => item.id === normalized.id)?.created_at || now,
+    created_at: existing?.created_at || now,
     updated_at: now
+  });
+  await logAudit({
+    action: existing ? AUDIT_ACTIONS.ENTITY_UPDATED : AUDIT_ACTIONS.ENTITY_CREATED,
+    entity_type: "obras",
+    entity_id: normalized.id,
+    actor_user_id: activeSession?.user_id || null,
+    summary: existing ? `Obra ${normalized.id} atualizada.` : `Obra ${normalized.id} criada.`,
+    diff: buildDiff(existing, normalized, ["id", "nomeObra", "cidadeUF"])
   });
   await loadData();
   renderAll();
@@ -893,7 +963,16 @@ const handleObraSubmit = async (event) => {
 const handleDeleteObra = async (obraId) => {
   const confirmed = window.confirm(`Excluir obra ${obraId}?`);
   if (!confirmed) return;
+  const existing = obras.find((item) => item.id === obraId || item.idObra === obraId);
   await deleteObra(obraId);
+  await logAudit({
+    action: AUDIT_ACTIONS.ENTITY_DELETED,
+    entity_type: "obras",
+    entity_id: obraId,
+    actor_user_id: activeSession?.user_id || null,
+    summary: `Obra ${obraId} removida.`,
+    diff: buildDiff(existing, null, ["id", "nomeObra", "cidadeUF"])
+  });
   await loadData();
   renderAll();
   setStatusMessage("Obra removida.");
@@ -991,12 +1070,32 @@ const handleSeed = async () => {
 };
 
 const handleExportBackup = async () => {
-  const payload = await exportSnapshot();
+  const payload = await exportSnapshot({ appVersion: getAppVersion() });
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
   link.download = `medlux-backup-${new Date().toISOString().slice(0, 10)}.json`;
   link.click();
+  await logAudit({
+    action: AUDIT_ACTIONS.EXPORT_JSON,
+    entity_type: "backup",
+    entity_id: "export",
+    actor_user_id: activeSession?.user_id || null,
+    summary: "Exportação JSON concluída."
+  });
+};
+
+const renderImportPreview = (preview) => {
+  if (!importPreview) return;
+  const parts = [
+    `Equipamentos: ${preview.equipamentos.created} novos / ${preview.equipamentos.updated} atualizados`,
+    `Usuários: ${preview.users.created} novos / ${preview.users.updated} atualizados`,
+    `Vínculos: ${preview.vinculos.created} novos / ${preview.vinculos.updated} atualizados`,
+    `Medições: ${preview.medicoes.created} novos / ${preview.medicoes.updated} atualizados`,
+    `Obras: ${preview.obras.created} novas / ${preview.obras.updated} atualizadas`,
+    `Auditoria: ${preview.audit_log.created} novos / ${preview.audit_log.updated} atualizados`
+  ];
+  importPreview.textContent = `Prévia: ${parts.join(" • ")}`;
 };
 
 const handleImportBackup = async () => {
@@ -1013,11 +1112,32 @@ const handleImportBackup = async () => {
     setStatusMessage("JSON inválido.");
     return;
   }
+  try {
+    const preview = await buildImportPreview(payload);
+    renderImportPreview(preview);
+  } catch (error) {
+    setStatusMessage("Falha ao gerar prévia do import.");
+    await logError({ module: "medlux-control", action: "IMPORT_PREVIEW", message: error.message, stack: error.stack });
+    return;
+  }
   const mode = document.querySelector("input[name='importMode']:checked")?.value || "merge";
   if (mode === "replace") {
     await clearAllStores();
   }
-  await importSnapshot(payload);
+  try {
+    await importSnapshot(payload);
+  } catch (error) {
+    setStatusMessage("Falha ao importar (schema incompatível).");
+    await logError({ module: "medlux-control", action: "IMPORT_JSON", message: error.message, stack: error.stack });
+    return;
+  }
+  await logAudit({
+    action: AUDIT_ACTIONS.IMPORT_JSON,
+    entity_type: "backup",
+    entity_id: "import",
+    actor_user_id: activeSession?.user_id || null,
+    summary: `Importação JSON (${mode === "replace" ? "substituir" : "mesclar"}).`
+  });
   await loadData();
   renderAll();
   setStatusMessage("Importação concluída.");
@@ -1028,6 +1148,16 @@ const mapHeaders = (headers) => headers.map((header) => normalizeText(header)
   .replace(/[\u0300-\u036f]/g, "")
   .toLowerCase()
   .replace(/[^a-z0-9]/g, ""));
+
+const REQUIRED_EQUIP_HEADERS = ["id", "funcao", "modelo"];
+
+const validateImportHeaders = (headers = []) => {
+  const missing = REQUIRED_EQUIP_HEADERS.filter((field) => !headers.includes(field));
+  if (missing.length) {
+    return `Cabeçalhos ausentes: ${missing.join(", ")}.`;
+  }
+  return "";
+};
 
 const buildEquipamentoFromRow = (row, rowIndex) => {
   const errors = [];
@@ -1052,8 +1182,8 @@ const buildEquipamentoFromRow = (row, rowIndex) => {
     statusLocal: row.status,
     observacoes: row.observacoes
   });
-  const baseError = validateEquipamento(equipamento);
-  if (baseError) errors.push(baseError);
+  const validation = validateEquipamento(equipamento);
+  if (!validation.ok) errors.push(...validation.errors.map((item) => item.message));
   return { equipamento, errors, rowIndex };
 };
 
@@ -1063,7 +1193,7 @@ const summarizeImportErrors = (invalidRows) => invalidRows
   .join(" | ");
 
 const parseXlsx = async () => {
-  if (!importXlsxFile.files.length) return [];
+  if (!importXlsxFile.files.length) return { rows: [], headerError: "" };
   const file = importXlsxFile.files[0];
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: "array" });
@@ -1071,11 +1201,13 @@ const parseXlsx = async () => {
   const worksheet = workbook.Sheets[firstSheet];
   const raw = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
   const [headerRow, ...rows] = raw;
-  if (!headerRow) return [];
+  if (!headerRow) return { rows: [], headerError: "Planilha sem cabeçalho." };
   const headers = mapHeaders(headerRow);
-  return rows
+  const headerError = validateImportHeaders(headers);
+  const mapped = rows
     .filter((row) => row.some((cell) => String(cell || "").trim()))
     .map((row) => Object.fromEntries(headers.map((header, index) => [header, row[index]])));
+  return { rows: mapped, headerError };
 };
 
 const buildPreview = (items) => {
@@ -1110,7 +1242,11 @@ const buildPreview = (items) => {
 };
 
 const handlePreviewXlsx = async () => {
-  const rows = await parseXlsx();
+  const { rows, headerError } = await parseXlsx();
+  if (headerError) {
+    setStatusMessage(headerError);
+    return;
+  }
   const mapped = rows.map((row, index) => buildEquipamentoFromRow(row, index + 2));
   const invalid = mapped.filter((item) => item.errors.length);
   if (invalid.length) {
@@ -1121,7 +1257,11 @@ const handlePreviewXlsx = async () => {
 };
 
 const handleImportXlsx = async () => {
-  const rows = await parseXlsx();
+  const { rows, headerError } = await parseXlsx();
+  if (headerError) {
+    setStatusMessage(headerError);
+    return;
+  }
   if (!rows.length) {
     setStatusMessage("Nenhum dado encontrado no Excel.");
     return;
@@ -1139,6 +1279,13 @@ const handleImportXlsx = async () => {
     await clearEquipamentos();
   }
   await bulkSaveEquipamentos(normalized);
+  await logAudit({
+    action: AUDIT_ACTIONS.IMPORT_XLSX,
+    entity_type: "equipamentos",
+    entity_id: "xlsx",
+    actor_user_id: activeSession?.user_id || null,
+    summary: `Importação XLSX (${mode === "replace" ? "substituir" : "mesclar"}).`
+  });
   await loadData();
   renderAll();
   setStatusMessage("Importação Excel concluída.");
@@ -1206,6 +1353,15 @@ const handleImportBulk = async () => {
   }
   const delimiter = text.includes("\t") ? "\t" : ",";
   const rows = parseDelimited(text, delimiter);
+  if (!rows.length) {
+    setStatusMessage("Nenhum dado encontrado na importação em lote.");
+    return;
+  }
+  const headerError = validateImportHeaders(Object.keys(rows[0] || {}));
+  if (headerError) {
+    setStatusMessage(headerError);
+    return;
+  }
   const mapped = rows.map((row, index) => buildEquipamentoFromRow(row, index + 2));
   const invalid = mapped.filter((item) => item.errors.length);
   if (invalid.length) {
@@ -1214,6 +1370,13 @@ const handleImportBulk = async () => {
     return;
   }
   await bulkSaveEquipamentos(mapped.map((item) => item.equipamento));
+  await logAudit({
+    action: AUDIT_ACTIONS.IMPORT_CSV,
+    entity_type: "equipamentos",
+    entity_id: "bulk",
+    actor_user_id: activeSession?.user_id || null,
+    summary: "Importação em lote concluída."
+  });
   await loadData();
   renderAll();
   setStatusMessage("Importação em lote concluída.");
@@ -1231,6 +1394,11 @@ const handleImportCsv = async () => {
     return;
   }
   const headers = mapHeaders(csvRows[0]);
+  const headerError = validateImportHeaders(headers);
+  if (headerError) {
+    setStatusMessage(headerError);
+    return;
+  }
   const rows = csvRows.slice(1).map((row) => Object.fromEntries(headers.map((header, index) => [header, row[index]])));
   const mapped = rows.map((row, index) => buildEquipamentoFromRow(row, index + 2));
   const invalid = mapped.filter((item) => item.errors.length);
@@ -1240,12 +1408,19 @@ const handleImportCsv = async () => {
     return;
   }
   await bulkSaveEquipamentos(mapped.map((item) => item.equipamento));
+  await logAudit({
+    action: AUDIT_ACTIONS.IMPORT_CSV,
+    entity_type: "equipamentos",
+    entity_id: "csv",
+    actor_user_id: activeSession?.user_id || null,
+    summary: "Importação CSV concluída."
+  });
   await loadData();
   renderAll();
   setStatusMessage("CSV importado.");
 };
 
-const handleExportCsv = () => {
+const handleExportCsv = async () => {
   const headers = [
     "id",
     "modelo",
@@ -1270,12 +1445,26 @@ const handleExportCsv = () => {
   link.href = URL.createObjectURL(blob);
   link.download = `medlux-equipamentos-${new Date().toISOString().slice(0, 10)}.csv`;
   link.click();
+  await logAudit({
+    action: AUDIT_ACTIONS.EXPORT_CSV,
+    entity_type: "equipamentos",
+    entity_id: "csv",
+    actor_user_id: activeSession?.user_id || null,
+    summary: "Exportação CSV concluída."
+  });
 };
 
 const handleReset = async () => {
   const confirmed = window.confirm("Deseja remover todos os dados locais?");
   if (!confirmed) return;
   await clearAllStores();
+  await logAudit({
+    action: AUDIT_ACTIONS.ENTITY_DELETED,
+    entity_type: "system",
+    entity_id: "reset",
+    actor_user_id: activeSession?.user_id || null,
+    summary: "Reset do IndexedDB executado."
+  });
   await loadData();
   renderAll();
   setStatusMessage("Dados locais removidos.");
@@ -1327,29 +1516,35 @@ const blobToDataUrl = (blob) => new Promise((resolve, reject) => {
   reader.readAsDataURL(blob);
 });
 
+const toSafeText = (value) => sanitizeText(value ?? "-");
+
 const buildGlobalPdf = async () => {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
   const now = new Date();
   const title = "Relatório Global MEDLUX";
   doc.setFontSize(16);
-  doc.text(title, 40, 40);
+  doc.text(toSafeText(title), 40, 40);
   doc.setFontSize(10);
-  doc.text(`Gerado em: ${now.toLocaleString("pt-BR")}`, 40, 58);
-  doc.text(`Auditor: ${activeSession?.nome || "-"} (${activeSession?.id || activeSession?.user_id || "-"})`, 40, 72);
+  doc.text(toSafeText(`Gerado em: ${now.toLocaleString("pt-BR")}`), 40, 58);
+  doc.text(
+    toSafeText(`Auditor: ${activeSession?.nome || "-"} (${activeSession?.id || activeSession?.user_id || "-"})`),
+    40,
+    72
+  );
 
   const equipamentoRows = equipamentos.map((equipamento) => [
-    equipamento.id,
-    formatFuncao(equipamento.funcao),
-    equipamento.geometria || "-",
-    equipamento.modelo || "-",
-    equipamento.numeroSerie || "-",
-    equipamento.fabricante || "-",
-    equipamento.usuarioAtual || equipamento.usuarioResponsavel || "-",
-    getEquipamentoLocalidade(equipamento) || "-",
-    formatStatus(getEquipamentoStatus(equipamento)),
-    equipamento.calibrado || "-",
-    equipamento.numeroCertificado || equipamento.certificado || "-"
+    toSafeText(equipamento.id),
+    toSafeText(formatFuncao(equipamento.funcao)),
+    toSafeText(equipamento.geometria || "-"),
+    toSafeText(equipamento.modelo || "-"),
+    toSafeText(equipamento.numeroSerie || "-"),
+    toSafeText(equipamento.fabricante || "-"),
+    toSafeText(equipamento.usuarioAtual || equipamento.usuarioResponsavel || "-"),
+    toSafeText(getEquipamentoLocalidade(equipamento) || "-"),
+    toSafeText(formatStatus(getEquipamentoStatus(equipamento))),
+    toSafeText(equipamento.calibrado || "-"),
+    toSafeText(equipamento.numeroCertificado || equipamento.certificado || "-")
   ]);
 
   doc.autoTable({
@@ -1361,13 +1556,13 @@ const buildGlobalPdf = async () => {
 
   let cursorY = doc.lastAutoTable.finalY + 20;
   doc.setFontSize(12);
-  doc.text("Histórico de vínculos", 40, cursorY);
+  doc.text(toSafeText("Histórico de vínculos"), 40, cursorY);
   const vinculoRows = vinculos.map((vinculo) => [
-    vinculo.equipamento_id || vinculo.equip_id,
-    vinculo.user_id,
-    formatDate(vinculo.inicio || vinculo.data_inicio),
-    vinculo.fim || vinculo.data_fim ? formatDate(vinculo.fim || vinculo.data_fim) : "Ativo",
-    vinculo.termo_pdf || vinculo.termo_cautela_pdf ? "Sim" : "Não"
+    toSafeText(vinculo.equipamento_id || vinculo.equip_id),
+    toSafeText(vinculo.user_id),
+    toSafeText(formatDate(vinculo.inicio || vinculo.data_inicio)),
+    toSafeText(vinculo.fim || vinculo.data_fim ? formatDate(vinculo.fim || vinculo.data_fim) : "Ativo"),
+    toSafeText(vinculo.termo_pdf || vinculo.termo_cautela_pdf ? "Sim" : "Não")
   ]);
   doc.autoTable({
     head: [["Equipamento", "Usuário", "Início", "Fim", "Termo"]],
@@ -1378,23 +1573,23 @@ const buildGlobalPdf = async () => {
 
   cursorY = doc.lastAutoTable.finalY + 20;
   doc.setFontSize(12);
-  doc.text("Histórico de medições", 40, cursorY);
+  doc.text(toSafeText("Histórico de medições"), 40, cursorY);
   const medicaoRows = medicoes.map((medicao) => {
     const leituras = medicao.leituras || [];
     const quantidade = leituras.length || (medicao.valor ? 1 : 0);
     const anexos = (medicao.fotos || []).length ? "Anexo" : "-";
     return [
-      medicao.id || medicao.medicao_id || "-",
-      medicao.dataHora || medicao.data_hora || "-",
-      medicao.user_id || "-",
-      medicao.equipamento_id || medicao.equip_id,
-      medicao.obra_id || "-",
-      medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao,
-      formatMedia(medicao),
+      toSafeText(medicao.id || medicao.medicao_id || "-"),
+      toSafeText(medicao.dataHora || medicao.data_hora || "-"),
+      toSafeText(medicao.user_id || "-"),
+      toSafeText(medicao.equipamento_id || medicao.equip_id),
+      toSafeText(medicao.obra_id || "-"),
+      toSafeText(medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao),
+      toSafeText(formatMedia(medicao)),
       quantidade,
-      formatLocal(medicao),
-      formatGps(medicao.gps),
-      anexos
+      toSafeText(formatLocal(medicao)),
+      toSafeText(formatGps(medicao.gps)),
+      toSafeText(anexos)
     ];
   });
   doc.autoTable({
@@ -1435,6 +1630,13 @@ const buildGlobalPdf = async () => {
   }
 
   doc.save(`auditoria-global-medlux-${now.toISOString().slice(0, 10)}.pdf`);
+  await logAudit({
+    action: AUDIT_ACTIONS.PDF_GENERATED,
+    entity_type: "relatorios",
+    entity_id: "global",
+    actor_user_id: activeSession?.user_id || null,
+    summary: "PDF global gerado."
+  });
 };
 
 const buildObraPdf = async () => {
@@ -1472,27 +1674,31 @@ const buildObraPdf = async () => {
   const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
   const now = new Date();
   doc.setFontSize(18);
-  doc.text("Relatório por Obra MEDLUX", 40, 40);
+  doc.text(toSafeText("Relatório por Obra MEDLUX"), 40, 40);
   doc.setFontSize(11);
-  doc.text(`Identificador: ${identificador}`, 40, 64);
-  doc.text(`Obra: ${obraValue || "-"}`, 40, 80);
-  doc.text(`Gerado em: ${now.toLocaleString("pt-BR")}`, 40, 96);
-  doc.text(`Período: ${periodo}`, 40, 112);
-  doc.text(`Responsável técnico: ${responsavelTecnico.value || obra?.responsavelTecnico || activeSession?.nome || "-"}`, 40, 128);
+  doc.text(toSafeText(`Identificador: ${identificador}`), 40, 64);
+  doc.text(toSafeText(`Obra: ${obraValue || "-"}`), 40, 80);
+  doc.text(toSafeText(`Gerado em: ${now.toLocaleString("pt-BR")}`), 40, 96);
+  doc.text(toSafeText(`Período: ${periodo}`), 40, 112);
+  doc.text(
+    toSafeText(`Responsável técnico: ${responsavelTecnico.value || obra?.responsavelTecnico || activeSession?.nome || "-"}`),
+    40,
+    128
+  );
 
   let currentY = 148;
   if (obra) {
     doc.setFontSize(10);
-    doc.text(`Nome: ${obra.nomeObra || "-"}`, 40, currentY);
-    doc.text(`Rodovia: ${obra.rodovia || "-"} • KM ${obra.kmInicio || "-"} → ${obra.kmFim || "-"}`, 40, currentY + 14);
-    doc.text(`Cidade/UF: ${obra.cidadeUF || "-"} • Cliente: ${obra.concessionariaCliente || "-"}`, 40, currentY + 28);
+    doc.text(toSafeText(`Nome: ${obra.nomeObra || "-"}`), 40, currentY);
+    doc.text(toSafeText(`Rodovia: ${obra.rodovia || "-"} • KM ${obra.kmInicio || "-"} → ${obra.kmFim || "-"}`), 40, currentY + 14);
+    doc.text(toSafeText(`Cidade/UF: ${obra.cidadeUF || "-"} • Cliente: ${obra.concessionariaCliente || "-"}`), 40, currentY + 28);
     currentY += 44;
   }
 
   if (obraResumo.value) {
     doc.setFontSize(10);
-    doc.text("Resumo:", 40, currentY);
-    const resumoLines = doc.splitTextToSize(obraResumo.value, 520);
+    doc.text(toSafeText("Resumo:"), 40, currentY);
+    const resumoLines = doc.splitTextToSize(toSafeText(obraResumo.value), 520);
     doc.text(resumoLines, 40, currentY + 14);
     currentY += 14 + resumoLines.length * 12;
   }
@@ -1503,24 +1709,24 @@ const buildObraPdf = async () => {
     doc.setFontSize(10);
     const linkY = currentY + 14;
     if (doc.textWithLink) {
-      doc.textWithLink("Abrir mapa da obra (Google Maps)", 40, linkY, { url: link });
+      doc.textWithLink(toSafeText("Abrir mapa da obra (Google Maps)"), 40, linkY, { url: link });
     } else {
-      doc.text(`Mapa: ${link}`, 40, linkY);
+      doc.text(toSafeText(`Mapa: ${link}`), 40, linkY);
     }
     currentY = linkY + 16;
   }
 
   const resumoStart = currentY + 10;
   doc.setFontSize(12);
-  doc.text("Resumo das medições", 40, resumoStart);
+  doc.text(toSafeText("Resumo das medições"), 40, resumoStart);
   const resumoRows = filtradas.map((medicao) => [
-    medicao.id || medicao.medicao_id,
-    medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao,
-    `${medicao.linha || "-"} • Est. ${medicao.estacao || "-"}`,
-    formatMedia(medicao),
+    toSafeText(medicao.id || medicao.medicao_id),
+    toSafeText(medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao),
+    toSafeText(`${medicao.linha || "-"} • Est. ${medicao.estacao || "-"}`),
+    toSafeText(formatMedia(medicao)),
     (medicao.leituras || []).length || 1,
-    formatLocal(medicao),
-    medicao.dataHora || medicao.data_hora
+    toSafeText(formatLocal(medicao)),
+    toSafeText(medicao.dataHora || medicao.data_hora)
   ]);
   doc.autoTable({
     head: [["ID", "Subtipo", "Linha/Estação", "Média", "N Leituras", "Local", "Data/Hora"]],
@@ -1547,7 +1753,7 @@ const buildObraPdf = async () => {
   ]);
   if (resumoStats.length) {
     doc.setFontSize(12);
-    doc.text("Resumo estatístico por subtipo", 40, cursorY);
+    doc.text(toSafeText("Resumo estatístico por subtipo"), 40, cursorY);
     doc.autoTable({
       head: [["Subtipo", "Qtd.", "Média geral"]],
       body: resumoStats,
@@ -1575,7 +1781,7 @@ const buildObraPdf = async () => {
       data.count ? (data.sum / data.count).toFixed(2) : "-"
     ]);
     doc.setFontSize(12);
-    doc.text("Legendas por letra", 40, cursorY);
+    doc.text(toSafeText("Legendas por letra"), 40, cursorY);
     doc.autoTable({
       head: [["Letra", "Qtd.", "Média"]],
       body: rows,
@@ -1586,7 +1792,7 @@ const buildObraPdf = async () => {
   }
 
   doc.setFontSize(12);
-  doc.text("Fotos da obra", 40, cursorY);
+  doc.text(toSafeText("Fotos da obra"), 40, cursorY);
   cursorY += 10;
   const fotos = filtradas.flatMap((medicao) => medicao.fotos || []);
   const limitFotos = fotos.slice(0, 12);
@@ -1614,6 +1820,13 @@ const buildObraPdf = async () => {
   }
 
   doc.save(`obra-${obraValue || relatorioValue}-${now.toISOString().slice(0, 10)}.pdf`);
+  await logAudit({
+    action: AUDIT_ACTIONS.PDF_GENERATED,
+    entity_type: "relatorios",
+    entity_id: obraValue || relatorioValue || "obra",
+    actor_user_id: activeSession?.user_id || null,
+    summary: "PDF por obra gerado."
+  });
 };
 
 const renderAll = () => {
@@ -1624,6 +1837,41 @@ const renderAll = () => {
   renderVinculos();
   renderObras();
   refreshSelectOptions();
+  void renderDiagnostico();
+};
+
+const renderDiagnostico = async () => {
+  if (!diagnosticoPanel) return;
+  if (activeSession?.role !== "ADMIN") {
+    diagnosticoPanel.hidden = true;
+    return;
+  }
+  diagnosticoPanel.hidden = false;
+  diagnosticoVersion.textContent = `App ${getAppVersion()} • DB ${DB_VERSION}`;
+  try {
+    const counts = await getStoreCounts();
+    diagnosticoCounts.textContent = "";
+    Object.entries(counts).forEach(([store, total]) => {
+      const row = document.createElement("li");
+      row.textContent = `${store}: ${total}`;
+      diagnosticoCounts.appendChild(row);
+    });
+    const errors = await getRecentErrors(30);
+    diagnosticoErrors.textContent = "";
+    if (!errors.length) {
+      const empty = document.createElement("li");
+      empty.textContent = "Sem erros recentes.";
+      diagnosticoErrors.appendChild(empty);
+      return;
+    }
+    errors.forEach((item) => {
+      const row = document.createElement("li");
+      row.textContent = `[${new Date(item.created_at).toLocaleString("pt-BR")}] ${item.module}: ${item.message}`;
+      diagnosticoErrors.appendChild(row);
+    });
+  } catch (error) {
+    diagnosticoCounts.textContent = "Falha ao carregar diagnóstico.";
+  }
 };
 
 const handleLogin = async (event) => {
@@ -1731,6 +1979,17 @@ logoutButton.addEventListener("click", () => {
 seedButton.addEventListener("click", handleSeed);
 exportBackup.addEventListener("click", handleExportBackup);
 importBackup.addEventListener("click", handleImportBackup);
+importFile.addEventListener("change", async () => {
+  if (!importFile.files.length) return;
+  try {
+    const text = await importFile.files[0].text();
+    const payload = JSON.parse(text);
+    const preview = await buildImportPreview(payload);
+    renderImportPreview(preview);
+  } catch (error) {
+    setStatusMessage("Falha ao ler o JSON para prévia.");
+  }
+});
 previewXlsx.addEventListener("click", handlePreviewXlsx);
 importXlsx.addEventListener("click", handleImportXlsx);
 importCsv.addEventListener("click", handleImportCsv);
@@ -1740,6 +1999,22 @@ resetData.addEventListener("click", handleReset);
 
 generateGlobalPdf.addEventListener("click", buildGlobalPdf);
 generateObraPdf.addEventListener("click", buildObraPdf);
+if (diagnosticoExport) {
+  diagnosticoExport.addEventListener("click", async () => {
+    const payload = {
+      created_at: new Date().toISOString(),
+      app_version: getAppVersion(),
+      db_version: DB_VERSION,
+      counts: await getStoreCounts(),
+      errors: await getRecentErrors(30)
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `diagnostico-medlux-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+  });
+}
 
 quickSearch.addEventListener("input", renderQuickSearch);
 clearSearch.addEventListener("click", () => {

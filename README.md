@@ -79,14 +79,15 @@ Sistema offline-first para gestão de equipamentos MEDLUX, usuários, vínculos 
 2. Use a opção **Instalar aplicativo** do navegador (menu ou ícone na barra de endereços).
 3. O app ficará disponível offline com os assets essenciais em cache.
 
-## Checklist de testes
+## Checklist de testes (10 minutos)
 
-- [ ] Criar usuário **USER** e PIN.
-- [ ] Cadastrar equipamento horizontal (15m), outro (30m) e um vertical (sem geometria).
-- [ ] Criar vínculo ativo do operador com um equipamento.
-- [ ] Cadastrar uma **Obra**.
-- [ ] Logar como USER no Reflective e salvar medição horizontal com 10 leituras (média com descarte).
-- [ ] Capturar GPS e anexar fotos (visor + local).
-- [ ] Gerar **Relatório Individual** no Reflective.
-- [ ] Logar como ADMIN no Control e gerar **Relatório Global** e **Relatório por Obra**.
-- [ ] Exportar CSV e reimportar (round-trip).
+- [ ] Login ADMIN no **MEDLUX Control**.
+- [ ] Criar usuário (USER/OPERADOR) com PIN.
+- [ ] Cadastrar equipamento (com função e status).
+- [ ] Criar vínculo ativo entre usuário e equipamento.
+- [ ] Registrar medição simples no **Reflective** (com leituras válidas).
+- [ ] Gerar PDF (global ou por obra).
+- [ ] Exportar JSON e importar em **Mesclar** (validar prévia).
+- [ ] Exportar JSON e importar em **Substituir tudo**.
+- [ ] Verificar auditoria sem duplicatas após operações.
+- [ ] Abrir “Diagnóstico” (ADMIN) e exportar JSON de diagnóstico.
