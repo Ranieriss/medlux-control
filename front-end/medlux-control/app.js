@@ -7,15 +7,20 @@ import {
 } from "./db.js";
 import { seedEquipamentos } from "./seed.js";
 
+const VALIDITY_DAYS = 365;
+
 const tabs = document.querySelectorAll(".tab");
 const panels = document.querySelectorAll("[data-panel]");
 const statusCards = document.getElementById("statusCards");
-const upcomingList = document.getElementById("upcomingList");
+const attentionList = document.getElementById("attentionList");
 const quickSearch = document.getElementById("quickSearch");
 const quickResults = document.getElementById("quickResults");
 const clearSearch = document.getElementById("clearSearch");
+const quickTipoFilters = document.querySelectorAll("[data-filter-type]");
+const quickStatusFilters = document.querySelectorAll("[data-filter-status]");
 const tableBody = document.getElementById("equipamentosBody");
 const tableSearch = document.getElementById("tableSearch");
+const typeFilter = document.getElementById("typeFilter");
 const statusFilter = document.getElementById("statusFilter");
 const pageSizeSelect = document.getElementById("pageSize");
 const prevPage = document.getElementById("prevPage");
@@ -26,14 +31,19 @@ const seedButton = document.getElementById("seedEquipamentos");
 const exportBackup = document.getElementById("exportBackup");
 const importFile = document.getElementById("importFile");
 const importBackup = document.getElementById("importBackup");
+const importCsvFile = document.getElementById("importCsvFile");
+const importCsv = document.getElementById("importCsv");
+const importFeedback = document.getElementById("importFeedback");
 const resetData = document.getElementById("resetData");
 const statusMessage = document.getElementById("statusMessage");
 const syncStatus = document.getElementById("syncStatus");
+const sortButtons = document.querySelectorAll("[data-sort]");
 
 const modal = document.getElementById("equipamentoModal");
 const modalTitle = document.getElementById("modalTitle");
 const closeModal = document.getElementById("closeModal");
 const cancelModal = document.getElementById("cancelModal");
+const deleteModal = document.getElementById("deleteEquipamento");
 const form = document.getElementById("equipamentoForm");
 const formHint = document.getElementById("formHint");
 const markCalibrated = document.getElementById("markCalibrated");
@@ -61,36 +71,46 @@ const STATUS_LABELS = {
   VENCIDO: "VENCIDO"
 };
 
+const STATUS_ORDER = [
+  "VENCIDO",
+  "EM_CALIBRACAO",
+  "MANUTENCAO",
+  "EM_CAUTELA",
+  "ATIVO"
+];
+
+const normalizeText = (value) => String(value || "")
+  .trim()
+  .replace(/\s+/g, " ");
+
+const normalizeId = (value) => normalizeText(value).toUpperCase();
+
 const normalizeTipo = (value) => {
-  const raw = String(value || "").trim().toUpperCase();
+  const raw = normalizeText(value).toUpperCase();
   if (raw === "HORIZONTAL" || raw === "VERTICAL" || raw === "TACHAS") {
     return raw;
   }
   return "";
 };
 
-const normalizeSituacao = (value) => {
-  const raw = String(value || "").trim().toUpperCase();
+const normalizeSituacaoManual = (value) => {
+  const raw = normalizeText(value).toUpperCase();
   const map = {
     "EM CALIBRAÇÃO": "EM_CALIBRACAO",
     "EM CALIBRACAO": "EM_CALIBRACAO",
-    "EM CAUTELA": "EM_CAUTELA",
     "MANUTENÇÃO": "MANUTENCAO",
     "MANUTENCAO": "MANUTENCAO"
   };
-  if (raw === "ATIVO") return "ATIVO";
-  if (raw === "EM_CALIBRACAO" || raw === "EM_CAUTELA" || raw === "MANUTENCAO") return raw;
+  if (raw === "EM_CALIBRACAO" || raw === "MANUTENCAO") return raw;
   if (map[raw]) return map[raw];
   return "ATIVO";
 };
 
-let equipamentos = [];
-let currentPage = 1;
-let editingId = null;
-
-const setStatusMessage = (message) => {
-  statusMessage.textContent = message;
-};
+const normalizeHeader = (value) => normalizeText(value)
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .toLowerCase()
+  .replace(/[^a-z0-9]/g, "");
 
 const toISODate = (date) => {
   if (!date) return "";
@@ -99,9 +119,26 @@ const toISODate = (date) => {
   return d.toISOString().split("T")[0];
 };
 
+const parseDateString = (value) => {
+  const raw = normalizeText(value);
+  if (!raw) return { value: "", error: "" };
+  const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) {
+    const iso = toISODate(raw);
+    return iso ? { value: iso, error: "" } : { value: "", error: "Data inválida" };
+  }
+  const brMatch = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (brMatch) {
+    const iso = `${brMatch[3]}-${brMatch[2]}-${brMatch[1]}`;
+    const normalized = toISODate(iso);
+    return normalized ? { value: normalized, error: "" } : { value: "", error: "Data inválida" };
+  }
+  return { value: "", error: "Data inválida" };
+};
+
 const addDays = (dateString, days) => {
   if (!dateString) return "";
-  const d = new Date(dateString + "T00:00:00");
+  const d = new Date(`${dateString}T00:00:00`);
   if (Number.isNaN(d.getTime())) return "";
   const next = new Date(d);
   next.setDate(next.getDate() + days);
@@ -124,40 +161,59 @@ const daysUntil = (dateString) => {
   return Math.ceil(diff / (1000 * 60 * 60 * 24));
 };
 
+const isLaboratorio = (value) => {
+  const normalized = normalizeText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  return normalized.startsWith("laboratorio");
+};
+
 const computeStatus = (equipamento) => {
-  const days = daysUntil(equipamento.dataVencimento);
-  if (days !== null && days < 0) {
-    return "VENCIDO";
-  }
   if (equipamento.situacaoManual === "EM_CALIBRACAO") return "EM_CALIBRACAO";
-  if (equipamento.situacaoManual === "EM_CAUTELA") return "EM_CAUTELA";
   if (equipamento.situacaoManual === "MANUTENCAO") return "MANUTENCAO";
+  const vencimento = equipamento.dataCalibracao
+    ? addDays(equipamento.dataCalibracao, VALIDITY_DAYS)
+    : equipamento.dataVencimento;
+  if (vencimento) {
+    const days = daysUntil(vencimento);
+    if (days !== null && days < 0) return "VENCIDO";
+  }
+  if (equipamento.responsavelAtual && !isLaboratorio(equipamento.responsavelAtual)) {
+    return "EM_CAUTELA";
+  }
   return "ATIVO";
 };
 
 const normalizeEquipamento = (data) => {
-  const id = String(data.id || "").trim().toUpperCase();
+  const id = normalizeId(data.id);
   const tipo = normalizeTipo(data.tipo);
-  const dataCalibracao = data.dataCalibracao ? toISODate(data.dataCalibracao) : "";
-  const dataVencimento = dataCalibracao ? addDays(dataCalibracao, 365) : "";
+  const dataCalibracaoRaw = data.dataCalibracao || data.dataUltimaCalibracao || "";
+  const dataCalibracao = dataCalibracaoRaw ? parseDateString(dataCalibracaoRaw).value : "";
+  const dataVencimento = dataCalibracao ? addDays(dataCalibracao, VALIDITY_DAYS) : "";
   return {
     id,
     tipo,
-    modelo: String(data.modelo || "").trim(),
-    numeroSerie: String(data.numeroSerie || "").trim(),
-    dataAquisicao: data.dataAquisicao ? toISODate(data.dataAquisicao) : "",
+    modelo: normalizeText(data.modelo || data.segundoModelo || data["2º Modelo"]),
+    numeroSerie: normalizeText(data.numeroSerie || data.numeroDeSerie || data["Nº de série"]),
+    dataAquisicao: data.dataAquisicao ? parseDateString(data.dataAquisicao).value : "",
     dataCalibracao,
     dataVencimento,
-    certificado: data.certificado ? String(data.certificado).trim() : "",
-    fabricante: data.fabricante ? String(data.fabricante).trim() : "",
-    responsavelAtual: data.responsavelAtual ? String(data.responsavelAtual).trim() : "",
-    situacaoManual: normalizeSituacao(data.situacaoManual),
-    observacoes: data.observacoes ? String(data.observacoes).trim() : ""
+    certificado: data.certificado ? normalizeText(data.certificado) : "",
+    fabricante: data.fabricante ? normalizeText(data.fabricante) : "",
+    responsavelAtual: data.responsavelAtual
+      ? normalizeText(data.responsavelAtual)
+      : data.local
+        ? normalizeText(data.local)
+        : "",
+    situacaoManual: normalizeSituacaoManual(data.situacaoManual),
+    observacoes: data.observacoes ? normalizeText(data.observacoes) : ""
   };
 };
 
 const getFilteredEquipamentos = () => {
   const term = tableSearch.value.trim().toLowerCase();
+  const tipo = typeFilter.value;
   const status = statusFilter.value;
   return equipamentos.filter((equipamento) => {
     const matchesTerm = !term || [
@@ -168,7 +224,8 @@ const getFilteredEquipamentos = () => {
     ].some((field) => (field || "").toLowerCase().includes(term));
     const statusValue = computeStatus(equipamento);
     const matchesStatus = !status || statusValue === status;
-    return matchesTerm && matchesStatus;
+    const matchesTipo = !tipo || equipamento.tipo === tipo;
+    return matchesTerm && matchesStatus && matchesTipo;
   });
 };
 
@@ -178,21 +235,27 @@ const renderStatusCards = () => {
     total: equipamentos.length,
     ativos: 0,
     vencidos: 0,
-    cautela: 0
+    cautela: 0,
+    calibracao: 0,
+    manutencao: 0
   };
 
   equipamentos.forEach((equipamento) => {
     const status = computeStatus(equipamento);
     if (status === "VENCIDO") counts.vencidos += 1;
     if (status === "EM_CAUTELA") counts.cautela += 1;
+    if (status === "EM_CALIBRACAO") counts.calibracao += 1;
+    if (status === "MANUTENCAO") counts.manutencao += 1;
     if (status === "ATIVO") counts.ativos += 1;
   });
 
   const cards = [
     { label: "Total", value: counts.total },
     { label: "Ativos", value: counts.ativos },
-    { label: "Vencidos", value: counts.vencidos },
-    { label: "Em cautela", value: counts.cautela }
+    { label: "Em cautela", value: counts.cautela },
+    { label: "Em calibração", value: counts.calibracao },
+    { label: "Manutenção", value: counts.manutencao },
+    { label: "Vencidos", value: counts.vencidos }
   ];
 
   cards.forEach((cardInfo) => {
@@ -207,27 +270,39 @@ const renderStatusCards = () => {
   });
 };
 
-const renderUpcoming = () => {
-  upcomingList.textContent = "";
-  const upcoming = equipamentos
-    .map((equipamento) => ({
-      equipamento,
-      days: daysUntil(equipamento.dataVencimento)
-    }))
-    .filter((item) => item.days !== null && item.days >= 0 && item.days <= 30)
-    .sort((a, b) => a.days - b.days);
+const renderAttentionList = () => {
+  attentionList.textContent = "";
+  const attention = equipamentos
+    .map((equipamento) => {
+      const status = computeStatus(equipamento);
+      const vencimento = equipamento.dataVencimento || addDays(equipamento.dataCalibracao, VALIDITY_DAYS);
+      return {
+        equipamento,
+        status,
+        days: daysUntil(vencimento)
+      };
+    })
+    .filter((item) => item.status === "VENCIDO" || item.status === "EM_CAUTELA")
+    .sort((a, b) => {
+      const aValue = a.days === null ? Number.POSITIVE_INFINITY : a.days;
+      const bValue = b.days === null ? Number.POSITIVE_INFINITY : b.days;
+      return aValue - bValue;
+    })
+    .slice(0, 8);
 
-  if (upcoming.length === 0) {
+  if (attention.length === 0) {
     const empty = document.createElement("li");
-    empty.textContent = "Nenhum equipamento vencendo nos próximos 30 dias.";
-    upcomingList.appendChild(empty);
+    empty.textContent = "Nenhum equipamento em atenção no momento.";
+    attentionList.appendChild(empty);
     return;
   }
 
-  upcoming.forEach(({ equipamento, days }) => {
+  attention.forEach(({ equipamento, status, days }) => {
     const item = document.createElement("li");
-    item.textContent = `${equipamento.id} • ${equipamento.modelo} • vence em ${days} dia(s)`;
-    upcomingList.appendChild(item);
+    const label = STATUS_LABELS[status] || status;
+    const daysLabel = days === null ? "sem vencimento" : `${days} dia(s)`;
+    item.textContent = `${equipamento.id} • ${equipamento.modelo || "Sem modelo"} • ${label} • ${daysLabel}`;
+    attentionList.appendChild(item);
   });
 };
 
@@ -245,7 +320,8 @@ const renderQuickResults = () => {
   const results = equipamentos.filter((equipamento) => [
     equipamento.id,
     equipamento.modelo,
-    equipamento.numeroSerie
+    equipamento.numeroSerie,
+    equipamento.responsavelAtual
   ].some((field) => (field || "").toLowerCase().includes(term))).slice(0, 5);
 
   if (results.length === 0) {
@@ -260,7 +336,7 @@ const renderQuickResults = () => {
     const card = document.createElement("div");
     card.className = "result-card";
     const title = document.createElement("strong");
-    title.textContent = `${equipamento.id} • ${equipamento.modelo}`;
+    title.textContent = `${equipamento.id} • ${equipamento.modelo || "Sem modelo"}`;
     const details = document.createElement("span");
     details.className = "muted";
     details.textContent = `Série ${equipamento.numeroSerie || "-"} • ${equipamento.responsavelAtual || "Sem responsável"}`;
@@ -269,8 +345,37 @@ const renderQuickResults = () => {
   });
 };
 
+const applySort = (items) => {
+  const { key, direction } = sortState;
+  const sorted = [...items];
+  sorted.sort((a, b) => {
+    if (key === "id") {
+      return a.id.localeCompare(b.id);
+    }
+    if (key === "dias") {
+      const aDays = daysUntil(a.dataVencimento);
+      const bDays = daysUntil(b.dataVencimento);
+      const aValue = aDays === null ? Number.POSITIVE_INFINITY : aDays;
+      const bValue = bDays === null ? Number.POSITIVE_INFINITY : bDays;
+      return aValue - bValue;
+    }
+    if (key === "status") {
+      const aStatus = computeStatus(a);
+      const bStatus = computeStatus(b);
+      const aIndex = STATUS_ORDER.indexOf(aStatus);
+      const bIndex = STATUS_ORDER.indexOf(bStatus);
+      const safeA = aIndex === -1 ? STATUS_ORDER.length : aIndex;
+      const safeB = bIndex === -1 ? STATUS_ORDER.length : bIndex;
+      return safeA - safeB;
+    }
+    return 0;
+  });
+  if (direction === "desc") sorted.reverse();
+  return sorted;
+};
+
 const renderTable = () => {
-  const filtered = getFilteredEquipamentos();
+  const filtered = applySort(getFilteredEquipamentos());
   const pageSize = Number(pageSizeSelect.value) || 25;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   if (currentPage > totalPages) currentPage = totalPages;
@@ -283,6 +388,7 @@ const renderTable = () => {
   pageItems.forEach((equipamento) => {
     const row = document.createElement("tr");
     const statusValue = computeStatus(equipamento);
+    const days = daysUntil(equipamento.dataVencimento);
 
     const cells = [
       equipamento.id,
@@ -290,13 +396,15 @@ const renderTable = () => {
       equipamento.modelo,
       equipamento.numeroSerie,
       equipamento.responsavelAtual || "-",
-      statusValue,
-      formatDate(equipamento.dataVencimento)
+      formatDate(equipamento.dataCalibracao),
+      formatDate(equipamento.dataVencimento),
+      days === null ? "-" : String(days),
+      statusValue
     ];
 
     cells.forEach((value, index) => {
       const cell = document.createElement("td");
-      if (index === 5) {
+      if (index === 8) {
         const pill = document.createElement("span");
         pill.className = "status-pill";
         if (statusValue === "VENCIDO" || statusValue === "MANUTENCAO") {
@@ -343,7 +451,7 @@ const renderTable = () => {
 
 const refreshUI = () => {
   renderStatusCards();
-  renderUpcoming();
+  renderAttentionList();
   renderQuickResults();
   renderTable();
 };
@@ -358,6 +466,7 @@ const resetForm = () => {
   formFields.dataVencimento.value = "";
   editingId = null;
   formFields.id.disabled = false;
+  deleteModal.classList.add("hidden");
   formHint.textContent = "Campos com * são obrigatórios.";
 };
 
@@ -392,6 +501,7 @@ const openEditModal = (id) => {
   formFields.situacaoManual.value = equipamento.situacaoManual || "ATIVO";
   formFields.observacoes.value = equipamento.observacoes || "";
   formHint.textContent = "Atualize os campos e pressione salvar.";
+  deleteModal.classList.remove("hidden");
   openModal();
 };
 
@@ -404,38 +514,52 @@ const openNewModal = () => {
 
 const handleDelete = async (id) => {
   const confirmed = window.confirm(`Excluir equipamento ${id}?`);
-  if (!confirmed) return;
+  if (!confirmed) return false;
   await deleteEquipamento(id);
   await loadEquipamentos();
   setStatusMessage(`Equipamento ${id} removido.`);
+  return true;
+};
+
+const handleModalDelete = async () => {
+  if (!editingId) return;
+  const removed = await handleDelete(editingId);
+  if (removed) closeModalHandler();
+};
+
+const setStatusMessage = (message) => {
+  statusMessage.textContent = message;
 };
 
 const handleFormSubmit = async (event) => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(form).entries());
-  const id = String(data.id || "").trim().toUpperCase();
+  const id = normalizeId(data.id);
 
   if (!id) {
-    formHint.textContent = "Identificação é obrigatória.";
+    formHint.textContent = "ID obrigatório.";
     return;
   }
 
-  if (!normalizeTipo(data.tipo) || !data.numeroSerie || !data.modelo) {
-    formHint.textContent = "Preencha os campos obrigatórios.";
+  if (!normalizeTipo(data.tipo)) {
+    formHint.textContent = "Tipo obrigatório.";
     return;
   }
 
   const existing = equipamentos.find((item) => item.id === id);
   if (!editingId && existing) {
-    formHint.textContent = "Identificação já cadastrada.";
+    formHint.textContent = "ID já existe.";
     return;
   }
 
+  const dataCalibracao = data.dataCalibracao ? parseDateString(data.dataCalibracao).value : "";
   const equipamento = normalizeEquipamento({
     ...data,
     id,
     tipo: normalizeTipo(data.tipo),
-    situacaoManual: normalizeSituacao(data.situacaoManual)
+    dataCalibracao,
+    dataVencimento: dataCalibracao ? addDays(dataCalibracao, VALIDITY_DAYS) : "",
+    situacaoManual: normalizeSituacaoManual(data.situacaoManual)
   });
 
   await saveEquipamento(equipamento);
@@ -446,10 +570,39 @@ const handleFormSubmit = async (event) => {
 
 const handleCalibrationUpdate = () => {
   const value = formFields.dataCalibracao.value;
-  formFields.dataVencimento.value = value ? addDays(value, 365) : "";
+  const parsed = value ? parseDateString(value).value : "";
+  formFields.dataVencimento.value = parsed ? addDays(parsed, VALIDITY_DAYS) : "";
 };
 
-const handleImport = async () => {
+const validateImportItem = (item, index, errors) => {
+  if (!item.id) {
+    errors.push(`Linha ${index + 1}: ID obrigatório.`);
+    return false;
+  }
+  if (!item.tipo) {
+    errors.push(`Linha ${index + 1}: Tipo inválido.`);
+    return false;
+  }
+  return true;
+};
+
+const buildImportFeedback = (errors) => {
+  importFeedback.textContent = "";
+  if (!errors.length) return;
+  const title = document.createElement("p");
+  title.textContent = "Ocorreram erros na importação:";
+  importFeedback.appendChild(title);
+  const list = document.createElement("ul");
+  list.className = "list";
+  errors.slice(0, 8).forEach((error) => {
+    const item = document.createElement("li");
+    item.textContent = error;
+    list.appendChild(item);
+  });
+  importFeedback.appendChild(list);
+};
+
+const handleImportJSON = async () => {
   if (!importFile.files.length) {
     setStatusMessage("Selecione um arquivo JSON para importar.");
     return;
@@ -470,18 +623,161 @@ const handleImport = async () => {
     return;
   }
 
-  const confirmed = window.confirm("Importar backup vai substituir todos os dados atuais. Deseja continuar?");
-  if (!confirmed) return;
-
+  const errors = [];
   const normalized = items
-    .map((item) => normalizeEquipamento(item || {}))
-    .filter((item) => item.id);
+    .map((item, index) => {
+      const dataAquisicao = item?.dataAquisicao ? parseDateString(item.dataAquisicao) : { value: "", error: "" };
+      const dataCalibracao = item?.dataCalibracao || item?.dataUltimaCalibracao
+        ? parseDateString(item.dataCalibracao || item.dataUltimaCalibracao)
+        : { value: "", error: "" };
+      if (dataAquisicao.error) errors.push(`Linha ${index + 1}: Data de aquisição inválida.`);
+      if (dataCalibracao.error) errors.push(`Linha ${index + 1}: Data de calibração inválida.`);
+      const normalizedItem = normalizeEquipamento({
+        ...(item || {}),
+        dataAquisicao: dataAquisicao.value,
+        dataCalibracao: dataCalibracao.value,
+        dataUltimaCalibracao: dataCalibracao.value
+      });
+      if (!validateImportItem(normalizedItem, index, errors)) return null;
+      return normalizedItem;
+    })
+    .filter(Boolean);
 
-  await clearEquipamentos();
+  if (errors.length) {
+    buildImportFeedback(errors);
+    setStatusMessage("Importação cancelada. Revise os erros listados.");
+    return;
+  }
+
+  const mode = document.querySelector("input[name='importMode']:checked")?.value || "merge";
+  if (mode === "replace") {
+    const confirmed = window.confirm("Substituir todos os dados atuais?");
+    if (!confirmed) return;
+    await clearEquipamentos();
+  }
+
   await bulkSaveEquipamentos(normalized);
   await loadEquipamentos();
   setStatusMessage("Backup importado com sucesso.");
   importFile.value = "";
+  buildImportFeedback([]);
+};
+
+const parseCSV = (text) => {
+  const lines = text.split(/\r?\n/).filter((line) => line.trim());
+  if (!lines.length) return [];
+  const delimiter = (lines[0].match(/;/g) || []).length > (lines[0].match(/,/g) || []).length ? ";" : ",";
+  const parseLine = (line) => {
+    const result = [];
+    let current = "";
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i += 1) {
+      const char = line[i];
+      if (char === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          current += '"';
+          i += 1;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (char === delimiter && !inQuotes) {
+        result.push(current);
+        current = "";
+      } else {
+        current += char;
+      }
+    }
+    result.push(current);
+    return result.map((value) => value.trim());
+  };
+
+  const headers = parseLine(lines[0]);
+  const headerMap = headers.map((header) => normalizeHeader(header));
+  const fieldMap = {
+    identificacao: "id",
+    id: "id",
+    identificacaodoprint: "id",
+    tipo: "tipo",
+    modelo: "modelo",
+    "2modelo": "modelo",
+    segundomodelo: "modelo",
+    numerodeserie: "numeroSerie",
+    ndeserie: "numeroSerie",
+    nserie: "numeroSerie",
+    numeroserie: "numeroSerie",
+    dataaquisicao: "dataAquisicao",
+    datadeaquisicao: "dataAquisicao",
+    dataaquisicaoequipamento: "dataAquisicao",
+    datacalibracao: "dataCalibracao",
+    datadecalibracao: "dataCalibracao",
+    ultimacalibracao: "dataCalibracao",
+    local: "responsavelAtual",
+    responsavel: "responsavelAtual"
+  };
+
+  return lines.slice(1).map((line) => {
+    const values = parseLine(line);
+    const entry = {};
+    values.forEach((value, index) => {
+      const headerKey = headerMap[index];
+      const field = fieldMap[headerKey];
+      if (!field) return;
+      entry[field] = value;
+    });
+    return entry;
+  });
+};
+
+const handleImportCSV = async () => {
+  if (!importCsvFile.files.length) {
+    setStatusMessage("Selecione um arquivo CSV para importar.");
+    return;
+  }
+  const text = await importCsvFile.files[0].text();
+  const rows = parseCSV(text);
+  if (!rows.length) {
+    setStatusMessage("CSV vazio ou inválido.");
+    return;
+  }
+
+  const errors = [];
+  const normalized = rows.map((row, index) => {
+    const item = {
+      id: normalizeId(row.id),
+      tipo: normalizeTipo(row.tipo),
+      modelo: normalizeText(row.modelo),
+      numeroSerie: normalizeText(row.numeroSerie),
+      dataAquisicao: row.dataAquisicao,
+      dataCalibracao: row.dataCalibracao,
+      responsavelAtual: normalizeText(row.responsavelAtual)
+    };
+
+    const aq = row.dataAquisicao ? parseDateString(row.dataAquisicao) : { value: "", error: "" };
+    const cal = row.dataCalibracao ? parseDateString(row.dataCalibracao) : { value: "", error: "" };
+    if (aq.error) errors.push(`Linha ${index + 1}: Data de aquisição inválida.`);
+    if (cal.error) errors.push(`Linha ${index + 1}: Data de calibração inválida.`);
+
+    const normalizedItem = normalizeEquipamento({
+      ...item,
+      dataAquisicao: aq.value,
+      dataCalibracao: cal.value
+    });
+
+    if (!validateImportItem(normalizedItem, index, errors)) return null;
+    return normalizedItem;
+  }).filter(Boolean);
+
+  if (errors.length) {
+    buildImportFeedback(errors);
+    setStatusMessage("Importação CSV cancelada. Revise os erros listados.");
+    return;
+  }
+
+  await bulkSaveEquipamentos(normalized);
+  await loadEquipamentos();
+  setStatusMessage("CSV importado com sucesso.");
+  importCsvFile.value = "";
+  buildImportFeedback([]);
 };
 
 const handleExport = () => {
@@ -518,6 +814,28 @@ const handleSeed = async () => {
   setStatusMessage("Dados de exemplo carregados.");
 };
 
+const updateQuickFilterButtons = (buttons, value, attribute) => {
+  buttons.forEach((button) => {
+    const buttonValue = button.getAttribute(attribute) || "";
+    button.classList.toggle("active", buttonValue === value);
+  });
+};
+
+const applyQuickFilters = (typeValue, statusValue) => {
+  if (typeValue !== undefined) typeFilter.value = typeValue;
+  if (statusValue !== undefined) statusFilter.value = statusValue;
+  updateQuickFilterButtons(quickTipoFilters, typeFilter.value, "data-filter-type");
+  updateQuickFilterButtons(quickStatusFilters, statusFilter.value, "data-filter-status");
+  currentPage = 1;
+  renderTable();
+};
+
+const updateSortIndicator = () => {
+  sortButtons.forEach((item) => item.removeAttribute("data-direction"));
+  const active = Array.from(sortButtons).find((item) => item.getAttribute("data-sort") === sortState.key);
+  if (active) active.setAttribute("data-direction", sortState.direction);
+};
+
 const setupTabs = () => {
   const setActiveTab = (tab) => {
     tabs.forEach((item) => item.setAttribute("aria-selected", "false"));
@@ -545,9 +863,15 @@ const updateOnlineStatus = () => {
   syncStatus.textContent = navigator.onLine ? "Online • IndexedDB" : "Offline pronto • IndexedDB";
 };
 
+let equipamentos = [];
+let currentPage = 1;
+let editingId = null;
+let sortState = { key: "id", direction: "asc" };
+
 form.addEventListener("submit", handleFormSubmit);
 closeModal.addEventListener("click", closeModalHandler);
 cancelModal.addEventListener("click", closeModalHandler);
+deleteModal.addEventListener("click", handleModalDelete);
 newEquipamento.addEventListener("click", openNewModal);
 markCalibrated.addEventListener("click", () => {
   const today = toISODate(new Date());
@@ -574,8 +898,10 @@ clearSearch.addEventListener("click", () => {
   renderQuickResults();
 });
 
-[tableSearch, statusFilter, pageSizeSelect].forEach((input) => {
+[tableSearch, statusFilter, typeFilter, pageSizeSelect].forEach((input) => {
   input.addEventListener("input", () => {
+    updateQuickFilterButtons(quickTipoFilters, typeFilter.value, "data-filter-type");
+    updateQuickFilterButtons(quickStatusFilters, statusFilter.value, "data-filter-status");
     currentPage = 1;
     renderTable();
   });
@@ -591,9 +917,36 @@ nextPage.addEventListener("click", () => {
   renderTable();
 });
 
+quickTipoFilters.forEach((button) => {
+  button.addEventListener("click", () => {
+    applyQuickFilters(button.getAttribute("data-filter-type") || "", undefined);
+  });
+});
+
+quickStatusFilters.forEach((button) => {
+  button.addEventListener("click", () => {
+    applyQuickFilters(undefined, button.getAttribute("data-filter-status") || "");
+  });
+});
+
+sortButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    const key = button.getAttribute("data-sort");
+    if (!key) return;
+    if (sortState.key === key) {
+      sortState = { key, direction: sortState.direction === "asc" ? "desc" : "asc" };
+    } else {
+      sortState = { key, direction: "asc" };
+    }
+    updateSortIndicator();
+    renderTable();
+  });
+});
+
 seedButton.addEventListener("click", handleSeed);
 exportBackup.addEventListener("click", handleExport);
-importBackup.addEventListener("click", handleImport);
+importBackup.addEventListener("click", handleImportJSON);
+importCsv.addEventListener("click", handleImportCSV);
 resetData.addEventListener("click", handleReset);
 
 window.addEventListener("online", updateOnlineStatus);
@@ -602,5 +955,7 @@ window.addEventListener("offline", updateOnlineStatus);
 setupTabs();
 updateOnlineStatus();
 registerServiceWorker();
+applyQuickFilters("", "");
+updateSortIndicator();
 loadEquipamentos();
 renderQuickResults();

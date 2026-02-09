@@ -1,4 +1,4 @@
-const CACHE_NAME = "medlux-control-v2";
+const CACHE_NAME = "medlux-control-v3";
 const ASSETS = [
   "./",
   "./index.html",
@@ -6,6 +6,7 @@ const ASSETS = [
   "./app.js",
   "./db.js",
   "./seed.js",
+  "./seed.csv",
   "./manifest.webmanifest",
   "./icons/icon-192.svg",
   "./icons/icon-512.svg"
