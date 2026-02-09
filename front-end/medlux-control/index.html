@@ -3,9 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="app-version" content="1.2.0" />
   <title>MEDLUX Control</title>
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="stylesheet" href="./styles.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.20.1/xlsx.full.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js" defer></script>
   <script type="module" src="./app.js" defer></script>
 </head>
 <body>
@@ -163,6 +167,11 @@
 
           <div class="audit-grid">
             <div class="subpanel">
+              <h3>Relatório de auditoria</h3>
+              <p class="muted">Gera um PDF completo com resumo e tabela de equipamentos.</p>
+              <button class="btn" id="generateAuditPdf" type="button">Gerar PDF de Auditoria</button>
+            </div>
+            <div class="subpanel">
               <h3>Exportar backup</h3>
               <p class="muted">Gera um arquivo JSON com todos os equipamentos.</p>
               <button class="btn" id="exportBackup" type="button">Exportar JSON</button>
@@ -176,6 +185,20 @@
                 <label><input type="radio" name="importMode" value="replace" /> Substituir tudo</label>
               </div>
               <button class="btn secondary" id="importBackup" type="button">Importar JSON</button>
+            </div>
+            <div class="subpanel">
+              <h3>Importar Excel (.xlsx)</h3>
+              <p class="muted">Faça a pré-visualização antes de importar para o IndexedDB.</p>
+              <input type="file" id="importXlsxFile" accept=".xlsx" />
+              <div class="radio-group">
+                <label><input type="radio" name="importXlsxMode" value="merge" checked /> Mesclar (atualiza campos existentes)</label>
+                <label><input type="radio" name="importXlsxMode" value="replace" /> Substituir tudo</label>
+              </div>
+              <div class="toolbar">
+                <button class="btn secondary" id="previewXlsx" type="button">Pré-visualizar Excel</button>
+                <button class="btn" id="importXlsx" type="button">Importar Excel (.xlsx)</button>
+              </div>
+              <div class="preview-card" id="xlsxPreview"></div>
             </div>
             <div class="subpanel">
               <h3>Importação em lote</h3>
