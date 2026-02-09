@@ -1,5 +1,5 @@
-const DB_NAME = "medlux_shared_db";
-const DB_VERSION = 2;
+const DB_NAME = "medlux_suite_db";
+const DB_VERSION = 3;
 
 const STORE_EQUIPAMENTOS = "equipamentos";
 const STORE_USERS = "users";
@@ -35,33 +35,68 @@ const normalizeUserRecord = (record = {}) => {
   };
 };
 
+const normalizeFuncao = (value) => {
+  const raw = String(value || "").trim().toUpperCase();
+  if (raw === "HORIZONTAL" || raw === "VERTICAL" || raw === "TACHAS") return raw;
+  if (raw === "H") return "HORIZONTAL";
+  if (raw === "V") return "VERTICAL";
+  return "";
+};
+
+const normalizeStatusLocal = (value) => {
+  const raw = String(value || "")
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/\s+/g, "_");
+  if (raw === "OBRA") return "OBRA";
+  if (raw === "LAB_TINTAS" || raw === "LABTINTAS") return "LAB_TINTAS";
+  if (raw === "DEMONSTRACAO" || raw === "DEMONSTRACAO_" || raw === "DEMONSTRACAO__") return "DEMONSTRACAO";
+  if (raw === "VENDIDO") return "VENDIDO";
+  if (raw === "STAND_BY" || raw === "STANDBY") return "STAND_BY";
+  return "STAND_BY";
+};
+
+const normalizeCalibrado = (value) => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (value === true || raw === "true" || raw === "sim") return "Sim";
+  if (value === false || raw === "false" || raw === "nao" || raw === "não") return "Não";
+  return "";
+};
+
 const normalizeEquipamentoRecord = (record = {}) => {
   const created_at = record.created_at || record.createdAt || nowIso();
   const updated_at = record.updated_at || record.updatedAt || created_at;
-  const statusOperacional = record.statusOperacional || record.status || "Stand-by";
+  const statusLocal = normalizeStatusLocal(record.statusLocal || record.statusOperacional || record.status || "");
   const localidadeCidadeUF = record.localidadeCidadeUF || record.localidade || "";
-  const funcao = record.funcao || "";
-  const geometria = funcao === "Horizontal" ? (record.geometria || "") : "";
+  const funcao = normalizeFuncao(record.funcao || record.funcaoEquipamento || record.tipo || "");
+  const geometria = funcao === "HORIZONTAL" ? (record.geometria || null) : null;
+  const calibrado = normalizeCalibrado(record.calibrado || record.calibracao);
+  const certificado = record.certificado || record.numeroCertificado || record.numero_certificado || "";
   return {
     id: record.id || "",
     modelo: record.modelo || "",
     funcao,
     geometria,
     numeroSerie: record.numeroSerie || record.numero_serie || "",
-    dataAquisicao: record.dataAquisicao || record.data_aquisicao || "",
-    calibrado: record.calibrado === true || record.calibrado === "true",
-    dataCalibracao: record.dataCalibracao || record.data_calibracao || "",
-    numeroCertificado: record.numeroCertificado || record.numero_certificado || "",
     fabricante: record.fabricante || "",
+    dataAquisicao: record.dataAquisicao || record.data_aquisicao || "",
+    calibrado,
+    dataCalibracao: record.dataCalibracao || record.data_calibracao || "",
+    certificado,
+    usuarioAtual: record.usuarioAtual || record.usuarioResponsavel || record.usuario_responsavel || "",
     localidadeCidadeUF,
     dataEntregaUsuario: record.dataEntregaUsuario || record.data_entrega_usuario || "",
-    statusOperacional,
+    statusLocal,
     observacoes: record.observacoes || "",
-    usuarioResponsavel: record.usuarioResponsavel || record.usuario_responsavel || "",
     created_at,
     updated_at,
-    status: statusOperacional,
-    localidade: localidadeCidadeUF
+    statusOperacional: statusLocal,
+    status: statusLocal,
+    localidade: localidadeCidadeUF,
+    numeroCertificado: certificado,
+    usuarioResponsavel: record.usuarioResponsavel || record.usuario_responsavel || record.usuarioAtual || ""
   };
 };
 
@@ -101,18 +136,40 @@ const normalizeMedicaoRecord = (record = {}) => {
     const fallback = toNumber(record.valor);
     if (fallback !== null) leituras.push(fallback);
   }
-  const media = record.media !== undefined ? toNumber(record.media) : (leituras.length ? leituras.reduce((acc, item) => acc + item, 0) / leituras.length : toNumber(record.valor));
+  const media = record.media !== undefined
+    ? toNumber(record.media)
+    : (leituras.length ? leituras.reduce((acc, item) => acc + item, 0) / leituras.length : toNumber(record.valor));
   const created_at = record.created_at || record.createdAt || nowIso();
+  const gps = record.gps && typeof record.gps === "object"
+    ? record.gps
+    : {
+        lat: toNumber(record.gps_lat || record.lat || null),
+        lng: toNumber(record.gps_lng || record.lng || null),
+        accuracy: toNumber(record.gps_accuracy || record.accuracy || null),
+        source: record.gps_source || record.gpsSource || ""
+      };
+  const fotos = Array.isArray(record.fotos) ? record.fotos : [];
   return {
     id,
     equipamento_id: record.equipamento_id || record.equip_id || "",
     user_id: record.user_id || "",
+    obra_id: record.obra_id || record.obraId || "",
+    relatorio_id: record.relatorio_id || record.relatorioId || "",
     tipoMedicao,
     leituras,
     media,
     unidade: record.unidade || record.unidade_medida || "",
     dataHora,
+    enderecoTexto: record.enderecoTexto || record.endereco || "",
+    cidadeUF: record.cidadeUF || record.cidade_uf || "",
+    rodovia: record.rodovia || "",
+    km: record.km || "",
+    sentido: record.sentido || "",
+    faixa: record.faixa || "",
+    clima: record.clima || "",
     observacoes: record.observacoes || "",
+    gps,
+    fotos,
     created_at,
     medicao_id: id,
     equip_id: record.equip_id || record.equipamento_id || "",
@@ -138,8 +195,10 @@ const prepareEquipamentoRecord = (record = {}) => {
   const normalized = normalizeEquipamentoRecord(record);
   return {
     ...normalized,
-    statusOperacional: normalized.statusOperacional,
+    statusOperacional: normalized.statusLocal,
+    statusLocal: normalized.statusLocal,
     localidadeCidadeUF: normalized.localidadeCidadeUF,
+    geometria: normalized.funcao === "HORIZONTAL" ? normalized.geometria : null,
     created_at: normalized.created_at,
     updated_at: normalized.updated_at
   };

@@ -346,6 +346,43 @@ textarea{
   margin-bottom: 4px;
 }
 
+.reading-toolbar{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  margin-bottom:8px;
+}
+
+#leiturasPaste{
+  width:100%;
+  margin-bottom:10px;
+}
+
+.gps-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  align-items:center;
+}
+
+.gps-grid{
+  margin-top:10px;
+  display:grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap:12px;
+}
+
+.photo-grid{
+  display:grid;
+  gap:12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.photo-field{
+  display:grid;
+  gap:6px;
+}
+
 input:focus, select:focus, textarea:focus{
   outline: 2px solid rgba(124,92,255,.4);
 }

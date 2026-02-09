@@ -11,12 +11,13 @@ import {
   saveVinculo,
   encerrarVinculo,
   getAllMedicoes,
+  saveMedicao,
   exportSnapshot,
   importSnapshot,
   clearAllStores,
   saveAuditoria
 } from "./db.js";
-import { ensureDefaultAdmin, authenticate, updatePin, createUserWithPin, logout, requireAuth } from "../shared/auth.js";
+import { ensureDefaultAdmin, authenticate, updatePin, createUserWithPin, logout, requireAuth, getSession } from "../shared/auth.js";
 
 const tabs = document.querySelectorAll(".tab");
 const panels = document.querySelectorAll("[data-panel]");
@@ -50,7 +51,12 @@ const xlsxPreview = document.getElementById("xlsxPreview");
 const resetData = document.getElementById("resetData");
 const bulkPaste = document.getElementById("bulkPaste");
 const importBulk = document.getElementById("importBulk");
-const generateAuditPdf = document.getElementById("generateAuditPdf");
+const generateGlobalPdf = document.getElementById("generateGlobalPdf");
+const generateObraPdf = document.getElementById("generateObraPdf");
+const obraFilter = document.getElementById("obraFilter");
+const relatorioFilter = document.getElementById("relatorioFilter");
+const responsavelTecnico = document.getElementById("responsavelTecnico");
+const obraResumo = document.getElementById("obraResumo");
 const statusMessage = document.getElementById("statusMessage");
 const syncStatus = document.getElementById("syncStatus");
 const sortButtons = document.querySelectorAll("[data-sort]");
@@ -97,36 +103,59 @@ const formFields = {
   modelo: document.getElementById("equipModelo"),
   dataAquisicao: document.getElementById("equipAquisicao"),
   fabricante: document.getElementById("equipFabricante"),
-  numeroCertificado: document.getElementById("equipCertificado"),
-  statusOperacional: document.getElementById("equipStatus"),
+  certificado: document.getElementById("equipCertificado"),
+  statusLocal: document.getElementById("equipStatus"),
   calibrado: document.getElementById("equipCalibrado"),
-  usuarioResponsavel: document.getElementById("equipResponsavel"),
+  usuarioAtual: document.getElementById("equipResponsavel"),
   localidadeCidadeUF: document.getElementById("equipLocalidade"),
   dataEntregaUsuario: document.getElementById("equipEntrega"),
   observacoes: document.getElementById("equipObs")
 };
 
-const STATUS_ORDER = ["Obra", "Lab Tintas", "Demonstração", "Vendido", "Stand-by"];
-const FUNCOES = ["Horizontal", "Vertical", "Tachas"];
+const STATUS_ORDER = ["OBRA", "LAB_TINTAS", "DEMONSTRACAO", "VENDIDO", "STAND_BY"];
+const FUNCOES = ["HORIZONTAL", "VERTICAL", "TACHAS"];
 const GEOMETRIAS = ["15m", "30m"];
+const STATUS_LABELS = {
+  OBRA: "Obra",
+  LAB_TINTAS: "Lab Tintas",
+  DEMONSTRACAO: "Demonstração",
+  VENDIDO: "Vendido",
+  STAND_BY: "Stand-by"
+};
+const FUNCAO_LABELS = {
+  HORIZONTAL: "Horizontal",
+  VERTICAL: "Vertical",
+  TACHAS: "Tachas"
+};
 
 const normalizeText = (value) => String(value || "").trim().replace(/\s+/g, " ");
 const normalizeId = (value) => normalizeText(value).toUpperCase();
 
 const normalizeFuncao = (value) => {
-  const raw = normalizeText(value);
+  const raw = normalizeText(value).toUpperCase();
   return FUNCOES.includes(raw) ? raw : "";
 };
 
 const normalizeStatus = (value) => {
-  const raw = normalizeText(value);
-  return STATUS_ORDER.includes(raw) ? raw : "Stand-by";
+  const raw = normalizeText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/\s+/g, "_");
+  return STATUS_ORDER.includes(raw) ? raw : "STAND_BY";
+};
+
+const normalizeCalibrado = (value) => {
+  const raw = normalizeText(value).toLowerCase();
+  if (value === true || raw === "true" || raw === "sim") return "Sim";
+  if (value === false || raw === "false" || raw === "nao" || raw === "não") return "Não";
+  return "";
 };
 
 const normalizeGeometria = (value, funcao) => {
   const raw = normalizeText(value);
-  if (funcao !== "Horizontal") return "";
-  return GEOMETRIAS.includes(raw) ? raw : "";
+  if (funcao !== "HORIZONTAL") return null;
+  return GEOMETRIAS.includes(raw) ? raw : null;
 };
 
 const toISODate = (date) => {
@@ -160,8 +189,10 @@ const formatDate = (dateString) => {
   return `${day}/${month}/${year}`;
 };
 
-const getEquipamentoStatus = (equipamento) => equipamento.statusOperacional || equipamento.status || "Stand-by";
+const getEquipamentoStatus = (equipamento) => equipamento.statusLocal || equipamento.statusOperacional || equipamento.status || "STAND_BY";
 const getEquipamentoLocalidade = (equipamento) => equipamento.localidadeCidadeUF || equipamento.localidade || "";
+const formatStatus = (status) => STATUS_LABELS[status] || STATUS_LABELS[normalizeStatus(status)] || "-";
+const formatFuncao = (funcao) => FUNCAO_LABELS[funcao] || FUNCAO_LABELS[normalizeFuncao(funcao)] || "-";
 
 const setStatusMessage = (message) => {
   statusMessage.textContent = message;
@@ -189,18 +220,23 @@ let currentPage = 1;
 
 const ensureLogin = async () => {
   await ensureDefaultAdmin();
-  activeSession = requireAuth({
+  const authorized = requireAuth({
     allowRoles: ["ADMIN"],
     onMissing: () => openModal(loginModal),
-    onUnauthorized: () => { window.location.href = "../index.html"; }
+    onUnauthorized: () => {
+      logout();
+      openModal(loginModal);
+    }
   });
+  if (!authorized) return null;
+  activeSession = getSession();
   return activeSession;
 };
 
 const validateEquipamento = (data) => {
   if (!data.id) return "ID obrigatório.";
   if (!data.funcao) return "Função obrigatória.";
-  if (data.funcao === "Horizontal" && !data.geometria) return "Geometria obrigatória para horizontais.";
+  if (data.funcao === "HORIZONTAL" && !data.geometria) return "Geometria obrigatória para horizontais.";
   return "";
 };
 
@@ -213,14 +249,14 @@ const normalizeEquipamento = (data) => {
     geometria: normalizeGeometria(data.geometria, funcao),
     numeroSerie: normalizeText(data.numeroSerie),
     dataAquisicao: data.dataAquisicao ? parseDateString(data.dataAquisicao).value : "",
-    calibrado: data.calibrado === true || data.calibrado === "true",
+    calibrado: normalizeCalibrado(data.calibrado),
     dataCalibracao: data.dataCalibracao ? parseDateString(data.dataCalibracao).value : "",
-    numeroCertificado: normalizeText(data.numeroCertificado),
+    certificado: normalizeText(data.certificado || data.numeroCertificado),
     fabricante: normalizeText(data.fabricante),
-    usuarioResponsavel: normalizeText(data.usuarioResponsavel),
+    usuarioAtual: normalizeText(data.usuarioAtual || data.usuarioResponsavel),
     localidadeCidadeUF: normalizeText(data.localidadeCidadeUF || data.localidade),
     dataEntregaUsuario: data.dataEntregaUsuario ? parseDateString(data.dataEntregaUsuario).value : "",
-    statusOperacional: normalizeStatus(data.statusOperacional || data.status || "Stand-by"),
+    statusLocal: normalizeStatus(data.statusLocal || data.statusOperacional || data.status || "STAND_BY"),
     observacoes: normalizeText(data.observacoes)
   };
 };
@@ -247,7 +283,7 @@ const renderDashboard = () => {
 
   const cards = [
     { label: "Total", value: total },
-    ...STATUS_ORDER.map((status) => ({ label: status, value: byStatus[status] || 0 }))
+    ...STATUS_ORDER.map((status) => ({ label: formatStatus(status), value: byStatus[status] || 0 }))
   ];
   cards.forEach((card) => {
     const wrapper = document.createElement("div");
@@ -280,7 +316,7 @@ const renderDashboard = () => {
 
 const matchesSearch = (equipamento, term) => {
   if (!term) return true;
-  const text = `${equipamento.id} ${equipamento.modelo} ${equipamento.numeroSerie} ${equipamento.usuarioResponsavel}`.toLowerCase();
+  const text = `${equipamento.id} ${equipamento.modelo} ${equipamento.numeroSerie} ${equipamento.usuarioAtual || equipamento.usuarioResponsavel}`.toLowerCase();
   return text.includes(term);
 };
 
@@ -321,11 +357,11 @@ const renderEquipamentos = () => {
     const row = document.createElement("tr");
     [
       equipamento.id,
-      equipamento.funcao,
+      formatFuncao(equipamento.funcao),
       equipamento.modelo || "-",
       equipamento.numeroSerie || "-",
-      equipamento.usuarioResponsavel || "-",
-      getEquipamentoStatus(equipamento),
+      equipamento.usuarioAtual || equipamento.usuarioResponsavel || "-",
+      formatStatus(getEquipamentoStatus(equipamento)),
       getEquipamentoLocalidade(equipamento) || "-"
     ].forEach((text) => {
       const cell = document.createElement("td");
@@ -366,7 +402,7 @@ const renderQuickSearch = () => {
     const title = document.createElement("strong");
     title.textContent = `${equipamento.id} • ${equipamento.modelo || "Sem modelo"}`;
     const details = document.createElement("span");
-    details.textContent = `Série ${equipamento.numeroSerie || "-"} • ${equipamento.usuarioResponsavel || "Sem responsável"}`;
+    details.textContent = `Série ${equipamento.numeroSerie || "-"} • ${equipamento.usuarioAtual || equipamento.usuarioResponsavel || "Sem responsável"}`;
     card.append(title, details);
     card.addEventListener("click", () => openEditModal(equipamento.id));
     quickResults.appendChild(card);
@@ -487,10 +523,10 @@ const openEditModal = (id) => {
   formFields.modelo.value = equipamento.modelo || "";
   formFields.dataAquisicao.value = equipamento.dataAquisicao || "";
   formFields.fabricante.value = equipamento.fabricante || "";
-  formFields.numeroCertificado.value = equipamento.numeroCertificado || "";
-  formFields.statusOperacional.value = equipamento.statusOperacional || equipamento.status || "Stand-by";
-  formFields.calibrado.value = equipamento.calibrado ? "true" : "false";
-  formFields.usuarioResponsavel.value = equipamento.usuarioResponsavel || "";
+  formFields.certificado.value = equipamento.certificado || equipamento.numeroCertificado || "";
+  formFields.statusLocal.value = equipamento.statusLocal || equipamento.statusOperacional || equipamento.status || "STAND_BY";
+  formFields.calibrado.value = equipamento.calibrado || "";
+  formFields.usuarioAtual.value = equipamento.usuarioAtual || equipamento.usuarioResponsavel || "";
   formFields.localidadeCidadeUF.value = equipamento.localidadeCidadeUF || equipamento.localidade || "";
   formFields.dataEntregaUsuario.value = equipamento.dataEntregaUsuario || "";
   formFields.observacoes.value = equipamento.observacoes || "";
@@ -504,8 +540,8 @@ const openNewModal = () => {
   modalTitle.textContent = "Novo equipamento";
   form.reset();
   formFields.id.disabled = false;
-  formFields.statusOperacional.value = "Stand-by";
-  formFields.calibrado.value = "true";
+  formFields.statusLocal.value = "STAND_BY";
+  formFields.calibrado.value = "Sim";
   formHint.textContent = "Campos com * são obrigatórios.";
   updateGeometriaState();
   openModal(modal);
@@ -669,8 +705,10 @@ const handleVinculoSubmit = async (event) => {
   if (equipamento) {
     await saveEquipamento({
       ...equipamento,
-      statusOperacional: "Obra",
-      status: "Obra",
+      statusLocal: "OBRA",
+      statusOperacional: "OBRA",
+      status: "OBRA",
+      usuarioAtual: data.user_id,
       usuarioResponsavel: data.user_id
     });
   }
@@ -688,7 +726,7 @@ const handleEncerrarVinculo = async (vinculoId) => {
     const equipamentoId = encerrado.equipamento_id || encerrado.equip_id;
     const equipamento = equipamentos.find((item) => item.id === equipamentoId);
     if (equipamento) {
-      await saveEquipamento({ ...equipamento, statusOperacional: "Stand-by", status: "Stand-by" });
+      await saveEquipamento({ ...equipamento, statusLocal: "STAND_BY", statusOperacional: "STAND_BY", status: "STAND_BY" });
     }
   }
   await loadData();
@@ -704,39 +742,91 @@ const openVinculoModal = () => {
 };
 
 const handleSeed = async () => {
+  const now = new Date().toISOString();
+  await createUserWithPin({
+    id: "ADMIN",
+    nome: "Administrador",
+    role: "ADMIN",
+    status: "ATIVO",
+    pin: "1234"
+  });
+  await createUserWithPin({
+    id: "OP001",
+    nome: "Operador Exemplo",
+    role: "OPERADOR",
+    status: "ATIVO",
+    pin: "4321"
+  });
   const seed = [
     {
       id: "MLX-H15-001",
-      funcao: "Horizontal",
+      funcao: "HORIZONTAL",
       geometria: "15m",
       modelo: "MLX-H15",
       numeroSerie: "H15001",
       dataAquisicao: "2023-01-10",
-      calibrado: true,
-      numeroCertificado: "CERT-2023-01",
+      calibrado: "Sim",
+      certificado: "CERT-2023-01",
       fabricante: "Medlux",
-      usuarioResponsavel: "ADMIN",
+      usuarioAtual: "OP001",
       localidadeCidadeUF: "São Paulo-SP",
       dataEntregaUsuario: "2023-01-12",
-      statusOperacional: "Obra"
+      statusLocal: "OBRA"
     },
     {
       id: "MLX-V10-002",
-      funcao: "Vertical",
-      geometria: "",
+      funcao: "VERTICAL",
+      geometria: null,
       modelo: "MLX-V10",
       numeroSerie: "V10002",
       dataAquisicao: "2022-11-05",
-      calibrado: false,
-      numeroCertificado: "",
+      calibrado: "Não",
+      certificado: "",
       fabricante: "Medlux",
-      usuarioResponsavel: "",
+      usuarioAtual: "",
       localidadeCidadeUF: "Curitiba-PR",
       dataEntregaUsuario: "",
-      statusOperacional: "Stand-by"
+      statusLocal: "STAND_BY"
     }
   ];
   await bulkSaveEquipamentos(seed.map(normalizeEquipamento));
+  await saveVinculo({
+    id: crypto.randomUUID(),
+    equip_id: "MLX-H15-001",
+    equipamento_id: "MLX-H15-001",
+    user_id: "OP001",
+    inicio: now,
+    status: "ATIVO",
+    created_at: now
+  });
+  const leituras = [128, 130, 126];
+  const media = leituras.reduce((acc, item) => acc + item, 0) / leituras.length;
+  await saveMedicao({
+    id: crypto.randomUUID(),
+    equipamento_id: "MLX-H15-001",
+    equip_id: "MLX-H15-001",
+    user_id: "OP001",
+    obra_id: "OBRA-001",
+    relatorio_id: "REL-2024-001",
+    tipoMedicao: "RL",
+    tipo_medicao: "RL",
+    leituras,
+    media,
+    unidade: "mcd/m²/lx",
+    dataHora: now,
+    data_hora: now,
+    enderecoTexto: "Rodovia Exemplo, KM 120",
+    cidadeUF: "São Paulo-SP",
+    rodovia: "SP-330",
+    km: "120",
+    sentido: "Norte",
+    faixa: "Direita",
+    clima: "Céu limpo",
+    observacoes: "Medição de referência",
+    gps: { lat: -23.55052, lng: -46.633308, accuracy: 12, source: "MANUAL" },
+    fotos: [],
+    created_at: now
+  });
   await loadData();
   renderAll();
   setStatusMessage("Dados de exemplo carregados.");
@@ -781,26 +871,38 @@ const mapHeaders = (headers) => headers.map((header) => normalizeText(header)
   .toLowerCase()
   .replace(/[^a-z0-9]/g, ""));
 
-const mapRowToEquipamento = (row) => {
+const buildEquipamentoFromRow = (row, rowIndex) => {
+  const errors = [];
   const funcao = normalizeFuncao(row.funcao || row.funcaoequipamento || row.tipo || row.funcaoequipamento);
-  return normalizeEquipamento({
+  const aquisicao = parseDateString(row.dataaquisicao);
+  const entrega = parseDateString(row.dataentregausuario);
+  if (row.dataaquisicao && aquisicao.error) errors.push("Data de aquisição inválida");
+  if (row.dataentregausuario && entrega.error) errors.push("Data de entrega inválida");
+  const equipamento = normalizeEquipamento({
     id: row.id || row.identificacao,
     modelo: row.modelo,
     funcao,
     geometria: row.geometria,
     numeroSerie: row.numeroserie || row.numerodeserie || row.ndeserie,
-    dataAquisicao: row.dataaquisicao,
-    calibrado: row.calibrado,
-    dataCalibracao: row.datacalibracao,
-    numeroCertificado: row.numerocertificado || row.ndocertificado || row.ncertificado,
+    dataAquisicao: aquisicao.value,
+    calibrado: row.calibracao || row.calibrado,
+    certificado: row.ndocertificado || row.numerocertificado || row.ncertificado,
     fabricante: row.fabricante,
-    usuarioResponsavel: row.usuarioresponsavel,
-    localidadeCidadeUF: row.localidade,
-    dataEntregaUsuario: row.dataentregausuario,
-    statusOperacional: row.status,
+    usuarioAtual: row.usuario,
+    localidadeCidadeUF: row.localidadecidadeuf || row.localidade,
+    dataEntregaUsuario: entrega.value,
+    statusLocal: row.status,
     observacoes: row.observacoes
   });
+  const baseError = validateEquipamento(equipamento);
+  if (baseError) errors.push(baseError);
+  return { equipamento, errors, rowIndex };
 };
+
+const summarizeImportErrors = (invalidRows) => invalidRows
+  .slice(0, 3)
+  .map((item) => `Linha ${item.rowIndex}: ${item.errors.join(", ")}`)
+  .join(" | ");
 
 const parseXlsx = async () => {
   if (!importXlsxFile.files.length) return [];
@@ -838,7 +940,7 @@ const buildPreview = (items) => {
   const body = document.createElement("tbody");
   items.slice(0, 8).forEach((item) => {
     const row = document.createElement("tr");
-    [item.id, item.funcao, item.modelo || "-", item.numeroSerie || "-", getEquipamentoStatus(item)].forEach((text) => {
+    [item.id, formatFuncao(item.funcao), item.modelo || "-", item.numeroSerie || "-", formatStatus(getEquipamentoStatus(item))].forEach((text) => {
       const cell = document.createElement("td");
       cell.textContent = text;
       row.appendChild(cell);
@@ -851,8 +953,13 @@ const buildPreview = (items) => {
 
 const handlePreviewXlsx = async () => {
   const rows = await parseXlsx();
-  const normalized = rows.map(mapRowToEquipamento);
-  buildPreview(normalized);
+  const mapped = rows.map((row, index) => buildEquipamentoFromRow(row, index + 2));
+  const invalid = mapped.filter((item) => item.errors.length);
+  if (invalid.length) {
+    const details = summarizeImportErrors(invalid);
+    setStatusMessage(`Pré-visualização com ${invalid.length} linha(s) inválida(s). ${details}`);
+  }
+  buildPreview(mapped.map((item) => item.equipamento));
 };
 
 const handleImportXlsx = async () => {
@@ -861,12 +968,14 @@ const handleImportXlsx = async () => {
     setStatusMessage("Nenhum dado encontrado no Excel.");
     return;
   }
-  const normalized = rows.map(mapRowToEquipamento);
-  const invalid = normalized.filter((item) => validateEquipamento(item));
+  const mapped = rows.map((row, index) => buildEquipamentoFromRow(row, index + 2));
+  const invalid = mapped.filter((item) => item.errors.length);
   if (invalid.length) {
-    setStatusMessage("Existem linhas inválidas. Ajuste antes de importar.");
+    const details = summarizeImportErrors(invalid);
+    setStatusMessage(`Existem ${invalid.length} linha(s) inválida(s) no Excel. ${details}`);
     return;
   }
+  const normalized = mapped.map((item) => item.equipamento);
   const mode = document.querySelector("input[name='importXlsxMode']:checked")?.value || "merge";
   if (mode === "replace") {
     await clearEquipamentos();
@@ -895,13 +1004,14 @@ const handleImportBulk = async () => {
   }
   const delimiter = text.includes("\t") ? "\t" : ",";
   const rows = parseDelimited(text, delimiter);
-  const normalized = rows.map(mapRowToEquipamento);
-  const invalid = normalized.filter((item) => validateEquipamento(item));
+  const mapped = rows.map((row, index) => buildEquipamentoFromRow(row, index + 2));
+  const invalid = mapped.filter((item) => item.errors.length);
   if (invalid.length) {
-    setStatusMessage("Existem linhas inválidas. Ajuste antes de importar.");
+    const details = summarizeImportErrors(invalid);
+    setStatusMessage(`Existem ${invalid.length} linha(s) inválida(s) na importação em lote. ${details}`);
     return;
   }
-  await bulkSaveEquipamentos(normalized);
+  await bulkSaveEquipamentos(mapped.map((item) => item.equipamento));
   await loadData();
   renderAll();
   setStatusMessage("Importação em lote concluída.");
@@ -914,13 +1024,14 @@ const handleImportCsv = async () => {
   }
   const text = await importCsvFile.files[0].text();
   const rows = parseDelimited(text, ",");
-  const normalized = rows.map(mapRowToEquipamento);
-  const invalid = normalized.filter((item) => validateEquipamento(item));
+  const mapped = rows.map((row, index) => buildEquipamentoFromRow(row, index + 2));
+  const invalid = mapped.filter((item) => item.errors.length);
   if (invalid.length) {
-    setStatusMessage("Existem linhas inválidas. Ajuste antes de importar.");
+    const details = summarizeImportErrors(invalid);
+    setStatusMessage(`Existem ${invalid.length} linha(s) inválida(s) no CSV. ${details}`);
     return;
   }
-  await bulkSaveEquipamentos(normalized);
+  await bulkSaveEquipamentos(mapped.map((item) => item.equipamento));
   await loadData();
   renderAll();
   setStatusMessage("CSV importado.");
@@ -929,19 +1040,19 @@ const handleImportCsv = async () => {
 const handleExportCsv = () => {
   const headers = [
     "id",
+    "modelo",
     "funcao",
     "geometria",
-    "modelo",
     "numeroSerie",
     "dataAquisicao",
     "calibrado",
     "dataCalibracao",
-    "numeroCertificado",
+    "certificado",
     "fabricante",
-    "usuarioResponsavel",
+    "usuarioAtual",
     "localidadeCidadeUF",
     "dataEntregaUsuario",
-    "statusOperacional",
+    "statusLocal",
     "observacoes"
   ];
   const rows = equipamentos.map((equipamento) => headers.map((header) => String(equipamento[header] ?? "")).join(";"));
@@ -962,11 +1073,29 @@ const handleReset = async () => {
   setStatusMessage("Dados locais removidos.");
 };
 
-const buildAuditPdf = async () => {
+const formatGps = (gps) => {
+  if (!gps || gps.lat === null || gps.lng === null) return "-";
+  const acc = gps.accuracy ? `±${gps.accuracy}m` : "-";
+  return `${gps.lat}, ${gps.lng} (${acc})`;
+};
+
+const formatLocal = (medicao) => {
+  const parts = [medicao.cidadeUF, medicao.enderecoTexto, medicao.rodovia, medicao.km].filter(Boolean);
+  return parts.length ? parts.join(" • ") : "-";
+};
+
+const blobToDataUrl = (blob) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(reader.result);
+  reader.onerror = () => reject(new Error("Falha ao converter imagem."));
+  reader.readAsDataURL(blob);
+});
+
+const buildGlobalPdf = async () => {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
   const now = new Date();
-  const title = "Relatório de Auditoria MEDLUX";
+  const title = "Relatório Global MEDLUX";
   doc.setFontSize(16);
   doc.text(title, 40, 40);
   doc.setFontSize(10);
@@ -975,20 +1104,20 @@ const buildAuditPdf = async () => {
 
   const equipamentoRows = equipamentos.map((equipamento) => [
     equipamento.id,
-    equipamento.funcao,
+    formatFuncao(equipamento.funcao),
     equipamento.geometria || "-",
     equipamento.modelo || "-",
     equipamento.numeroSerie || "-",
     equipamento.fabricante || "-",
-    equipamento.usuarioResponsavel || "-",
+    equipamento.usuarioAtual || equipamento.usuarioResponsavel || "-",
     getEquipamentoLocalidade(equipamento) || "-",
-    getEquipamentoStatus(equipamento),
-    equipamento.calibrado ? "Sim" : "Não",
-    equipamento.numeroCertificado || "-"
+    formatStatus(getEquipamentoStatus(equipamento)),
+    equipamento.calibrado || "-",
+    equipamento.certificado || equipamento.numeroCertificado || "-"
   ]);
 
   doc.autoTable({
-    head: [["ID", "Função", "Geom.", "Modelo", "Série", "Fabricante", "Responsável", "Localidade", "Status", "Calibrado", "Certificado"]],
+    head: [["ID", "Função", "Geom.", "Modelo", "Série", "Fabricante", "Usuário", "Localidade", "Status", "Calibração", "Certificado"]],
     body: equipamentoRows,
     startY: 90,
     styles: { fontSize: 8 }
@@ -1014,33 +1143,129 @@ const buildAuditPdf = async () => {
   cursorY = doc.lastAutoTable.finalY + 20;
   doc.setFontSize(12);
   doc.text("Histórico de medições", 40, cursorY);
-  const formatLeituras = (leituras) => {
-    if (!leituras || !leituras.length) return "-";
-    const joined = leituras.map((item) => String(item)).join(", ");
-    if (joined.length <= 40) return joined;
-    return `L1..L${leituras.length}`;
-  };
   const medicaoRows = medicoes.map((medicao) => {
     const leituras = medicao.leituras || [];
     const quantidade = leituras.length || (medicao.valor ? 1 : 0);
     return [
+      medicao.obra_id || "-",
+      medicao.relatorio_id || "-",
       medicao.equipamento_id || medicao.equip_id,
       medicao.user_id,
       medicao.tipoMedicao || medicao.tipo_medicao,
       medicao.media ?? medicao.valor ?? "-",
       quantidade,
-      formatLeituras(leituras),
+      formatLocal(medicao),
+      formatGps(medicao.gps),
       medicao.dataHora || medicao.data_hora
     ];
   });
   doc.autoTable({
-    head: [["Equipamento", "Usuário", "Tipo", "Média", "Qtd Leituras", "Leituras", "Data/Hora"]],
+    head: [["Obra", "Relatório", "Equip.", "Usuário", "Tipo", "Valor (Média)", "N Leituras", "Local", "GPS", "Data/Hora"]],
     body: medicaoRows,
     startY: cursorY + 10,
     styles: { fontSize: 8 }
   });
 
-  doc.save(`auditoria-medlux-${now.toISOString().slice(0, 10)}.pdf`);
+  doc.save(`auditoria-global-medlux-${now.toISOString().slice(0, 10)}.pdf`);
+};
+
+const buildObraPdf = async () => {
+  const obraValue = normalizeText(obraFilter.value).toUpperCase();
+  const relatorioValue = normalizeText(relatorioFilter.value).toUpperCase();
+  if (!obraValue && !relatorioValue) {
+    setStatusMessage("Informe uma obra ou ID de relatório para gerar o PDF.");
+    return;
+  }
+  const filtradas = medicoes.filter((medicao) => {
+    const matchObra = obraValue ? (medicao.obra_id || "").toUpperCase() === obraValue : true;
+    const matchRelatorio = relatorioValue ? (medicao.relatorio_id || "").toUpperCase() === relatorioValue : true;
+    return matchObra && matchRelatorio;
+  });
+  if (!filtradas.length) {
+    setStatusMessage("Nenhuma medição encontrada para o filtro informado.");
+    return;
+  }
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+  const now = new Date();
+  doc.setFontSize(18);
+  doc.text("Relatório por Obra MEDLUX", 40, 40);
+  doc.setFontSize(11);
+  doc.text(`Obra: ${obraValue || "-"}`, 40, 64);
+  doc.text(`Relatório: ${relatorioValue || "-"}`, 40, 80);
+  doc.text(`Gerado em: ${now.toLocaleString("pt-BR")}`, 40, 96);
+  doc.text(`Responsável técnico: ${responsavelTecnico.value || activeSession?.nome || "-"}`, 40, 112);
+  let currentY = 130;
+  if (obraResumo.value) {
+    doc.text("Resumo:", 40, currentY);
+    doc.setFontSize(10);
+    const resumoLines = doc.splitTextToSize(obraResumo.value, 520);
+    doc.text(resumoLines, 40, currentY + 16);
+    currentY += 16 + resumoLines.length * 12;
+  }
+
+  const primeiroGps = filtradas.find((item) => item.gps?.lat !== null && item.gps?.lng !== null);
+  if (primeiroGps) {
+    const link = `https://www.openstreetmap.org/?mlat=${primeiroGps.gps.lat}&mlon=${primeiroGps.gps.lng}#map=18/${primeiroGps.gps.lat}/${primeiroGps.gps.lng}`;
+    doc.setFontSize(10);
+    const linkY = currentY + 14;
+    if (doc.textWithLink) {
+      doc.textWithLink("Abrir mapa da obra", 40, linkY, { url: link });
+    } else {
+      doc.text(`Mapa: ${link}`, 40, linkY);
+    }
+    currentY = linkY + 16;
+  }
+
+  const resumoStart = currentY + 10;
+  doc.setFontSize(12);
+  doc.text("Resumo das medições", 40, resumoStart);
+  const resumoRows = filtradas.map((medicao) => [
+    medicao.equipamento_id || medicao.equip_id,
+    medicao.tipoMedicao || medicao.tipo_medicao,
+    medicao.media ?? medicao.valor ?? "-",
+    (medicao.leituras || []).length || 1,
+    formatLocal(medicao),
+    medicao.dataHora || medicao.data_hora
+  ]);
+  doc.autoTable({
+    head: [["Equip.", "Tipo", "Valor (Média)", "N Leituras", "Local", "Data/Hora"]],
+    body: resumoRows,
+    startY: resumoStart + 10,
+    styles: { fontSize: 8 }
+  });
+
+  let cursorY = doc.lastAutoTable.finalY + 20;
+  doc.setFontSize(12);
+  doc.text("Fotos da obra", 40, cursorY);
+  cursorY += 10;
+  const fotos = filtradas.flatMap((medicao) => medicao.fotos || []);
+  const limitFotos = fotos.slice(0, 12);
+  const thumbSize = 110;
+  let x = 40;
+  let y = cursorY + 10;
+  for (const foto of limitFotos) {
+    try {
+      const dataUrl = await blobToDataUrl(foto.blob);
+      const format = dataUrl.includes("image/png") ? "PNG" : "JPEG";
+      doc.addImage(dataUrl, format, x, y, thumbSize, thumbSize);
+      x += thumbSize + 12;
+      if (x + thumbSize > 560) {
+        x = 40;
+        y += thumbSize + 20;
+      }
+      if (y + thumbSize > 760) {
+        doc.addPage();
+        x = 40;
+        y = 60;
+      }
+    } catch (error) {
+      // Ignore failed photos
+    }
+  }
+
+  doc.save(`obra-${obraValue || relatorioValue}-${now.toISOString().slice(0, 10)}.pdf`);
 };
 
 const renderAll = () => {
@@ -1111,7 +1336,7 @@ const handleSort = (event) => {
 
 const updateGeometriaState = () => {
   const funcao = formFields.funcao.value;
-  const isHorizontal = funcao === "Horizontal";
+  const isHorizontal = funcao === "HORIZONTAL";
   formFields.geometria.disabled = !isHorizontal;
   const geometryField = formFields.geometria.closest(".field");
   if (geometryField) geometryField.style.display = isHorizontal ? "" : "none";
@@ -1159,7 +1384,8 @@ importBulk.addEventListener("click", handleImportBulk);
 exportCsv.addEventListener("click", handleExportCsv);
 resetData.addEventListener("click", handleReset);
 
-generateAuditPdf.addEventListener("click", buildAuditPdf);
+generateGlobalPdf.addEventListener("click", buildGlobalPdf);
+generateObraPdf.addEventListener("click", buildObraPdf);
 
 quickSearch.addEventListener("input", renderQuickSearch);
 clearSearch.addEventListener("click", () => {
