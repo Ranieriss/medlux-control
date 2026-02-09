@@ -31,6 +31,7 @@
         <button class="tab" type="button" data-section="equipamentos" aria-selected="false">Equipamentos</button>
         <button class="tab" type="button" data-section="usuarios" aria-selected="false">Usuários</button>
         <button class="tab" type="button" data-section="vinculos" aria-selected="false">Vínculos</button>
+        <button class="tab" type="button" data-section="obras" aria-selected="false">Obras</button>
         <button class="tab" type="button" data-section="auditoria" aria-selected="false">Auditoria &amp; Backup</button>
       </nav>
 
@@ -213,6 +214,34 @@
           </div>
         </section>
 
+        <section class="panel" data-panel="obras" hidden>
+          <div class="panel-head">
+            <div>
+              <h2>Obras</h2>
+              <p>Localização técnica, escopo e rastreabilidade por obra.</p>
+            </div>
+            <div class="toolbar">
+              <button class="btn" id="newObra" type="button">Nova obra</button>
+            </div>
+          </div>
+          <div class="table-wrapper">
+            <table class="table" aria-label="Tabela de obras">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Nome</th>
+                  <th>Rodovia</th>
+                  <th>KM</th>
+                  <th>Cidade/UF</th>
+                  <th>Cliente</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="obrasBody"></tbody>
+            </table>
+          </div>
+        </section>
+
         <section class="panel" data-panel="auditoria" hidden>
           <div class="panel-head">
             <div>
@@ -242,6 +271,18 @@
                 <div class="field">
                   <label for="responsavelTecnico">Responsável técnico</label>
                   <input id="responsavelTecnico" placeholder="Nome e CREA" />
+                </div>
+                <div class="field">
+                  <label for="faixaFilter">Faixa</label>
+                  <input id="faixaFilter" placeholder="Faixa 1" />
+                </div>
+                <div class="field">
+                  <label for="linhaFilter">Linha</label>
+                  <input id="linhaFilter" placeholder="Bordo/Eixo" />
+                </div>
+                <div class="field">
+                  <label for="estacaoFilter">Estação</label>
+                  <input id="estacaoFilter" placeholder="Est. 1" />
                 </div>
                 <div class="field field-full">
                   <label for="obraResumo">Resumo</label>
@@ -381,7 +422,7 @@
             </select>
           </div>
           <div class="field">
-            <label for="equipResponsavel">Usuário atual</label>
+            <label for="equipResponsavel">Usuário responsável (derivado do vínculo)</label>
             <input id="equipResponsavel" name="usuarioAtual" />
           </div>
           <div class="field">
@@ -432,7 +473,7 @@
             <label for="usuarioRole">Perfil *</label>
             <select id="usuarioRole" name="role" required>
               <option value="ADMIN">ADMIN</option>
-              <option value="OPERADOR">OPERADOR</option>
+              <option value="USER">USER</option>
             </select>
           </div>
           <div class="field">
@@ -497,6 +538,65 @@
     </div>
   </div>
 
+  <div class="modal" id="obraModal" aria-hidden="true" role="dialog" aria-labelledby="obraTitle">
+    <div class="modal-card">
+      <header class="modal-head">
+        <div>
+          <h2 id="obraTitle">Nova obra</h2>
+          <p class="muted">Cadastre o trecho e o responsável técnico.</p>
+        </div>
+        <button class="icon-btn" type="button" id="closeObra" aria-label="Fechar">×</button>
+      </header>
+      <form id="obraForm" class="modal-body">
+        <div class="form-grid">
+          <div class="field">
+            <label for="obraId">ID da obra *</label>
+            <input id="obraId" name="idObra" required />
+          </div>
+          <div class="field">
+            <label for="obraNome">Nome *</label>
+            <input id="obraNome" name="nomeObra" required />
+          </div>
+          <div class="field">
+            <label for="obraRodovia">Rodovia</label>
+            <input id="obraRodovia" name="rodovia" />
+          </div>
+          <div class="field">
+            <label for="obraKmInicio">KM início</label>
+            <input id="obraKmInicio" name="kmInicio" />
+          </div>
+          <div class="field">
+            <label for="obraKmFim">KM fim</label>
+            <input id="obraKmFim" name="kmFim" />
+          </div>
+          <div class="field">
+            <label for="obraCidade">Cidade/UF</label>
+            <input id="obraCidade" name="cidadeUF" />
+          </div>
+          <div class="field">
+            <label for="obraCliente">Concessionária/Cliente</label>
+            <input id="obraCliente" name="concessionariaCliente" />
+          </div>
+          <div class="field">
+            <label for="obraResponsavel">Responsável técnico</label>
+            <input id="obraResponsavel" name="responsavelTecnico" />
+          </div>
+          <div class="field field-full">
+            <label for="obraObs">Observações</label>
+            <textarea id="obraObs" name="observacoes" rows="3"></textarea>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <span class="muted" id="obraHint">Campos com * são obrigatórios.</span>
+          <div class="action-buttons">
+            <button class="btn secondary" type="button" id="cancelObra">Cancelar</button>
+            <button class="btn" type="submit">Salvar</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div class="modal" id="loginModal" aria-hidden="true" role="dialog" aria-labelledby="loginTitle">
     <div class="modal-card">
       <header class="modal-head">
@@ -517,7 +617,7 @@
           </div>
         </div>
         <div class="modal-actions">
-          <span class="muted" id="loginHint">Use o usuário ADMIN e PIN 1234 no primeiro acesso.</span>
+          <span class="muted" id="loginHint">Use o usuário ADMIN e PIN 2308 no primeiro acesso.</span>
           <div class="action-buttons">
             <button class="btn" type="submit">Entrar</button>
           </div>

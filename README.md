@@ -7,7 +7,7 @@ Sistema offline-first para gestão de equipamentos MEDLUX, usuários, vínculos 
 1. Acesse a landing page:
    - `https://ranieriss.github.io/medlux-control/front-end/index.html`
 2. Clique em **MEDLUX Control** para o módulo de gestão (**somente ADMIN**).
-3. Clique em **MEDLUX Reflective Control** para registrar medições (**OPERADOR ou ADMIN**).
+3. Clique em **MEDLUX Reflective Control** para registrar medições (**USER ou ADMIN**).
 4. O módulo funciona offline-first e salva os registros no navegador via IndexedDB.
    - As bibliotecas de Excel/PDF são carregadas via CDN na primeira execução e ficam cacheadas em seguida.
 
@@ -17,14 +17,15 @@ Sistema offline-first para gestão de equipamentos MEDLUX, usuários, vínculos 
 - PIN armazenado via **PBKDF2 + SHA-256 (100000 iterações + salt)**.
 - Primeiro acesso (ADMIN padrão):
   - **Usuário:** `ADMIN`
-  - **PIN:** `1234`
+  - **PIN:** `2308`
   - Após o login, o ADMIN pode criar operadores e vínculos ativos.
 
 ### Criar operador e vínculo
 
 1. No **MEDLUX Control**, abra a aba **Usuários** e clique em **Novo usuário**.
-2. Informe o ID, nome, perfil **OPERADOR** e PIN.
+2. Informe o ID, nome, perfil **USER** e PIN.
 3. Na aba **Vínculos**, selecione o equipamento e o operador, defina a data de início e salve.
+4. Cadastre a **Obra** na aba **Obras** para liberar a referência nas medições.
 
 ## Equipamentos
 
@@ -41,18 +42,22 @@ Sistema offline-first para gestão de equipamentos MEDLUX, usuários, vínculos 
 ## Medições (Reflective Control)
 
 - Operadores só podem registrar medições quando possuem vínculo ativo com o equipamento.
-- Cada medição permite definir a **quantidade de leituras** (padrão 10), registrar cada leitura e salvar a **média** calculada automaticamente.
+- Cada medição registra **subtipo**, **localização (GPS/endereço)**, **fotos** e **identificador do relatório**.
+- Regras de média:
+  - **Horizontal**: 10 leituras por estação, descarta maior e menor e calcula média das 8 restantes.
+  - **Vertical/Tachas**: média simples.
+  - **Legenda**: 3 leituras por letra (média por letra).
+  - **Placas**: 5 leituras por cor e ângulo (0°/90°), média simples.
 - ADMIN pode registrar medições para qualquer equipamento e visualizar todas.
   - Se não houver login ativo, o app solicita o login local antes de liberar o formulário.
 
-## Auditoria em PDF
+## Relatórios em PDF
 
-- Na aba **Auditoria & Backup**, clique em **Gerar PDF de Auditoria**.
-- O PDF inclui:
-  - Lista completa de equipamentos.
-  - Histórico de vínculos.
-  - Histórico de medições (com **média**, **quantidade de leituras** e leituras compactadas quando necessário).
-  - Auditor (ADMIN) e data/hora de geração.
+- **MEDLUX Control (ADMIN)**:
+  - **Relatório Global**: inclui equipamentos, vínculos e medições com médias calculadas, coordenadas e anexos.
+  - **Relatório por Obra**: capa com identificador, dados da obra, período, resumo estatístico e fotos.
+- **MEDLUX Reflective Control (USER)**:
+  - **Relatório Individual** apenas das próprias medições (por obra/período).
 
 ## Backup / Importação
 
@@ -65,7 +70,7 @@ Sistema offline-first para gestão de equipamentos MEDLUX, usuários, vínculos 
     - Identificação, Função, Geometria, Modelo, Nº de série, Data de aquisição, Calibrado, Data de calibração,
       Nº Certificado, Fabricante, Usuário responsável, Localidade (Cidade/UF), Data entrega usuário, Status.
 - **Importação em lote (colar):** cole conteúdo do Excel (TSV) ou CSV com cabeçalhos padrão.
-- **Importar CSV:** use um CSV simples com cabeçalhos similares ao padrão da planilha (exemplo em `front-end/medlux-control/seed.csv`).
+- **Importar CSV:** use CSV RFC 4180 (vírgula e escape com aspas) com cabeçalhos padrão (exemplo em `front-end/medlux-control/seed.csv`).
 - **Resetar dados locais:** remove todo o conteúdo salvo no IndexedDB.
 
 ## Instalar como PWA
@@ -76,8 +81,12 @@ Sistema offline-first para gestão de equipamentos MEDLUX, usuários, vínculos 
 
 ## Checklist de testes
 
-- [ ] Criar operador e PIN.
+- [ ] Criar usuário **USER** e PIN.
 - [ ] Cadastrar equipamento horizontal (15m), outro (30m) e um vertical (sem geometria).
 - [ ] Criar vínculo ativo do operador com um equipamento.
-- [ ] Logar como operador no Reflective e salvar medição com 10 leituras (média calculada).
-- [ ] Logar como ADMIN no Control e gerar PDF (deve incluir medições do operador com média e quantidade).
+- [ ] Cadastrar uma **Obra**.
+- [ ] Logar como USER no Reflective e salvar medição horizontal com 10 leituras (média com descarte).
+- [ ] Capturar GPS e anexar fotos (visor + local).
+- [ ] Gerar **Relatório Individual** no Reflective.
+- [ ] Logar como ADMIN no Control e gerar **Relatório Global** e **Relatório por Obra**.
+- [ ] Exportar CSV e reimportar (round-trip).
