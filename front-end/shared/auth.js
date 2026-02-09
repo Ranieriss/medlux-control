@@ -135,14 +135,14 @@ const requireAuth = ({ allowRoles = [], redirectTo = "", onMissing = null, onUna
   if (!session) {
     if (typeof onMissing === "function") onMissing();
     if (redirectTo) window.location.href = redirectTo;
-    return null;
+    return false;
   }
   if (allowRoles.length && !allowRoles.includes(session.role)) {
     if (typeof onUnauthorized === "function") onUnauthorized(session);
     if (redirectTo) window.location.href = redirectTo;
-    return null;
+    return false;
   }
-  return session;
+  return true;
 };
 
 export {
