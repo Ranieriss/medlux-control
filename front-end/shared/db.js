@@ -40,11 +40,13 @@ const normalizeEquipamentoRecord = (record = {}) => {
   const updated_at = record.updated_at || record.updatedAt || created_at;
   const statusOperacional = record.statusOperacional || record.status || "Stand-by";
   const localidadeCidadeUF = record.localidadeCidadeUF || record.localidade || "";
+  const funcao = record.funcao || "";
+  const geometria = funcao === "Horizontal" ? (record.geometria || "") : "";
   return {
     id: record.id || "",
     modelo: record.modelo || "",
-    funcao: record.funcao || "",
-    geometria: record.geometria || "",
+    funcao,
+    geometria,
     numeroSerie: record.numeroSerie || record.numero_serie || "",
     dataAquisicao: record.dataAquisicao || record.data_aquisicao || "",
     calibrado: record.calibrado === true || record.calibrado === "true",

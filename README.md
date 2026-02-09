@@ -6,8 +6,8 @@ Sistema offline-first para gestão de equipamentos MEDLUX, usuários, vínculos 
 
 1. Acesse a landing page:
    - `https://ranieriss.github.io/medlux-control/front-end/index.html`
-2. Clique em **MEDLUX Control** para o módulo de gestão (ADMIN).
-3. Clique em **MEDLUX Reflective Control** para registrar medições (OPERADOR ou ADMIN).
+2. Clique em **MEDLUX Control** para o módulo de gestão (**somente ADMIN**).
+3. Clique em **MEDLUX Reflective Control** para registrar medições (**OPERADOR ou ADMIN**).
 4. O módulo funciona offline-first e salva os registros no navegador via IndexedDB.
    - As bibliotecas de Excel/PDF são carregadas via CDN na primeira execução e ficam cacheadas em seguida.
 
@@ -18,6 +18,7 @@ Sistema offline-first para gestão de equipamentos MEDLUX, usuários, vínculos 
 - Primeiro acesso (ADMIN padrão):
   - **Usuário:** `ADMIN`
   - **PIN:** `1234`
+  - Após o login, o ADMIN pode criar operadores e vínculos ativos.
 
 ### Criar operador e vínculo
 
@@ -42,6 +43,7 @@ Sistema offline-first para gestão de equipamentos MEDLUX, usuários, vínculos 
 - Operadores só podem registrar medições quando possuem vínculo ativo com o equipamento.
 - Cada medição permite definir a **quantidade de leituras** (padrão 10), registrar cada leitura e salvar a **média** calculada automaticamente.
 - ADMIN pode registrar medições para qualquer equipamento e visualizar todas.
+  - Se não houver login ativo, o app solicita o login local antes de liberar o formulário.
 
 ## Auditoria em PDF
 

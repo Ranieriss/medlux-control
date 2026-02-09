@@ -192,7 +192,7 @@ const ensureLogin = async () => {
   activeSession = requireAuth({
     allowRoles: ["ADMIN"],
     onMissing: () => openModal(loginModal),
-    onUnauthorized: () => { window.location.href = "../medlux-reflective-control/index.html"; }
+    onUnauthorized: () => { window.location.href = "../index.html"; }
   });
   return activeSession;
 };

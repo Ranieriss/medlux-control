@@ -159,10 +159,10 @@
         <div class="panel">
           <h2>Atribuições do Aplicativo</h2>
           <ul>
-            <li>Inventário e rastreabilidade de equipamentos</li>
-            <li>Gestão de usuários, vínculos e termos de cautela</li>
-            <li>Medições de retrorrefletância com controle por perfil</li>
-            <li>Auditoria técnica com geração de relatórios em PDF</li>
+            <li>Inventário técnico e rastreabilidade operacional</li>
+            <li>Administração de usuários, vínculos e cautelas</li>
+            <li>Medições de retrorrefletância com controle de perfil</li>
+            <li>Auditoria e relatórios PDF com histórico completo</li>
           </ul>
         </div>
 
@@ -200,7 +200,11 @@
 
     document.getElementById("btnControl").addEventListener("click", () => {
       const session = getSession();
-      if (session && session.role !== "ADMIN") {
+      if (!session) {
+        window.location.href = "./medlux-control/index.html";
+        return;
+      }
+      if (session.role !== "ADMIN") {
         window.location.href = "./medlux-reflective-control/index.html";
         return;
       }
