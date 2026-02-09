@@ -22,6 +22,9 @@ import {
 } from "./db.js";
 import { ensureDefaultAdmin, authenticate, updatePin, createUserWithPin, logout, requireAuth, getSession } from "../shared/auth.js";
 
+// normalizarTexto precisa ficar no topo para evitar TDZ na avaliação do módulo.
+const normalizarTexto = (value) => String(value || "").trim().replace(/\s+/g, " ");
+
 const tabs = document.querySelectorAll(".tab");
 const panels = document.querySelectorAll("[data-panel]");
 const statusCards = document.getElementById("statusCards");
@@ -143,7 +146,7 @@ const FUNCAO_LABELS = {
   TACHAS: "Tachas"
 };
 
-const normalizeText = (value) => String(value || "").trim().replace(/\s+/g, " ");
+const normalizeText = normalizarTexto;
 const normalizeId = (value) => normalizeText(value).toUpperCase();
 const normalizeUserId = (value) => normalizeText(value);
 const normalizeUserIdComparable = (value) => normalizeText(value).toUpperCase();
