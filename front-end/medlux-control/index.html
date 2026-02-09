@@ -51,20 +51,20 @@
               <p class="muted">Filtros rápidos por função</p>
               <div class="chip-group" id="quickTipoFilters">
                 <button class="chip active" type="button" data-filter-type="">Todos</button>
-                <button class="chip" type="button" data-filter-type="Horizontal">Horizontal</button>
-                <button class="chip" type="button" data-filter-type="Vertical">Vertical</button>
-                <button class="chip" type="button" data-filter-type="Tachas">Tachas</button>
+                <button class="chip" type="button" data-filter-type="HORIZONTAL">Horizontal</button>
+                <button class="chip" type="button" data-filter-type="VERTICAL">Vertical</button>
+                <button class="chip" type="button" data-filter-type="TACHAS">Tachas</button>
               </div>
             </div>
             <div>
               <p class="muted">Filtros rápidos por status</p>
               <div class="chip-group" id="quickStatusFilters">
                 <button class="chip active" type="button" data-filter-status="">Todos</button>
-                <button class="chip" type="button" data-filter-status="Obra">Obra</button>
-                <button class="chip" type="button" data-filter-status="Lab Tintas">Lab Tintas</button>
-                <button class="chip" type="button" data-filter-status="Demonstração">Demonstração</button>
-                <button class="chip" type="button" data-filter-status="Vendido">Vendido</button>
-                <button class="chip" type="button" data-filter-status="Stand-by">Stand-by</button>
+                <button class="chip" type="button" data-filter-status="OBRA">Obra</button>
+                <button class="chip" type="button" data-filter-status="LAB_TINTAS">Lab Tintas</button>
+                <button class="chip" type="button" data-filter-status="DEMONSTRACAO">Demonstração</button>
+                <button class="chip" type="button" data-filter-status="VENDIDO">Vendido</button>
+                <button class="chip" type="button" data-filter-status="STAND_BY">Stand-by</button>
               </div>
             </div>
           </div>
@@ -109,20 +109,20 @@
               <label for="typeFilter">Função</label>
               <select id="typeFilter">
                 <option value="">Todos</option>
-                <option value="Horizontal">Horizontal</option>
-                <option value="Vertical">Vertical</option>
-                <option value="Tachas">Tachas</option>
+                <option value="HORIZONTAL">Horizontal</option>
+                <option value="VERTICAL">Vertical</option>
+                <option value="TACHAS">Tachas</option>
               </select>
             </div>
             <div class="filter">
               <label for="statusFilter">Status</label>
               <select id="statusFilter">
                 <option value="">Todos</option>
-                <option value="Obra">Obra</option>
-                <option value="Lab Tintas">Lab Tintas</option>
-                <option value="Demonstração">Demonstração</option>
-                <option value="Vendido">Vendido</option>
-                <option value="Stand-by">Stand-by</option>
+                <option value="OBRA">Obra</option>
+                <option value="LAB_TINTAS">Lab Tintas</option>
+                <option value="DEMONSTRACAO">Demonstração</option>
+                <option value="VENDIDO">Vendido</option>
+                <option value="STAND_BY">Stand-by</option>
               </select>
             </div>
             <div class="filter">
@@ -143,7 +143,7 @@
                   <th><button class="sort-btn" type="button" data-sort="funcao">Função</button></th>
                   <th><button class="sort-btn" type="button" data-sort="modelo">Modelo</button></th>
                   <th><button class="sort-btn" type="button" data-sort="numeroSerie">Nº Série</button></th>
-                  <th><button class="sort-btn" type="button" data-sort="usuarioResponsavel">Responsável</button></th>
+                  <th><button class="sort-btn" type="button" data-sort="usuarioAtual">Usuário atual</button></th>
                   <th>Status</th>
                   <th>Localidade</th>
                   <th>Ações</th>
@@ -223,9 +223,32 @@
 
           <div class="audit-grid">
             <div class="subpanel">
-              <h3>Relatório de auditoria</h3>
-              <p class="muted">Gera um PDF completo com resumo, vínculos e medições.</p>
-              <button class="btn" id="generateAuditPdf" type="button">Gerar PDF de Auditoria</button>
+              <h3>Relatório global</h3>
+              <p class="muted">Gera um PDF completo com equipamentos e todas as medições.</p>
+              <button class="btn" id="generateGlobalPdf" type="button">Gerar PDF Global</button>
+            </div>
+            <div class="subpanel">
+              <h3>Relatório por obra</h3>
+              <p class="muted">Filtra por obra ou ID de relatório e inclui fotos e link do mapa.</p>
+              <div class="form-grid">
+                <div class="field">
+                  <label for="obraFilter">Obra</label>
+                  <input id="obraFilter" placeholder="OBRA-001" />
+                </div>
+                <div class="field">
+                  <label for="relatorioFilter">ID do relatório</label>
+                  <input id="relatorioFilter" placeholder="REL-2024-001" />
+                </div>
+                <div class="field">
+                  <label for="responsavelTecnico">Responsável técnico</label>
+                  <input id="responsavelTecnico" placeholder="Nome e CREA" />
+                </div>
+                <div class="field field-full">
+                  <label for="obraResumo">Resumo</label>
+                  <textarea id="obraResumo" rows="3" placeholder="Resumo executivo da obra"></textarea>
+                </div>
+              </div>
+              <button class="btn" id="generateObraPdf" type="button">Gerar PDF por Obra</button>
             </div>
             <div class="subpanel">
               <h3>Exportar backup</h3>
@@ -307,9 +330,9 @@
             <label for="equipFuncao">Função *</label>
             <select id="equipFuncao" name="funcao" required>
               <option value="">Selecione</option>
-              <option value="Horizontal">Horizontal</option>
-              <option value="Vertical">Vertical</option>
-              <option value="Tachas">Tachas</option>
+              <option value="HORIZONTAL">Horizontal</option>
+              <option value="VERTICAL">Vertical</option>
+              <option value="TACHAS">Tachas</option>
             </select>
           </div>
           <div class="field">
@@ -338,28 +361,28 @@
           </div>
           <div class="field">
             <label for="equipCertificado">Nº Certificado</label>
-            <input id="equipCertificado" name="numeroCertificado" />
+            <input id="equipCertificado" name="certificado" />
           </div>
           <div class="field">
             <label for="equipStatus">Status</label>
-            <select id="equipStatus" name="status">
-              <option value="Obra">Obra</option>
-              <option value="Lab Tintas">Lab Tintas</option>
-              <option value="Demonstração">Demonstração</option>
-              <option value="Vendido">Vendido</option>
-              <option value="Stand-by">Stand-by</option>
+            <select id="equipStatus" name="statusLocal">
+              <option value="OBRA">Obra</option>
+              <option value="LAB_TINTAS">Lab Tintas</option>
+              <option value="DEMONSTRACAO">Demonstração</option>
+              <option value="VENDIDO">Vendido</option>
+              <option value="STAND_BY">Stand-by</option>
             </select>
           </div>
           <div class="field">
             <label for="equipCalibrado">Calibrado</label>
             <select id="equipCalibrado" name="calibrado">
-              <option value="true">Sim</option>
-              <option value="false">Não</option>
+              <option value="Sim">Sim</option>
+              <option value="Não">Não</option>
             </select>
           </div>
           <div class="field">
-            <label for="equipResponsavel">Responsável atual</label>
-            <input id="equipResponsavel" name="usuarioResponsavel" />
+            <label for="equipResponsavel">Usuário atual</label>
+            <input id="equipResponsavel" name="usuarioAtual" />
           </div>
           <div class="field">
             <label for="equipLocalidade">Localidade (Cidade/UF)</label>
