@@ -1,7 +1,7 @@
 import {
-  getUsuarioById,
-  saveUsuario,
-  getAllUsuarios,
+  getUserById,
+  saveUser,
+  getAllUsers,
   saveAuditoria
 } from "./db.js";
 
@@ -38,43 +38,53 @@ const hashPin = async (pin, salt) => {
 };
 
 const ensureDefaultAdmin = async () => {
-  const users = await getAllUsuarios();
+  const users = await getAllUsers();
   if (users.length) return;
   const salt = generateSalt();
   const pinHash = await hashPin("1234", salt);
-  await saveUsuario({
-    user_id: "ADMIN",
+  await saveUser({
+    id: "ADMIN",
     nome: "Administrador",
     role: "ADMIN",
-    pin_hash: pinHash,
+    status: "ATIVO",
+    pinHash,
     salt: toBase64(salt),
-    ativo: true
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
   });
 };
 
-const createUserWithPin = async ({ user_id, nome, role, ativo, pin }) => {
+const createUserWithPin = async ({ user_id, id, nome, role, ativo, status, pin }) => {
   const salt = generateSalt();
   const pinHash = await hashPin(pin, salt);
+  const resolvedStatus = status || (ativo === false ? "INATIVO" : "ATIVO");
+  const userId = id || user_id;
   const usuario = {
-    user_id,
+    id: userId,
+    user_id: userId,
     nome,
     role,
-    ativo,
+    status: resolvedStatus,
+    ativo: resolvedStatus === "ATIVO",
+    pinHash,
     pin_hash: pinHash,
-    salt: toBase64(salt)
+    salt: toBase64(salt),
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
   };
-  await saveUsuario(usuario);
+  await saveUser(usuario);
   return usuario;
 };
 
 const authenticate = async (userId, pin) => {
-  const usuario = await getUsuarioById(userId);
-  if (!usuario || !usuario.ativo) return { success: false, message: "Usuário inválido ou inativo." };
+  const usuario = await getUserById(userId);
+  if (!usuario || usuario.status !== "ATIVO") return { success: false, message: "Usuário inválido/inativo" };
   const salt = fromBase64(usuario.salt);
   const pinHash = await hashPin(pin, salt);
-  if (pinHash !== usuario.pin_hash) return { success: false, message: "PIN inválido." };
+  if (pinHash !== usuario.pinHash) return { success: false, message: "PIN incorreto" };
   const session = {
-    user_id: usuario.user_id,
+    id: usuario.id,
+    user_id: usuario.id,
     nome: usuario.nome,
     role: usuario.role,
     loginAt: new Date().toISOString()
@@ -85,7 +95,7 @@ const authenticate = async (userId, pin) => {
     entity: "login",
     action: "login",
     data_hora: new Date().toISOString(),
-    payload: { user_id: usuario.user_id }
+    payload: { user_id: usuario.id }
   });
   return { success: true, session };
 };
@@ -105,17 +115,34 @@ const getSession = () => {
 };
 
 const updatePin = async (userId, pin) => {
-  const usuario = await getUsuarioById(userId);
+  const usuario = await getUserById(userId);
   if (!usuario) return null;
   const salt = generateSalt();
   const pinHash = await hashPin(pin, salt);
   const updated = {
     ...usuario,
+    pinHash,
     pin_hash: pinHash,
-    salt: toBase64(salt)
+    salt: toBase64(salt),
+    updated_at: new Date().toISOString()
   };
-  await saveUsuario(updated);
+  await saveUser(updated);
   return updated;
+};
+
+const requireAuth = ({ allowRoles = [], redirectTo = "", onMissing = null, onUnauthorized = null } = {}) => {
+  const session = getSession();
+  if (!session) {
+    if (typeof onMissing === "function") onMissing();
+    if (redirectTo) window.location.href = redirectTo;
+    return null;
+  }
+  if (allowRoles.length && !allowRoles.includes(session.role)) {
+    if (typeof onUnauthorized === "function") onUnauthorized(session);
+    if (redirectTo) window.location.href = redirectTo;
+    return null;
+  }
+  return session;
 };
 
 export {
@@ -124,5 +151,6 @@ export {
   authenticate,
   logout,
   getSession,
-  updatePin
+  updatePin,
+  requireAuth
 };

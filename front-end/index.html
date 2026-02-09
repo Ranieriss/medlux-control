@@ -150,19 +150,19 @@
       <header>
         <div class="brand">
           <h1><span class="dot"></span>MEDLUX</h1>
-          <p>Sistema offline-first para gestão de equipamentos, cautelas e medições técnicas.</p>
+          <p>Sistema offline-first para gestão técnica de equipamentos, cautelas e medições.</p>
         </div>
         <div class="badge">Versão Web • GitHub Pages</div>
       </header>
 
       <div class="grid">
         <div class="panel">
-          <h2>O que este app faz</h2>
+          <h2>Atribuições do Aplicativo</h2>
           <ul>
-            <li>Cadastro de equipamentos, usuários e vínculos</li>
-            <li>Controle de cautela (entrega / devolução / termos)</li>
-            <li>Medições de retrorrefletância com acesso restrito</li>
-            <li>Dashboard de status e auditoria técnica em PDF</li>
+            <li>Inventário e rastreabilidade de equipamentos</li>
+            <li>Gestão de usuários, vínculos e termos de cautela</li>
+            <li>Medições de retrorrefletância com controle por perfil</li>
+            <li>Auditoria técnica com geração de relatórios em PDF</li>
           </ul>
         </div>
 
@@ -195,8 +195,15 @@
     </section>
   </main>
 
-  <script>
+  <script type="module">
+    import { getSession } from "./shared/auth.js";
+
     document.getElementById("btnControl").addEventListener("click", () => {
+      const session = getSession();
+      if (session && session.role !== "ADMIN") {
+        window.location.href = "./medlux-reflective-control/index.html";
+        return;
+      }
       window.location.href = "./medlux-control/index.html";
     });
 
