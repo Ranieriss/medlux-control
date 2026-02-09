@@ -3,114 +3,78 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>MEDLUX Control</title>
-  <link rel="manifest" href="./manifesto.webmanifesto" />
-
+  <title>MEDLUX</title>
   <style>
     :root{
-      --bg1:#070A12;
-      --bg2:#0C1328;
-      --card:#0f1a33cc;
-      --stroke:#23335f;
-      --text:#eaf0ff;
-      --muted:#b9c6ff;
-      --accent:#7c5cff;
-      --accent2:#00d4ff;
-      --shadow: 0 18px 45px rgba(0,0,0,.45);
-      --radius: 18px;
+      color-scheme: dark;
+      font-family: "Inter", system-ui, sans-serif;
+      background: #050a16;
+      color: #f8fbff;
     }
 
     *{ box-sizing:border-box; }
-    html,body{ height:100%; margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
-    body{
-      color:var(--text);
-      background:
-        radial-gradient(1200px 700px at 15% 10%, rgba(124,92,255,.35), transparent 55%),
-        radial-gradient(1000px 600px at 90% 20%, rgba(0,212,255,.20), transparent 60%),
-        linear-gradient(160deg, var(--bg1), var(--bg2));
+    body{ margin:0; background: linear-gradient(180deg, #050a16 0%, #060d1f 100%); }
+
+    .wrap{
+      min-height:100vh;
       display:flex;
       align-items:center;
       justify-content:center;
-      padding:18px;
-    }
-
-    .wrap{
-      width:min(980px, 100%);
-      display:grid;
-      gap:16px;
+      padding: 32px 18px;
     }
 
     .card{
-      background: var(--card);
-      border: 1px solid var(--stroke);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
+      width:min(960px, 100%);
+      background: rgba(10,14,28,0.95);
+      border: 1px solid rgba(255,255,255,.1);
+      border-radius: 24px;
+      box-shadow: 0 18px 40px rgba(0,0,0,.4);
       overflow:hidden;
     }
 
     header{
-      padding:22px 22px 14px 22px;
       display:flex;
-      align-items:flex-start;
+      align-items:center;
       justify-content:space-between;
-      gap:12px;
+      flex-wrap:wrap;
+      gap: 16px;
+      padding: 32px;
       border-bottom: 1px solid rgba(255,255,255,.06);
     }
 
     .brand h1{
-      margin:0;
-      font-size: clamp(22px, 3vw, 34px);
-      letter-spacing:.2px;
-    }
-    .brand p{
-      margin:8px 0 0;
-      color: var(--muted);
-      line-height:1.35;
-      max-width: 56ch;
+      font-size: 32px;
+      margin:0 0 8px 0;
     }
 
+    .brand p{ margin:0; color: rgba(232,238,255,.7); max-width: 520px; }
+
     .badge{
-      padding:8px 12px;
+      padding: 6px 12px;
       border-radius: 999px;
-      border: 1px solid rgba(255,255,255,.12);
-      background: rgba(255,255,255,.06);
-      color: var(--muted);
+      background: rgba(46,212,255,.14);
+      color: rgba(206,246,255,.9);
       font-size: 12px;
-      white-space:nowrap;
+      font-weight: 600;
+      letter-spacing: 0.2px;
+      text-transform: uppercase;
     }
 
     .grid{
       display:grid;
-      grid-template-columns: 1.15fr .85fr;
-      gap: 14px;
-      padding: 18px;
-    }
-
-    @media (max-width: 780px){
-      .grid{ grid-template-columns: 1fr; }
-      header{ flex-direction:column; align-items:flex-start; }
-      .badge{ align-self:flex-start; }
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 18px;
+      padding: 24px 32px;
     }
 
     .panel{
+      background: rgba(7,10,19,0.65);
+      border: 1px solid rgba(255,255,255,.06);
+      border-radius: 18px;
       padding: 18px;
-      border-radius: 14px;
-      border: 1px solid rgba(255,255,255,.08);
-      background: rgba(0,0,0,.14);
     }
 
-    .panel h2{
-      margin:0 0 10px;
-      font-size: 16px;
-      letter-spacing:.2px;
-      color: var(--text);
-    }
-    .panel ul{
-      margin:0;
-      padding-left: 18px;
-      color: var(--muted);
-      line-height:1.6;
-    }
+    .panel h2{ margin-top:0; }
 
     .actions{
       display:grid;
@@ -118,45 +82,36 @@
     }
 
     .btn{
-      appearance:none;
-      border: 1px solid rgba(255,255,255,.14);
-      background: rgba(255,255,255,.06);
-      color: var(--text);
-      padding: 14px 14px;
-      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(14,18,32,0.85);
+      color: #fff;
+      border-radius: 18px;
+      padding: 18px;
+      font-size: 16px;
       text-align:left;
       cursor:pointer;
-      transition: transform .08s ease, background .2s ease, border-color .2s ease;
-      box-shadow: 0 10px 26px rgba(0,0,0,.25);
-    }
-    .btn:active{ transform: scale(.985); }
-    .btn:hover{
-      background: rgba(255,255,255,.10);
-      border-color: rgba(255,255,255,.22);
+      display:flex;
+      flex-direction:column;
+      gap: 6px;
     }
 
     .btn .top{
       display:flex;
       align-items:center;
       justify-content:space-between;
-      gap: 10px;
-      margin-bottom: 6px;
+      gap: 12px;
     }
-    .btn .title{
-      font-weight: 700;
-      letter-spacing:.2px;
-      font-size: 15px;
-    }
-    .btn .pill{
-      font-size: 12px;
-      padding: 6px 10px;
+
+    .pill{
+      font-size: 11px;
+      background: rgba(46,212,255,.16);
+      color: rgba(206,246,255,.9);
+      padding: 4px 10px;
       border-radius: 999px;
-      background: linear-gradient(90deg, rgba(124,92,255,.35), rgba(0,212,255,.22));
-      border: 1px solid rgba(255,255,255,.16);
-      color: var(--text);
-      white-space:nowrap;
+      text-transform: uppercase;
     }
-    .btn .desc{
+
+    .desc{
       margin:0;
       color: var(--muted);
       font-size: 13px;
@@ -182,7 +137,7 @@
 
     .dot{
       width:8px;height:8px;border-radius:999px;display:inline-block;
-      background: radial-gradient(circle at 30% 30%, #fff, rgba(255,255,255,.3)), linear-gradient(90deg, var(--accent), var(--accent2));
+      background: radial-gradient(circle at 30% 30%, #fff, rgba(255,255,255,.3)), linear-gradient(90deg, #00d4ff, #3c9bff);
       box-shadow: 0 0 18px rgba(0,212,255,.25);
       margin-right:8px;
     }
@@ -194,39 +149,38 @@
     <section class="card">
       <header>
         <div class="brand">
-          <h1><span class="dot"></span>medlux-control</h1>
-          <p>Sistema de gerenciamento de equipamentos MEDLUX (controle, calibração, cautela e rastreabilidade).</p>
+          <h1><span class="dot"></span>MEDLUX</h1>
+          <p>Sistema offline-first para gestão de equipamentos, cautelas e medições técnicas.</p>
         </div>
-        <div class="badge">Versão inicial • Web (GitHub Pages)</div>
+        <div class="badge">Versão Web • GitHub Pages</div>
       </header>
 
       <div class="grid">
         <div class="panel">
-          <h2>O que este app vai fazer</h2>
+          <h2>O que este app faz</h2>
           <ul>
-            <li>Cadastro de retrorrefletômetros e responsáveis</li>
+            <li>Cadastro de equipamentos, usuários e vínculos</li>
             <li>Controle de cautela (entrega / devolução / termos)</li>
-            <li>Calibração: vencimentos, certificados e histórico</li>
-            <li>Dashboard com status: ATIVO • EM CAUTELA • EM CALIBRAÇÃO • VENCIDO</li>
-            <li>Relatórios e rastreabilidade</li>
+            <li>Medições de retrorrefletância com acesso restrito</li>
+            <li>Dashboard de status e auditoria técnica em PDF</li>
           </ul>
         </div>
 
         <div class="actions">
-          <button class="btn" id="btnControl">
+          <button class="btn" id="btnControl" type="button">
             <div class="top">
               <div class="title">MEDLUX Control</div>
               <div class="pill">Entrar</div>
             </div>
-            <p class="desc">Gestão completa: equipamentos, cautelas, responsáveis e calibração.</p>
+            <p class="desc">Gestão completa: equipamentos, usuários, cautelas e auditoria.</p>
           </button>
 
-          <button class="btn" id="btnReflective">
+          <button class="btn" id="btnReflective" type="button">
             <div class="top">
               <div class="title">MEDLUX Reflective Control</div>
-              <div class="pill">Em breve</div>
+              <div class="pill">Entrar</div>
             </div>
-            <p class="desc">Medições, critérios, geração de PDF e histórico de retrorefletância.</p>
+            <p class="desc">Registro de medições e histórico de retrorrefletância.</p>
           </button>
         </div>
       </div>
@@ -242,13 +196,12 @@
   </main>
 
   <script>
-    // Rotas provisórias (vamos criar essas páginas depois)
     document.getElementById("btnControl").addEventListener("click", () => {
       window.location.href = "./medlux-control/index.html";
     });
 
     document.getElementById("btnReflective").addEventListener("click", () => {
-      alert("Em breve: MEDLUX Reflective Control (medições + PDF).");
+      window.location.href = "./medlux-reflective-control/index.html";
     });
   </script>
 </body>

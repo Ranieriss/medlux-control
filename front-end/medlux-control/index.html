@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="app-version" content="1.2.0" />
+  <meta name="app-version" content="2.0.0" />
   <title>MEDLUX Control</title>
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="stylesheet" href="./styles.css" />
@@ -18,7 +18,7 @@
       <header>
         <div class="brand">
           <h1><span class="dot"></span>MEDLUX Control</h1>
-          <p>Controle offline-first de equipamentos MEDLUX, calibrações e responsáveis.</p>
+          <p>Controle offline-first de equipamentos MEDLUX com cautelas, usuários e auditoria.</p>
         </div>
         <div class="badge" id="syncStatus">Offline pronto • IndexedDB</div>
       </header>
@@ -26,6 +26,8 @@
       <nav class="nav" aria-label="Abas do módulo">
         <button class="tab" type="button" data-section="dashboard" aria-selected="true">Dashboard</button>
         <button class="tab" type="button" data-section="equipamentos" aria-selected="false">Equipamentos</button>
+        <button class="tab" type="button" data-section="usuarios" aria-selected="false">Usuários</button>
+        <button class="tab" type="button" data-section="vinculos" aria-selected="false">Vínculos</button>
         <button class="tab" type="button" data-section="auditoria" aria-selected="false">Auditoria &amp; Backup</button>
       </nav>
 
@@ -34,7 +36,7 @@
           <div class="panel-head">
             <div>
               <h2>Dashboard</h2>
-              <p>Status geral e alertas de calibração.</p>
+              <p>Status geral, vínculos ativos e alertas principais.</p>
             </div>
             <a class="back" href="../index.html">Voltar para a home</a>
           </div>
@@ -43,31 +45,31 @@
 
           <div class="dashboard-filters">
             <div>
-              <p class="muted">Filtros rápidos por tipo</p>
+              <p class="muted">Filtros rápidos por função</p>
               <div class="chip-group" id="quickTipoFilters">
                 <button class="chip active" type="button" data-filter-type="">Todos</button>
-                <button class="chip" type="button" data-filter-type="HORIZONTAL">Horizontal</button>
-                <button class="chip" type="button" data-filter-type="VERTICAL">Vertical</button>
-                <button class="chip" type="button" data-filter-type="TACHAS">Tachas</button>
+                <button class="chip" type="button" data-filter-type="Horizontal">Horizontal</button>
+                <button class="chip" type="button" data-filter-type="Vertical">Vertical</button>
+                <button class="chip" type="button" data-filter-type="Tachas">Tachas</button>
               </div>
             </div>
             <div>
               <p class="muted">Filtros rápidos por status</p>
               <div class="chip-group" id="quickStatusFilters">
                 <button class="chip active" type="button" data-filter-status="">Todos</button>
-                <button class="chip" type="button" data-filter-status="ATIVO">Ativo</button>
-                <button class="chip" type="button" data-filter-status="EM_CAUTELA">Em cautela</button>
-                <button class="chip" type="button" data-filter-status="EM_CALIBRACAO">Em calibração</button>
-                <button class="chip" type="button" data-filter-status="MANUTENCAO">Manutenção</button>
-                <button class="chip" type="button" data-filter-status="VENCIDO">Vencido</button>
+                <button class="chip" type="button" data-filter-status="Obra">Obra</button>
+                <button class="chip" type="button" data-filter-status="Lab Tintas">Lab Tintas</button>
+                <button class="chip" type="button" data-filter-status="Demonstração">Demonstração</button>
+                <button class="chip" type="button" data-filter-status="Vendido">Vendido</button>
+                <button class="chip" type="button" data-filter-status="Stand-by">Stand-by</button>
               </div>
             </div>
           </div>
 
           <div class="panel-split">
             <div class="subpanel">
-              <h3>Vencendo em até 30 dias</h3>
-              <p class="muted">Equipamentos que exigem ação preventiva imediata.</p>
+              <h3>Vínculos ativos</h3>
+              <p class="muted">Equipamentos atualmente em cautela com operadores.</p>
               <ul class="list" id="dueSoonList"></ul>
             </div>
             <div class="subpanel">
@@ -86,7 +88,7 @@
           <div class="panel-head">
             <div>
               <h2>Equipamentos</h2>
-              <p>Cadastro completo com controle de calibração e status.</p>
+              <p>Cadastro completo com função, status e rastreabilidade.</p>
             </div>
             <div class="toolbar">
               <button class="btn" id="newEquipamento" type="button">Novo equipamento</button>
@@ -101,23 +103,23 @@
               <input id="tableSearch" type="search" placeholder="Pesquisar por ID, modelo, série ou responsável" />
             </div>
             <div class="filter">
-              <label for="typeFilter">Tipo</label>
+              <label for="typeFilter">Função</label>
               <select id="typeFilter">
                 <option value="">Todos</option>
-                <option value="HORIZONTAL">Horizontal</option>
-                <option value="VERTICAL">Vertical</option>
-                <option value="TACHAS">Tachas</option>
+                <option value="Horizontal">Horizontal</option>
+                <option value="Vertical">Vertical</option>
+                <option value="Tachas">Tachas</option>
               </select>
             </div>
             <div class="filter">
               <label for="statusFilter">Status</label>
               <select id="statusFilter">
                 <option value="">Todos</option>
-                <option value="ATIVO">ATIVO</option>
-                <option value="EM_CAUTELA">EM CAUTELA</option>
-                <option value="EM_CALIBRACAO">EM CALIBRAÇÃO</option>
-                <option value="MANUTENCAO">MANUTENÇÃO</option>
-                <option value="VENCIDO">VENCIDO</option>
+                <option value="Obra">Obra</option>
+                <option value="Lab Tintas">Lab Tintas</option>
+                <option value="Demonstração">Demonstração</option>
+                <option value="Vendido">Vendido</option>
+                <option value="Stand-by">Stand-by</option>
               </select>
             </div>
             <div class="filter">
@@ -135,14 +137,12 @@
               <thead>
                 <tr>
                   <th><button class="sort-btn" type="button" data-sort="id">ID</button></th>
-                  <th>Tipo</th>
-                  <th>Modelo</th>
-                  <th>Nº Série</th>
-                  <th>Responsável</th>
-                  <th>Últ. calibração</th>
-                  <th>Vencimento</th>
-                  <th><button class="sort-btn" type="button" data-sort="dias">Dias p/ vencer</button></th>
-                  <th><button class="sort-btn" type="button" data-sort="status">Status</button></th>
+                  <th><button class="sort-btn" type="button" data-sort="funcao">Função</button></th>
+                  <th><button class="sort-btn" type="button" data-sort="modelo">Modelo</button></th>
+                  <th><button class="sort-btn" type="button" data-sort="numeroSerie">Nº Série</button></th>
+                  <th><button class="sort-btn" type="button" data-sort="usuarioResponsavel">Responsável</button></th>
+                  <th>Status</th>
+                  <th>Localidade</th>
                   <th>Ações</th>
                 </tr>
               </thead>
@@ -157,6 +157,59 @@
           </div>
         </section>
 
+        <section class="panel" data-panel="usuarios" hidden>
+          <div class="panel-head">
+            <div>
+              <h2>Usuários</h2>
+              <p>Cadastro local com autenticação offline por PIN.</p>
+            </div>
+            <div class="toolbar">
+              <button class="btn" id="newUsuario" type="button">Novo usuário</button>
+            </div>
+          </div>
+          <div class="table-wrapper">
+            <table class="table" aria-label="Tabela de usuários">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Nome</th>
+                  <th>Perfil</th>
+                  <th>Status</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="usuariosBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel" data-panel="vinculos" hidden>
+          <div class="panel-head">
+            <div>
+              <h2>Vínculos / Cautelas</h2>
+              <p>Relaciona equipamentos a usuários com termo de cautela.</p>
+            </div>
+            <div class="toolbar">
+              <button class="btn" id="newVinculo" type="button">Novo vínculo</button>
+            </div>
+          </div>
+          <div class="table-wrapper">
+            <table class="table" aria-label="Tabela de vínculos">
+              <thead>
+                <tr>
+                  <th>Equipamento</th>
+                  <th>Usuário</th>
+                  <th>Início</th>
+                  <th>Status</th>
+                  <th>Termo</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="vinculosBody"></tbody>
+            </table>
+          </div>
+        </section>
+
         <section class="panel" data-panel="auditoria" hidden>
           <div class="panel-head">
             <div>
@@ -168,12 +221,12 @@
           <div class="audit-grid">
             <div class="subpanel">
               <h3>Relatório de auditoria</h3>
-              <p class="muted">Gera um PDF completo com resumo e tabela de equipamentos.</p>
+              <p class="muted">Gera um PDF completo com resumo, vínculos e medições.</p>
               <button class="btn" id="generateAuditPdf" type="button">Gerar PDF de Auditoria</button>
             </div>
             <div class="subpanel">
               <h3>Exportar backup</h3>
-              <p class="muted">Gera um arquivo JSON com todos os equipamentos.</p>
+              <p class="muted">Gera um arquivo JSON com todos os dados locais.</p>
               <button class="btn" id="exportBackup" type="button">Exportar JSON</button>
             </div>
             <div class="subpanel">
@@ -203,7 +256,7 @@
             <div class="subpanel">
               <h3>Importação em lote</h3>
               <p class="muted">Cole aqui dados do Excel (TSV) ou CSV com os cabeçalhos padrão.</p>
-              <textarea id="bulkPaste" rows="7" placeholder="Identificação | Função | Nº de série | Data de aquisição | Data de calibração | Local | 2º Modelo"></textarea>
+              <textarea id="bulkPaste" rows="7" placeholder="Identificação | Função | Nº de série | Data de aquisição | Fabricante | Localidade"></textarea>
               <div class="toolbar">
                 <button class="btn secondary" id="importBulk" type="button">Importar texto colado</button>
                 <a class="download-link" href="./seed.csv" download>Baixar CSV de exemplo</a>
@@ -218,15 +271,13 @@
             <div class="subpanel">
               <h3>Resetar dados locais</h3>
               <p class="muted">Remove todo o conteúdo salvo no IndexedDB.</p>
-              <button class="btn danger" id="resetData" type="button">Resetar dados</button>
+              <button class="btn danger" id="resetData" type="button">Resetar IndexedDB</button>
             </div>
           </div>
-
-          <div class="import-feedback" id="importFeedback"></div>
         </section>
       </div>
 
-      <footer>
+      <footer class="footer">
         <span id="statusMessage">Sem pendências.</span>
         <span>•</span>
         <span>Base path GitHub Pages: /medlux-control/</span>
@@ -250,12 +301,20 @@
             <input id="equipId" name="id" required maxlength="20" />
           </div>
           <div class="field">
-            <label for="equipTipo">Tipo *</label>
-            <select id="equipTipo" name="tipo" required>
+            <label for="equipFuncao">Função *</label>
+            <select id="equipFuncao" name="funcao" required>
               <option value="">Selecione</option>
-              <option value="HORIZONTAL">Horizontal</option>
-              <option value="VERTICAL">Vertical</option>
-              <option value="TACHAS">Tachas</option>
+              <option value="Horizontal">Horizontal</option>
+              <option value="Vertical">Vertical</option>
+              <option value="Tachas">Tachas</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="equipGeometria">Geometria</label>
+            <select id="equipGeometria" name="geometria">
+              <option value="">Não aplicável</option>
+              <option value="15m">15m</option>
+              <option value="30m">30m</option>
             </select>
           </div>
           <div class="field">
@@ -271,27 +330,41 @@
             <input id="equipAquisicao" name="dataAquisicao" type="date" />
           </div>
           <div class="field">
-            <label for="equipCalibracao">Data última calibração</label>
-            <input id="equipCalibracao" name="dataCalibracao" type="date" />
-            <button class="btn secondary" id="markCalibrated" type="button">Marcar como calibrado hoje</button>
+            <label for="equipFabricante">Fabricante</label>
+            <input id="equipFabricante" name="fabricante" />
           </div>
           <div class="field">
-            <label for="equipVencimento">Vencimento calibração</label>
-            <input id="equipVencimento" name="dataVencimento" type="date" readonly />
-          </div>
-          <div class="field">
-            <label for="equipResponsavel">Responsável atual</label>
-            <input id="equipResponsavel" name="responsavelAtual" />
+            <label for="equipCertificado">Nº Certificado</label>
+            <input id="equipCertificado" name="numeroCertificado" />
           </div>
           <div class="field">
             <label for="equipStatus">Status</label>
             <select id="equipStatus" name="status">
-              <option value="ATIVO">ATIVO</option>
-              <option value="EM_CAUTELA">EM CAUTELA</option>
-              <option value="EM_CALIBRACAO">EM CALIBRAÇÃO</option>
-              <option value="MANUTENCAO">MANUTENÇÃO</option>
-              <option value="VENCIDO">VENCIDO</option>
+              <option value="Obra">Obra</option>
+              <option value="Lab Tintas">Lab Tintas</option>
+              <option value="Demonstração">Demonstração</option>
+              <option value="Vendido">Vendido</option>
+              <option value="Stand-by">Stand-by</option>
             </select>
+          </div>
+          <div class="field">
+            <label for="equipCalibrado">Calibrado</label>
+            <select id="equipCalibrado" name="calibrado">
+              <option value="true">Sim</option>
+              <option value="false">Não</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="equipResponsavel">Responsável atual</label>
+            <input id="equipResponsavel" name="usuarioResponsavel" />
+          </div>
+          <div class="field">
+            <label for="equipLocalidade">Localidade</label>
+            <input id="equipLocalidade" name="localidade" placeholder="Cidade-UF" />
+          </div>
+          <div class="field">
+            <label for="equipEntrega">Data entrega usuário</label>
+            <input id="equipEntrega" name="dataEntregaUsuario" type="date" />
           </div>
           <div class="field field-full">
             <label for="equipObs">Observações</label>
@@ -304,6 +377,123 @@
             <button class="btn danger" type="button" id="deleteEquipamento">Excluir</button>
             <button class="btn secondary" type="button" id="cancelModal">Cancelar</button>
             <button class="btn" type="submit">Salvar</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal" id="usuarioModal" aria-hidden="true" role="dialog" aria-labelledby="usuarioTitle">
+    <div class="modal-card">
+      <header class="modal-head">
+        <div>
+          <h2 id="usuarioTitle">Novo usuário</h2>
+          <p class="muted">Defina o ID, nome e perfil. O PIN é obrigatório.</p>
+        </div>
+        <button class="icon-btn" type="button" id="closeUsuario" aria-label="Fechar">×</button>
+      </header>
+      <form id="usuarioForm" class="modal-body">
+        <div class="form-grid">
+          <div class="field">
+            <label for="usuarioId">ID *</label>
+            <input id="usuarioId" name="user_id" required maxlength="20" />
+          </div>
+          <div class="field">
+            <label for="usuarioNome">Nome *</label>
+            <input id="usuarioNome" name="nome" required />
+          </div>
+          <div class="field">
+            <label for="usuarioRole">Perfil *</label>
+            <select id="usuarioRole" name="role" required>
+              <option value="ADMIN">ADMIN</option>
+              <option value="OPERADOR">OPERADOR</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="usuarioPin">PIN *</label>
+            <input id="usuarioPin" name="pin" type="password" inputmode="numeric" required />
+          </div>
+          <div class="field">
+            <label for="usuarioAtivo">Ativo</label>
+            <select id="usuarioAtivo" name="ativo">
+              <option value="true">Sim</option>
+              <option value="false">Não</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <span class="muted" id="usuarioHint">Campos com * são obrigatórios.</span>
+          <div class="action-buttons">
+            <button class="btn secondary" type="button" id="cancelUsuario">Cancelar</button>
+            <button class="btn" type="submit">Salvar</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal" id="vinculoModal" aria-hidden="true" role="dialog" aria-labelledby="vinculoTitle">
+    <div class="modal-card">
+      <header class="modal-head">
+        <div>
+          <h2 id="vinculoTitle">Novo vínculo</h2>
+          <p class="muted">Vincule um equipamento a um usuário e anexe o termo.</p>
+        </div>
+        <button class="icon-btn" type="button" id="closeVinculo" aria-label="Fechar">×</button>
+      </header>
+      <form id="vinculoForm" class="modal-body">
+        <div class="form-grid">
+          <div class="field">
+            <label for="vinculoEquip">Equipamento *</label>
+            <select id="vinculoEquip" name="equip_id" required></select>
+          </div>
+          <div class="field">
+            <label for="vinculoUser">Usuário *</label>
+            <select id="vinculoUser" name="user_id" required></select>
+          </div>
+          <div class="field">
+            <label for="vinculoInicio">Data início *</label>
+            <input id="vinculoInicio" name="data_inicio" type="date" required />
+          </div>
+          <div class="field">
+            <label for="vinculoTermo">Termo cautela (PDF)</label>
+            <input id="vinculoTermo" name="termo" type="file" accept="application/pdf" />
+          </div>
+        </div>
+        <div class="modal-actions">
+          <span class="muted" id="vinculoHint">Campos com * são obrigatórios.</span>
+          <div class="action-buttons">
+            <button class="btn secondary" type="button" id="cancelVinculo">Cancelar</button>
+            <button class="btn" type="submit">Salvar</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal" id="loginModal" aria-hidden="true" role="dialog" aria-labelledby="loginTitle">
+    <div class="modal-card">
+      <header class="modal-head">
+        <div>
+          <h2 id="loginTitle">Login local</h2>
+          <p class="muted">Informe ID e PIN para acessar o MEDLUX Control.</p>
+        </div>
+      </header>
+      <form id="loginForm" class="modal-body">
+        <div class="form-grid">
+          <div class="field">
+            <label for="loginId">ID *</label>
+            <input id="loginId" name="user_id" required />
+          </div>
+          <div class="field">
+            <label for="loginPin">PIN *</label>
+            <input id="loginPin" name="pin" type="password" inputmode="numeric" required />
+          </div>
+        </div>
+        <div class="modal-actions">
+          <span class="muted" id="loginHint">Use o usuário ADMIN e PIN 1234 no primeiro acesso.</span>
+          <div class="action-buttons">
+            <button class="btn" type="submit">Entrar</button>
           </div>
         </div>
       </form>
