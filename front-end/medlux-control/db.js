@@ -39,10 +39,25 @@ const bulkSaveEquipamentos = (items) => withStore("readwrite", (store) => {
   items.forEach((item) => store.put(item));
 });
 
+const exportEquipamentos = async () => {
+  const equipamentos = await getAllEquipamentos();
+  return {
+    version: 1,
+    generatedAt: new Date().toISOString(),
+    equipamentos
+  };
+};
+
+const importEquipamentos = async (items) => {
+  await bulkSaveEquipamentos(items);
+};
+
 export {
   getAllEquipamentos,
   saveEquipamento,
   deleteEquipamento,
   clearEquipamentos,
-  bulkSaveEquipamentos
+  bulkSaveEquipamentos,
+  exportEquipamentos,
+  importEquipamentos
 };

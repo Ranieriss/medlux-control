@@ -314,6 +314,11 @@ input, select, textarea{
   min-height: 44px;
 }
 
+textarea{
+  resize: vertical;
+  min-height: 140px;
+}
+
 input:focus, select:focus, textarea:focus{
   outline: 2px solid rgba(124,92,255,.4);
 }
