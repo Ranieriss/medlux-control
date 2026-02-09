@@ -463,7 +463,7 @@ const getMedicoesByUser = async (userId) => {
   return items.filter((item) => item.user_id === userId);
 };
 
-const dedupeAuditoria = (items = []) => {
+const uniqueAuditoria = (items = []) => {
   const map = new Map();
   items.forEach((item) => {
     const key = item.auditoria_id || item.id || crypto.randomUUID();
@@ -472,10 +472,12 @@ const dedupeAuditoria = (items = []) => {
   return Array.from(map.values());
 };
 
+const dedupeAuditoria = uniqueAuditoria;
+
 const getAllAuditoria = async () => {
   const auditoria = await getAllFromStore(STORE_AUDITORIA).catch(() => []);
   const auditLog = await getAllFromStore(STORE_AUDIT_LOG).catch(() => []);
-  return dedupeAuditoria([...(auditLog || []), ...(auditoria || [])]);
+  return uniqueAuditoria([...(auditLog || []), ...(auditoria || [])]);
 };
 const saveAuditoria = async (entry) => {
   const db = await openDB();
