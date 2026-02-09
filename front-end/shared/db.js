@@ -1,21 +1,26 @@
 const DB_NAME = "medlux_suite_db";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 const STORE_EQUIPAMENTOS = "equipamentos";
 const STORE_USERS = "users";
 const STORE_USUARIOS = "usuarios";
 const STORE_VINCULOS = "vinculos";
 const STORE_MEDICOES = "medicoes";
+const STORE_OBRAS = "obras";
+const STORE_ANEXOS = "anexos";
 const STORE_AUDITORIA = "auditoria";
+const STORE_AUDIT_LOG = "audit_log";
 
 const nowIso = () => new Date().toISOString();
 const toNumber = (value) => {
   const num = Number(value);
   return Number.isFinite(num) ? num : null;
 };
+const normalizeId = (value) => String(value || "").trim().toUpperCase();
 
 const normalizeUserRecord = (record = {}) => {
   const id = record.id || record.user_id || "";
+  const id_normalized = record.id_normalized || normalizeId(id);
   const status = record.status || (record.ativo === false ? "INATIVO" : "ATIVO");
   const created_at = record.created_at || record.createdAt || nowIso();
   const updated_at = record.updated_at || record.updatedAt || created_at;
@@ -27,6 +32,7 @@ const normalizeUserRecord = (record = {}) => {
     status,
     pinHash,
     salt: record.salt || "",
+    id_normalized,
     created_at,
     updated_at,
     user_id: id,
@@ -84,7 +90,7 @@ const normalizeEquipamentoRecord = (record = {}) => {
     dataAquisicao: record.dataAquisicao || record.data_aquisicao || "",
     calibrado,
     dataCalibracao: record.dataCalibracao || record.data_calibracao || "",
-    certificado,
+    numeroCertificado: certificado,
     usuarioAtual: record.usuarioAtual || record.usuarioResponsavel || record.usuario_responsavel || "",
     localidadeCidadeUF,
     dataEntregaUsuario: record.dataEntregaUsuario || record.data_entrega_usuario || "",
@@ -130,6 +136,7 @@ const normalizeMedicaoRecord = (record = {}) => {
   const id = record.id || record.medicao_id || "";
   const dataHora = record.dataHora || record.data_hora || "";
   const tipoMedicao = record.tipoMedicao || record.tipo_medicao || "";
+  const subtipo = record.subtipo || record.subtipo_medicao || "";
   const leiturasRaw = Array.isArray(record.leituras) ? record.leituras : [];
   const leituras = leiturasRaw.map((item) => toNumber(item)).filter((item) => item !== null);
   if (!leituras.length && record.valor !== undefined) {
@@ -154,18 +161,28 @@ const normalizeMedicaoRecord = (record = {}) => {
     equipamento_id: record.equipamento_id || record.equip_id || "",
     user_id: record.user_id || "",
     obra_id: record.obra_id || record.obraId || "",
-    relatorio_id: record.relatorio_id || record.relatorioId || "",
+    relatorio_id: record.relatorio_id || record.relatorioId || record.identificadorRelatorio || "",
     tipoMedicao,
+    subtipo,
     leituras,
     media,
     unidade: record.unidade || record.unidade_medida || "",
     dataHora,
+    dataHoraGPS: record.dataHoraGPS || record.data_hora_gps || "",
     enderecoTexto: record.enderecoTexto || record.endereco || "",
     cidadeUF: record.cidadeUF || record.cidade_uf || "",
     rodovia: record.rodovia || "",
     km: record.km || "",
     sentido: record.sentido || "",
     faixa: record.faixa || "",
+    tipoDeMarcacao: record.tipoDeMarcacao || record.tipo_marcacao || "",
+    identificadorRelatorio: record.identificadorRelatorio || record.relatorio_id || record.relatorioId || "",
+    estacao: record.estacao || record.estacao_id || "",
+    linha: record.linha || "",
+    letra: record.letra || "",
+    cor: record.cor || "",
+    angulo: record.angulo || "",
+    posicao: record.posicao || "",
     clima: record.clima || "",
     observacoes: record.observacoes || "",
     gps,
@@ -227,6 +244,28 @@ const prepareMedicaoRecord = (record = {}) => {
   };
 };
 
+const normalizeObraRecord = (record = {}) => {
+  const id = record.id || record.idObra || record.obra_id || "";
+  const created_at = record.created_at || record.createdAt || nowIso();
+  const updated_at = record.updated_at || record.updatedAt || created_at;
+  return {
+    id,
+    idObra: id,
+    nomeObra: record.nomeObra || record.nome_obra || record.nome || "",
+    rodovia: record.rodovia || "",
+    kmInicio: record.kmInicio || record.km_inicio || "",
+    kmFim: record.kmFim || record.km_fim || "",
+    cidadeUF: record.cidadeUF || record.cidade_uf || "",
+    concessionariaCliente: record.concessionariaCliente || record.concessionaria_cliente || record.cliente || "",
+    responsavelTecnico: record.responsavelTecnico || record.responsavel_tecnico || "",
+    observacoes: record.observacoes || "",
+    created_at,
+    updated_at
+  };
+};
+
+const prepareObraRecord = (record = {}) => normalizeObraRecord(record);
+
 const openDB = () => new Promise((resolve, reject) => {
   const request = indexedDB.open(DB_NAME, DB_VERSION);
   request.onupgradeneeded = () => {
@@ -253,8 +292,23 @@ const openDB = () => new Promise((resolve, reject) => {
       store.createIndex("equipamento_id", "equipamento_id", { unique: false });
       store.createIndex("user_id", "user_id", { unique: false });
     }
+    if (!db.objectStoreNames.contains(STORE_OBRAS)) {
+      const store = db.createObjectStore(STORE_OBRAS, { keyPath: "id" });
+      store.createIndex("idObra", "idObra", { unique: false });
+      store.createIndex("cidadeUF", "cidadeUF", { unique: false });
+    }
+    if (!db.objectStoreNames.contains(STORE_ANEXOS)) {
+      const store = db.createObjectStore(STORE_ANEXOS, { keyPath: "id" });
+      store.createIndex("medicao_id", "medicao_id", { unique: false });
+      store.createIndex("tipo", "tipo", { unique: false });
+    }
     if (!db.objectStoreNames.contains(STORE_AUDITORIA)) {
       const store = db.createObjectStore(STORE_AUDITORIA, { keyPath: "auditoria_id" });
+      store.createIndex("entity", "entity", { unique: false });
+      store.createIndex("data_hora", "data_hora", { unique: false });
+    }
+    if (!db.objectStoreNames.contains(STORE_AUDIT_LOG)) {
+      const store = db.createObjectStore(STORE_AUDIT_LOG, { keyPath: "auditoria_id" });
       store.createIndex("entity", "entity", { unique: false });
       store.createIndex("data_hora", "data_hora", { unique: false });
     }
@@ -409,8 +463,30 @@ const getMedicoesByUser = async (userId) => {
   return items.filter((item) => item.user_id === userId);
 };
 
-const getAllAuditoria = () => getAllFromStore(STORE_AUDITORIA).then((items) => items || []);
-const saveAuditoria = (entry) => putInStore(STORE_AUDITORIA, entry);
+const getAllAuditoria = async () => {
+  const auditoria = await getAllFromStore(STORE_AUDITORIA).catch(() => []);
+  const auditLog = await getAllFromStore(STORE_AUDIT_LOG).catch(() => []);
+  return [...(auditoria || []), ...(auditLog || [])];
+};
+const saveAuditoria = async (entry) => {
+  const db = await openDB();
+  const stores = [STORE_AUDITORIA, STORE_AUDIT_LOG].filter((name) => db.objectStoreNames.contains(name));
+  if (!stores.length) return null;
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(stores, "readwrite");
+    stores.forEach((storeName) => {
+      transaction.objectStore(storeName).put(entry);
+    });
+    transaction.oncomplete = () => resolve(entry);
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+};
+
+const getAllObras = () => getAllFromStore(STORE_OBRAS).then((items) => (items || []).map(normalizeObraRecord));
+const getObraById = (id) => getByKey(STORE_OBRAS, id).then((item) => (item ? normalizeObraRecord(item) : null));
+const saveObra = (obra) => putInStore(STORE_OBRAS, prepareObraRecord(obra));
+const deleteObra = (id) => deleteFromStore(STORE_OBRAS, id);
 
 const exportSnapshot = async () => {
   const [equipamentos, usuarios, vinculos, medicoes, auditoria] = await Promise.all([
@@ -420,38 +496,46 @@ const exportSnapshot = async () => {
     getAllMedicoes(),
     getAllAuditoria()
   ]);
+  const obras = await getAllObras();
   return {
-    version: 3,
+    version: 4,
     generatedAt: new Date().toISOString(),
     equipamentos,
     users: usuarios,
     usuarios,
     vinculos,
     medicoes,
+    obras,
     auditoria
   };
 };
 
 const importSnapshot = async (payload) => runTransaction(
-  [STORE_EQUIPAMENTOS, STORE_USERS, STORE_VINCULOS, STORE_MEDICOES, STORE_AUDITORIA],
+  [STORE_EQUIPAMENTOS, STORE_USERS, STORE_VINCULOS, STORE_MEDICOES, STORE_OBRAS, STORE_AUDITORIA, STORE_AUDIT_LOG],
   "readwrite",
   (transaction) => {
     const equipStore = transaction.objectStore(STORE_EQUIPAMENTOS);
     const userStore = transaction.objectStore(STORE_USERS);
     const vincStore = transaction.objectStore(STORE_VINCULOS);
     const medStore = transaction.objectStore(STORE_MEDICOES);
+    const obraStore = transaction.objectStore(STORE_OBRAS);
     const auditStore = transaction.objectStore(STORE_AUDITORIA);
+    const auditLogStore = transaction.objectStore(STORE_AUDIT_LOG);
     (payload.equipamentos || []).forEach((item) => equipStore.put(prepareEquipamentoRecord(item)));
     (payload.users || payload.usuarios || []).forEach((item) => userStore.put(prepareUserRecord(item)));
     (payload.vinculos || []).forEach((item) => vincStore.put(prepareVinculoRecord(item)));
     (payload.medicoes || []).forEach((item) => medStore.put(prepareMedicaoRecord(item)));
-    (payload.auditoria || []).forEach((item) => auditStore.put(item));
+    (payload.obras || []).forEach((item) => obraStore.put(prepareObraRecord(item)));
+    (payload.auditoria || payload.audit_log || []).forEach((item) => {
+      auditStore.put(item);
+      auditLogStore.put(item);
+    });
   }
 );
 
 const clearAllStores = async () => {
   const db = await openDB();
-  const stores = [STORE_EQUIPAMENTOS, STORE_USERS, STORE_VINCULOS, STORE_MEDICOES, STORE_AUDITORIA]
+  const stores = [STORE_EQUIPAMENTOS, STORE_USERS, STORE_VINCULOS, STORE_MEDICOES, STORE_OBRAS, STORE_ANEXOS, STORE_AUDITORIA, STORE_AUDIT_LOG]
     .filter((name) => db.objectStoreNames.contains(name));
   if (db.objectStoreNames.contains(STORE_USUARIOS)) stores.push(STORE_USUARIOS);
   return new Promise((resolve, reject) => {
@@ -494,6 +578,10 @@ export {
   getMedicoesByUser,
   getAllAuditoria,
   saveAuditoria,
+  getAllObras,
+  getObraById,
+  saveObra,
+  deleteObra,
   exportSnapshot,
   importSnapshot,
   clearAllStores

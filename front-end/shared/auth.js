@@ -1,5 +1,4 @@
 import {
-  getUserById,
   saveUser,
   getAllUsers,
   saveAuditoria
@@ -15,6 +14,14 @@ const toBase64 = (buffer) => btoa(String.fromCharCode(...new Uint8Array(buffer))
 const fromBase64 = (value) => Uint8Array.from(atob(value), (c) => c.charCodeAt(0));
 
 const generateSalt = () => crypto.getRandomValues(new Uint8Array(16));
+const normalizeId = (value) => String(value || "").trim().toUpperCase();
+
+const resolveUserByNormalizedId = async (userId) => {
+  const normalized = normalizeId(userId);
+  if (!normalized) return null;
+  const usuarios = await getAllUsers();
+  return usuarios.find((item) => normalizeId(item.id || item.user_id) === normalized) || null;
+};
 
 const hashPin = async (pin, salt) => {
   const keyMaterial = await crypto.subtle.importKey(
@@ -41,7 +48,7 @@ const ensureDefaultAdmin = async () => {
   const users = await getAllUsers();
   if (users.length) return;
   const salt = generateSalt();
-  const pinHash = await hashPin("1234", salt);
+  const pinHash = await hashPin("2308", salt);
   await saveUser({
     id: "ADMIN",
     nome: "Administrador",
@@ -49,6 +56,7 @@ const ensureDefaultAdmin = async () => {
     status: "ATIVO",
     pinHash,
     salt: toBase64(salt),
+    id_normalized: "ADMIN",
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
   });
@@ -59,6 +67,7 @@ const createUserWithPin = async ({ user_id, id, nome, role, ativo, status, pin }
   const pinHash = await hashPin(pin, salt);
   const resolvedStatus = status || (ativo === false ? "INATIVO" : "ATIVO");
   const userId = id || user_id;
+  const normalized = normalizeId(userId);
   const usuario = {
     id: userId,
     user_id: userId,
@@ -69,6 +78,7 @@ const createUserWithPin = async ({ user_id, id, nome, role, ativo, status, pin }
     pinHash,
     pin_hash: pinHash,
     salt: toBase64(salt),
+    id_normalized: normalized,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
   };
@@ -77,7 +87,7 @@ const createUserWithPin = async ({ user_id, id, nome, role, ativo, status, pin }
 };
 
 const authenticate = async (userId, pin) => {
-  const usuario = await getUserById(userId);
+  const usuario = await resolveUserByNormalizedId(userId);
   if (!usuario || usuario.status !== "ATIVO") return { success: false, message: "Usuário inválido/inativo" };
   const salt = fromBase64(usuario.salt);
   const pinHash = await hashPin(pin, salt);
@@ -87,6 +97,7 @@ const authenticate = async (userId, pin) => {
     user_id: usuario.id,
     nome: usuario.nome,
     role: usuario.role,
+    id_normalized: normalizeId(usuario.id),
     loginAt: new Date().toISOString()
   };
   sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
@@ -115,7 +126,7 @@ const getSession = () => {
 };
 
 const updatePin = async (userId, pin) => {
-  const usuario = await getUserById(userId);
+  const usuario = await resolveUserByNormalizedId(userId);
   if (!usuario) return null;
   const salt = generateSalt();
   const pinHash = await hashPin(pin, salt);
@@ -135,14 +146,14 @@ const requireAuth = ({ allowRoles = [], redirectTo = "", onMissing = null, onUna
   if (!session) {
     if (typeof onMissing === "function") onMissing();
     if (redirectTo) window.location.href = redirectTo;
-    return false;
+    return null;
   }
   if (allowRoles.length && !allowRoles.includes(session.role)) {
     if (typeof onUnauthorized === "function") onUnauthorized(session);
     if (redirectTo) window.location.href = redirectTo;
-    return false;
+    return null;
   }
-  return true;
+  return session;
 };
 
 export {

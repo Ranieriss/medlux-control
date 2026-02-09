@@ -4,12 +4,22 @@ import {
   saveMedicao,
   getMedicoesByUser,
   getAllMedicoes,
+  getAllObras,
   saveAuditoria
 } from "../shared/db.js";
-import { ensureDefaultAdmin, authenticate, logout, requireAuth, getSession } from "../shared/auth.js";
+import { ensureDefaultAdmin, authenticate, logout, requireAuth } from "../shared/auth.js";
 
 const medicaoForm = document.getElementById("medicaoForm");
 const medicaoEquip = document.getElementById("medicaoEquip");
+const medicaoSubtipo = document.getElementById("medicaoSubtipo");
+const medicaoMarcacao = document.getElementById("medicaoMarcacao");
+const medicaoLinha = document.getElementById("medicaoLinha");
+const medicaoEstacao = document.getElementById("medicaoEstacao");
+const medicaoLetra = document.getElementById("medicaoLetra");
+const medicaoCor = document.getElementById("medicaoCor");
+const medicaoAngulo = document.getElementById("medicaoAngulo");
+const medicaoPosicao = document.getElementById("medicaoPosicao");
+const obraList = document.getElementById("obraList");
 const medicoesBody = document.getElementById("medicoesBody");
 const medicaoHint = document.getElementById("medicaoHint");
 const statusMessage = document.getElementById("statusMessage");
@@ -25,11 +35,19 @@ const gpsStatus = document.getElementById("gpsStatus");
 const gpsLat = document.getElementById("gpsLat");
 const gpsLng = document.getElementById("gpsLng");
 const gpsAcc = document.getElementById("gpsAcc");
+const gpsDateTime = document.getElementById("gpsDateTime");
 const gpsSource = document.getElementById("gpsSource");
 const fotoMedicaoInput = document.getElementById("fotoMedicao");
 const fotoLocalInput = document.getElementById("fotoLocal");
 const fotoMedicaoInfo = document.getElementById("fotoMedicaoInfo");
 const fotoLocalInfo = document.getElementById("fotoLocalInfo");
+const clearFotoMedicao = document.getElementById("clearFotoMedicao");
+const clearFotoLocal = document.getElementById("clearFotoLocal");
+
+const generateUserPdf = document.getElementById("generateUserPdf");
+const userReportObra = document.getElementById("userReportObra");
+const userReportStart = document.getElementById("userReportStart");
+const userReportEnd = document.getElementById("userReportEnd");
 
 const loginModal = document.getElementById("loginModal");
 const loginForm = document.getElementById("loginForm");
@@ -39,8 +57,10 @@ let activeSession = null;
 let equipamentos = [];
 let vinculos = [];
 let medicoes = [];
+let obras = [];
 
 const normalizeText = (value) => String(value || "").trim().replace(/\s+/g, " ");
+const normalizeUserIdComparable = (value) => normalizeText(value).toUpperCase();
 
 const openModal = (element) => {
   element.classList.add("active");
@@ -69,7 +89,7 @@ const renderEquipamentos = () => {
   const disponíveis = isAdmin()
     ? equipamentos
     : vinculos
-      .filter((item) => isVinculoAtivo(item) && item.user_id === activeSession?.id)
+      .filter((item) => isVinculoAtivo(item) && normalizeUserIdComparable(item.user_id) === normalizeUserIdComparable(activeSession?.id))
       .map((vinculo) => equipamentos.find((item) => item.id === (vinculo.equipamento_id || vinculo.equip_id)))
       .filter(Boolean);
   disponíveis.forEach((equipamento) => {
@@ -77,6 +97,16 @@ const renderEquipamentos = () => {
     opt.value = equipamento.id;
     opt.textContent = `${equipamento.id} • ${equipamento?.modelo || "Sem modelo"}`;
     medicaoEquip.appendChild(opt);
+  });
+};
+
+const renderObrasList = () => {
+  obraList.textContent = "";
+  obras.forEach((obra) => {
+    const option = document.createElement("option");
+    option.value = obra.idObra || obra.id;
+    option.textContent = `${obra.idObra || obra.id} • ${obra.nomeObra || obra.nome || ""}`;
+    obraList.appendChild(option);
   });
 };
 
@@ -88,11 +118,13 @@ const renderMedicoes = () => {
     const qtd = leituras.length || (medicao.valor ? 1 : 0);
     const dataHora = medicao.dataHora || medicao.data_hora;
     const dataLabel = dataHora ? new Date(dataHora).toLocaleString("pt-BR") : "-";
+    const mediaCalc = calculateMediaFromLeituras(leituras, medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao);
+    const mediaLabel = mediaCalc !== null ? mediaCalc.toFixed(2) : (medicao.media ?? medicao.valor ?? "-");
     [
       medicao.obra_id || "-",
       medicao.equipamento_id || medicao.equip_id,
-      medicao.tipoMedicao || medicao.tipo_medicao,
-      medicao.media ?? medicao.valor ?? "-",
+      medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao,
+      mediaLabel,
       qtd,
       dataLabel
     ].forEach((text) => {
@@ -105,10 +137,11 @@ const renderMedicoes = () => {
 };
 
 const loadData = async () => {
-  [equipamentos, vinculos, medicoes] = await Promise.all([
+  [equipamentos, vinculos, medicoes, obras] = await Promise.all([
     getAllEquipamentos(),
     getAllVinculos(),
-    isAdmin() ? getAllMedicoes() : getMedicoesByUser(activeSession?.id)
+    isAdmin() ? getAllMedicoes() : getMedicoesByUser(activeSession?.id),
+    getAllObras()
   ]);
 };
 
@@ -150,6 +183,20 @@ const parseLeituraList = (text) => text
   .map((item) => Number(item.replace(",", ".")))
   .filter((value) => Number.isFinite(value));
 
+const calculateMediaFromLeituras = (leituras, subtipo) => {
+  const valores = leituras.filter((item) => Number.isFinite(item));
+  if (!valores.length) return null;
+  const tipo = String(subtipo || "").trim().toUpperCase();
+  if (tipo === "HORIZONTAL") {
+    if (valores.length < 3) return null;
+    const sorted = [...valores].sort((a, b) => a - b);
+    const trimmed = sorted.length >= 3 ? sorted.slice(1, sorted.length - 1) : sorted;
+    if (!trimmed.length) return null;
+    return trimmed.reduce((acc, item) => acc + item, 0) / trimmed.length;
+  }
+  return valores.reduce((acc, item) => acc + item, 0) / valores.length;
+};
+
 const updateMedia = () => {
   const leituras = getLeituras();
   const valid = leituras.filter((item) => item !== null);
@@ -157,9 +204,48 @@ const updateMedia = () => {
     medicaoMedia.value = "";
     return;
   }
-  const media = valid.reduce((acc, item) => acc + item, 0) / valid.length;
-  medicaoMedia.value = media.toFixed(2);
+  const media = calculateMediaFromLeituras(valid, medicaoSubtipo.value);
+  medicaoMedia.value = media === null ? "" : media.toFixed(2);
 };
+
+const toggleField = (input, show) => {
+  const field = input?.closest(".field");
+  if (field) field.style.display = show ? "" : "none";
+  if (!show && input) input.value = "";
+};
+
+const updateSubtipoFields = () => {
+  const subtipo = String(medicaoSubtipo.value || "").toUpperCase();
+  toggleField(medicaoLetra, subtipo === "LEGENDA");
+  toggleField(medicaoCor, subtipo === "PLACA");
+  toggleField(medicaoAngulo, subtipo === "PLACA");
+  toggleField(medicaoPosicao, subtipo === "PLACA");
+  toggleField(medicaoLinha, subtipo === "HORIZONTAL");
+  toggleField(medicaoEstacao, subtipo === "HORIZONTAL");
+  updateMedia();
+};
+
+const formatGps = (gps) => {
+  if (!gps || gps.lat === null || gps.lng === null) return "-";
+  return `${gps.lat}, ${gps.lng}`;
+};
+
+const formatLocal = (medicao) => {
+  const parts = [medicao.cidadeUF, medicao.rodovia, medicao.km, medicao.sentido, medicao.faixa].filter(Boolean);
+  return parts.length ? parts.join(" • ") : "-";
+};
+
+const formatMediaLabel = (medicao) => {
+  const media = calculateMediaFromLeituras(medicao.leituras || [], medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao);
+  return media === null ? (medicao.media ?? medicao.valor ?? "-") : media.toFixed(2);
+};
+
+const blobToDataUrl = (blob) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(reader.result);
+  reader.onerror = () => reject(new Error("Falha ao converter imagem."));
+  reader.readAsDataURL(blob);
+});
 
 const updatePhotoInfo = (input, target) => {
   const count = input.files?.length || 0;
@@ -220,29 +306,32 @@ const collectFotos = async () => {
   return fotos;
 };
 
-const updateGpsInputs = ({ lat, lng, accuracy, source }) => {
+const updateGpsInputs = ({ lat, lng, accuracy, source, dateTime }) => {
   gpsLat.value = lat ?? "";
   gpsLng.value = lng ?? "";
   gpsAcc.value = accuracy ?? "";
+  gpsDateTime.value = dateTime ?? "";
   gpsSource.value = source || "";
 };
 
 const handleLogin = async (event) => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(loginForm).entries());
-  const result = await authenticate(data.user_id.toUpperCase(), data.pin);
+  const result = await authenticate(data.user_id, data.pin);
   if (!result.success) {
     loginHint.textContent = result.message;
     return;
   }
-  if (result.session.role !== "OPERADOR" && result.session.role !== "ADMIN") {
+  if (!["USER", "OPERADOR", "ADMIN"].includes(result.session.role)) {
     loginHint.textContent = "Perfil não autorizado.";
     logout();
     return;
   }
   const vinculosAtivos = await getAllVinculos();
-  if (result.session.role === "OPERADOR") {
-    const possuiVinculo = vinculosAtivos.some((item) => isVinculoAtivo(item) && item.user_id === result.session.id);
+  if (["USER", "OPERADOR"].includes(result.session.role)) {
+    const possuiVinculo = vinculosAtivos.some(
+      (item) => isVinculoAtivo(item) && normalizeUserIdComparable(item.user_id) === normalizeUserIdComparable(result.session.id)
+    );
     if (!possuiVinculo) {
       loginHint.textContent = "Sem vínculo ativo";
       logout();
@@ -253,6 +342,7 @@ const handleLogin = async (event) => {
   closeModal(loginModal);
   await loadData();
   renderEquipamentos();
+  renderObrasList();
   renderMedicoes();
   setStatusMessage(`Bem-vindo, ${activeSession.nome}.`);
 };
@@ -267,7 +357,13 @@ const handleCaptureGps = () => {
   navigator.geolocation.getCurrentPosition(
     (position) => {
       const { latitude, longitude, accuracy } = position.coords;
-      updateGpsInputs({ lat: latitude.toFixed(6), lng: longitude.toFixed(6), accuracy: Math.round(accuracy), source: "AUTO" });
+      updateGpsInputs({
+        lat: latitude.toFixed(6),
+        lng: longitude.toFixed(6),
+        accuracy: Math.round(accuracy),
+        source: "AUTO",
+        dateTime: new Date().toISOString().slice(0, 16)
+      });
       gpsStatus.textContent = "GPS capturado automaticamente.";
     },
     (error) => {
@@ -281,7 +377,7 @@ const handleCaptureGps = () => {
 const handleMedicaoSubmit = async (event) => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(medicaoForm).entries());
-  if (!data.equip_id || !data.tipo_medicao || !data.obra_id) {
+  if (!data.equip_id || !data.tipo_medicao || !data.obra_id || !data.subtipo) {
     medicaoHint.textContent = "Preencha todos os campos obrigatórios.";
     return;
   }
@@ -290,18 +386,47 @@ const handleMedicaoSubmit = async (event) => {
     medicaoHint.textContent = "Informe as leituras corretamente.";
     return;
   }
+  const subtipo = String(data.subtipo || "").toUpperCase();
+  if (subtipo === "HORIZONTAL" && leituras.length !== 10) {
+    medicaoHint.textContent = "Horizontal exige exatamente 10 leituras por estação.";
+    return;
+  }
+  if (subtipo === "HORIZONTAL" && (!data.linha || !data.estacao)) {
+    medicaoHint.textContent = "Horizontal exige linha e estação.";
+    return;
+  }
+  if (subtipo === "LEGENDA" && leituras.length !== 3) {
+    medicaoHint.textContent = "Legenda exige 3 leituras por letra.";
+    return;
+  }
+  if (subtipo === "LEGENDA" && !data.letra) {
+    medicaoHint.textContent = "Informe a letra da legenda.";
+    return;
+  }
+  if (subtipo === "PLACA" && leituras.length !== 5) {
+    medicaoHint.textContent = "Placa exige 5 leituras por cor e ângulo.";
+    return;
+  }
+  if (subtipo === "PLACA" && (!data.cor || !data.angulo)) {
+    medicaoHint.textContent = "Placa exige cor e ângulo.";
+    return;
+  }
   if (!isAdmin()) {
-    const vinculoAtivo = vinculos.find((item) => isVinculoAtivo(item) && (item.equipamento_id || item.equip_id) === data.equip_id && item.user_id === activeSession.id);
+    const vinculoAtivo = vinculos.find(
+      (item) => isVinculoAtivo(item)
+        && (item.equipamento_id || item.equip_id) === data.equip_id
+        && normalizeUserIdComparable(item.user_id) === normalizeUserIdComparable(activeSession.id)
+    );
     if (!vinculoAtivo) {
       medicaoHint.textContent = "Equipamento não vinculado ao operador.";
       return;
     }
   }
-  const media = leituras.reduce((acc, item) => acc + item, 0) / leituras.length;
+  const media = calculateMediaFromLeituras(leituras, subtipo);
   const now = new Date().toISOString();
   const medicaoId = crypto.randomUUID();
   const obraId = normalizeText(data.obra_id).toUpperCase();
-  const relatorioId = normalizeText(data.relatorio_id).toUpperCase();
+  const relatorioId = normalizeText(data.identificadorRelatorio).toUpperCase();
   const gpsLatValue = Number(gpsLat.value);
   const gpsLngValue = Number(gpsLng.value);
   const gpsAccValue = Number(gpsAcc.value);
@@ -320,12 +445,14 @@ const handleMedicaoSubmit = async (event) => {
     user_id: activeSession.id,
     obra_id: obraId,
     relatorio_id: relatorioId || "",
+    identificadorRelatorio: relatorioId || "",
     dataHora: now,
     data_hora: now,
     tipoMedicao: data.tipo_medicao,
     tipo_medicao: data.tipo_medicao,
+    subtipo,
     leituras,
-    media,
+    media: media ?? "",
     unidade: data.unidade || "",
     enderecoTexto: data.enderecoTexto || "",
     cidadeUF: data.cidadeUF || "",
@@ -333,9 +460,17 @@ const handleMedicaoSubmit = async (event) => {
     km: data.km || "",
     sentido: data.sentido || "",
     faixa: data.faixa || "",
+    tipoDeMarcacao: data.tipoDeMarcacao || "",
+    linha: data.linha || "",
+    estacao: data.estacao || "",
+    letra: data.letra || "",
+    cor: data.cor || "",
+    angulo: data.angulo || "",
+    posicao: data.posicao || "",
     clima: data.clima || "",
     observacoes: data.observacoes || "",
     gps,
+    dataHoraGPS: data.dataHoraGPS || "",
     fotos,
     created_at: now
   };
@@ -351,25 +486,118 @@ const handleMedicaoSubmit = async (event) => {
   renderMedicoes();
   medicaoForm.reset();
   rebuildLeituras();
-  updateGpsInputs({ lat: null, lng: null, accuracy: null, source: "" });
+  updateGpsInputs({ lat: null, lng: null, accuracy: null, source: "", dateTime: "" });
   gpsStatus.textContent = "Sem captura.";
   fotoMedicaoInfo.textContent = "Nenhuma foto selecionada.";
   fotoLocalInfo.textContent = "Nenhuma foto selecionada.";
+  updateSubtipoFields();
   setStatusMessage("Medição registrada com sucesso.");
+};
+
+const buildUserPdf = async () => {
+  if (!activeSession) return;
+  const obraValue = normalizeText(userReportObra.value).toUpperCase();
+  const startDate = userReportStart.value ? new Date(`${userReportStart.value}T00:00:00`) : null;
+  const endDate = userReportEnd.value ? new Date(`${userReportEnd.value}T23:59:59`) : null;
+  const filtered = medicoes.filter((medicao) => {
+    const matchUser = normalizeUserIdComparable(medicao.user_id) === normalizeUserIdComparable(activeSession.id);
+    const matchObra = obraValue ? (medicao.obra_id || "").toUpperCase() === obraValue : true;
+    const medicaoDate = new Date(medicao.dataHora || medicao.data_hora);
+    const matchStart = startDate ? medicaoDate >= startDate : true;
+    const matchEnd = endDate ? medicaoDate <= endDate : true;
+    return matchUser && matchObra && matchStart && matchEnd;
+  });
+  if (!filtered.length) {
+    setStatusMessage("Nenhuma medição encontrada para o relatório individual.");
+    return;
+  }
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+  const now = new Date();
+  doc.setFontSize(16);
+  doc.text("Relatório Individual MEDLUX", 40, 40);
+  doc.setFontSize(10);
+  doc.text(`Operador: ${activeSession.nome} (${activeSession.id})`, 40, 58);
+  doc.text(`Gerado em: ${now.toLocaleString("pt-BR")}`, 40, 72);
+  doc.text(`Obra: ${obraValue || "Todas"}`, 40, 86);
+  doc.text(`Período: ${userReportStart.value || "-"} → ${userReportEnd.value || "-"}`, 40, 100);
+
+  const rows = filtered.map((medicao) => [
+    medicao.id || medicao.medicao_id,
+    medicao.obra_id || "-",
+    medicao.equipamento_id || medicao.equip_id,
+    medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao,
+    formatMediaLabel(medicao),
+    formatLocal(medicao),
+    formatGps(medicao.gps),
+    medicao.dataHora || medicao.data_hora
+  ]);
+
+  doc.autoTable({
+    head: [["ID", "Obra", "Equip.", "Subtipo", "Média", "Local", "GPS", "Data/Hora"]],
+    body: rows,
+    startY: 120,
+    styles: { fontSize: 8 }
+  });
+
+  const fotos = filtered.flatMap((medicao) => medicao.fotos || []);
+  if (fotos.length) {
+    let cursorY = doc.lastAutoTable.finalY + 20;
+    doc.setFontSize(12);
+    doc.text("Anexos (miniaturas)", 40, cursorY);
+    cursorY += 10;
+    const thumbSize = 90;
+    let x = 40;
+    let y = cursorY + 10;
+    for (const foto of fotos.slice(0, 8)) {
+      try {
+        const dataUrl = await blobToDataUrl(foto.blob);
+        const format = dataUrl.includes("image/png") ? "PNG" : "JPEG";
+        doc.addImage(dataUrl, format, x, y, thumbSize, thumbSize);
+        x += thumbSize + 10;
+        if (x + thumbSize > 560) {
+          x = 40;
+          y += thumbSize + 16;
+        }
+        if (y + thumbSize > 760) {
+          doc.addPage();
+          x = 40;
+          y = 60;
+        }
+      } catch (error) {
+        // Ignore failed photos
+      }
+    }
+  }
+
+  doc.save(`relatorio-individual-${activeSession.id}-${now.toISOString().slice(0, 10)}.pdf`);
 };
 
 const initialize = async () => {
   await ensureDefaultAdmin();
-  const authorized = requireAuth({
-    allowRoles: ["OPERADOR", "ADMIN"],
+  const session = requireAuth({
+    allowRoles: ["USER", "OPERADOR", "ADMIN"],
     onMissing: () => openModal(loginModal),
     onUnauthorized: () => { window.location.href = "../index.html"; }
   });
   rebuildLeituras();
-  if (!authorized) return;
-  activeSession = getSession();
+  updateSubtipoFields();
+  if (!session) return;
+  activeSession = session;
   await loadData();
+  if (["USER", "OPERADOR"].includes(activeSession.role)) {
+    const possuiVinculo = vinculos.some(
+      (item) => isVinculoAtivo(item) && normalizeUserIdComparable(item.user_id) === normalizeUserIdComparable(activeSession.id)
+    );
+    if (!possuiVinculo) {
+      logout();
+      window.location.href = "../index.html";
+      return;
+    }
+  }
   renderEquipamentos();
+  renderObrasList();
   renderMedicoes();
   syncStatus.textContent = navigator.onLine ? "Online • IndexedDB" : "Offline pronto • IndexedDB";
 };
@@ -394,15 +622,25 @@ applyLeituraListButton.addEventListener("click", () => {
 gpsCaptureButton.addEventListener("click", handleCaptureGps);
 fotoMedicaoInput.addEventListener("change", () => updatePhotoInfo(fotoMedicaoInput, fotoMedicaoInfo));
 fotoLocalInput.addEventListener("change", () => updatePhotoInfo(fotoLocalInput, fotoLocalInfo));
-[gpsLat, gpsLng, gpsAcc].forEach((input) => {
+clearFotoMedicao.addEventListener("click", () => {
+  fotoMedicaoInput.value = "";
+  updatePhotoInfo(fotoMedicaoInput, fotoMedicaoInfo);
+});
+clearFotoLocal.addEventListener("click", () => {
+  fotoLocalInput.value = "";
+  updatePhotoInfo(fotoLocalInput, fotoLocalInfo);
+});
+[gpsLat, gpsLng, gpsAcc, gpsDateTime].forEach((input) => {
   input.addEventListener("input", () => {
     if (!gpsSource.value) gpsSource.value = "MANUAL";
   });
 });
+medicaoSubtipo.addEventListener("change", updateSubtipoFields);
 logoutButton.addEventListener("click", () => {
   logout();
   window.location.href = "../index.html";
 });
+generateUserPdf.addEventListener("click", buildUserPdf);
 
 window.addEventListener("online", () => { syncStatus.textContent = "Online • IndexedDB"; });
 window.addEventListener("offline", () => { syncStatus.textContent = "Offline pronto • IndexedDB"; });

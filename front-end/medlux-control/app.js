@@ -12,12 +12,15 @@ import {
   encerrarVinculo,
   getAllMedicoes,
   saveMedicao,
+  getAllObras,
+  saveObra,
+  deleteObra,
   exportSnapshot,
   importSnapshot,
   clearAllStores,
   saveAuditoria
 } from "./db.js";
-import { ensureDefaultAdmin, authenticate, updatePin, createUserWithPin, logout, requireAuth, getSession } from "../shared/auth.js";
+import { ensureDefaultAdmin, authenticate, updatePin, createUserWithPin, logout, requireAuth } from "../shared/auth.js";
 
 const tabs = document.querySelectorAll(".tab");
 const panels = document.querySelectorAll("[data-panel]");
@@ -56,6 +59,9 @@ const generateObraPdf = document.getElementById("generateObraPdf");
 const obraFilter = document.getElementById("obraFilter");
 const relatorioFilter = document.getElementById("relatorioFilter");
 const responsavelTecnico = document.getElementById("responsavelTecnico");
+const faixaFilter = document.getElementById("faixaFilter");
+const linhaFilter = document.getElementById("linhaFilter");
+const estacaoFilter = document.getElementById("estacaoFilter");
 const obraResumo = document.getElementById("obraResumo");
 const statusMessage = document.getElementById("statusMessage");
 const syncStatus = document.getElementById("syncStatus");
@@ -90,6 +96,15 @@ const newVinculo = document.getElementById("newVinculo");
 const vinculoEquip = document.getElementById("vinculoEquip");
 const vinculoUser = document.getElementById("vinculoUser");
 const vinculoTermo = document.getElementById("vinculoTermo");
+
+const obrasBody = document.getElementById("obrasBody");
+const newObra = document.getElementById("newObra");
+const obraModal = document.getElementById("obraModal");
+const obraTitle = document.getElementById("obraTitle");
+const closeObra = document.getElementById("closeObra");
+const cancelObra = document.getElementById("cancelObra");
+const obraForm = document.getElementById("obraForm");
+const obraHint = document.getElementById("obraHint");
 
 const loginModal = document.getElementById("loginModal");
 const loginForm = document.getElementById("loginForm");
@@ -130,6 +145,8 @@ const FUNCAO_LABELS = {
 
 const normalizeText = (value) => String(value || "").trim().replace(/\s+/g, " ");
 const normalizeId = (value) => normalizeText(value).toUpperCase();
+const normalizeUserId = (value) => normalizeText(value);
+const normalizeUserIdComparable = (value) => normalizeText(value).toUpperCase();
 
 const normalizeFuncao = (value) => {
   const raw = normalizeText(value).toUpperCase();
@@ -212,24 +229,26 @@ let equipamentos = [];
 let usuarios = [];
 let vinculos = [];
 let medicoes = [];
+let obras = [];
 let editingId = null;
 let editingUserId = null;
+let editingObraId = null;
 let activeSession = null;
 let sortState = { key: "id", direction: "asc" };
 let currentPage = 1;
 
 const ensureLogin = async () => {
   await ensureDefaultAdmin();
-  const authorized = requireAuth({
+  const session = requireAuth({
     allowRoles: ["ADMIN"],
     onMissing: () => openModal(loginModal),
     onUnauthorized: () => {
       logout();
-      openModal(loginModal);
+      window.location.href = "../medlux-reflective-control/index.html";
     }
   });
-  if (!authorized) return null;
-  activeSession = getSession();
+  if (!session) return null;
+  activeSession = session;
   return activeSession;
 };
 
@@ -251,9 +270,10 @@ const normalizeEquipamento = (data) => {
     dataAquisicao: data.dataAquisicao ? parseDateString(data.dataAquisicao).value : "",
     calibrado: normalizeCalibrado(data.calibrado),
     dataCalibracao: data.dataCalibracao ? parseDateString(data.dataCalibracao).value : "",
-    certificado: normalizeText(data.certificado || data.numeroCertificado),
+    numeroCertificado: normalizeText(data.certificado || data.numeroCertificado),
     fabricante: normalizeText(data.fabricante),
     usuarioAtual: normalizeText(data.usuarioAtual || data.usuarioResponsavel),
+    usuarioResponsavel: normalizeText(data.usuarioAtual || data.usuarioResponsavel),
     localidadeCidadeUF: normalizeText(data.localidadeCidadeUF || data.localidade),
     dataEntregaUsuario: data.dataEntregaUsuario ? parseDateString(data.dataEntregaUsuario).value : "",
     statusLocal: normalizeStatus(data.statusLocal || data.statusOperacional || data.status || "STAND_BY"),
@@ -261,16 +281,38 @@ const normalizeEquipamento = (data) => {
   };
 };
 
+const normalizeObra = (data) => ({
+  id: normalizeId(data.idObra || data.id),
+  idObra: normalizeId(data.idObra || data.id),
+  nomeObra: normalizeText(data.nomeObra || data.nome),
+  rodovia: normalizeText(data.rodovia),
+  kmInicio: normalizeText(data.kmInicio),
+  kmFim: normalizeText(data.kmFim),
+  cidadeUF: normalizeText(data.cidadeUF),
+  concessionariaCliente: normalizeText(data.concessionariaCliente),
+  responsavelTecnico: normalizeText(data.responsavelTecnico),
+  observacoes: normalizeText(data.observacoes)
+});
+
+const validateObra = (obra) => {
+  if (!obra.idObra) return "ID da obra obrigatório.";
+  if (!obra.nomeObra) return "Nome da obra obrigatório.";
+  return "";
+};
+
 const loadData = async () => {
-  [equipamentos, usuarios, vinculos, medicoes] = await Promise.all([
+  [equipamentos, usuarios, vinculos, medicoes, obras] = await Promise.all([
     getAllEquipamentos(),
     getAllUsuarios(),
     getAllVinculos(),
-    getAllMedicoes()
+    getAllMedicoes(),
+    getAllObras()
   ]);
 };
 
 const getActiveVinculos = () => vinculos.filter((item) => item.status === "ATIVO" || item.ativo);
+const getActiveVinculoByEquip = (equipId) => getActiveVinculos()
+  .find((item) => (item.equipamento_id || item.equip_id) === equipId) || null;
 
 const renderDashboard = () => {
   statusCards.textContent = "";
@@ -447,7 +489,7 @@ const renderVinculos = () => {
     const row = document.createElement("tr");
     const equipamentoId = vinculo.equipamento_id || vinculo.equip_id;
     const equipamento = equipamentos.find((item) => item.id === equipamentoId);
-    const usuario = usuarios.find((item) => item.user_id === vinculo.user_id);
+    const usuario = usuarios.find((item) => normalizeUserIdComparable(item.user_id || item.id) === normalizeUserIdComparable(vinculo.user_id));
     const statusLabel = vinculo.status === "ATIVO" || vinculo.ativo ? "Ativo" : "Encerrado";
     const termoLabel = vinculo.termo_pdf || vinculo.termo_cautela_pdf ? "Arquivo anexado" : "-";
     [
@@ -472,6 +514,40 @@ const renderVinculos = () => {
     }
     row.appendChild(actions);
     vinculosBody.appendChild(row);
+  });
+};
+
+const renderObras = () => {
+  obrasBody.textContent = "";
+  obras.forEach((obra) => {
+    const row = document.createElement("tr");
+    const kmLabel = obra.kmInicio || obra.kmFim ? `${obra.kmInicio || "-"} → ${obra.kmFim || "-"}` : "-";
+    [
+      obra.idObra || obra.id,
+      obra.nomeObra || obra.nome || "-",
+      obra.rodovia || "-",
+      kmLabel,
+      obra.cidadeUF || "-",
+      obra.concessionariaCliente || "-"
+    ].forEach((text) => {
+      const cell = document.createElement("td");
+      cell.textContent = text;
+      row.appendChild(cell);
+    });
+    const actions = document.createElement("td");
+    const editButton = document.createElement("button");
+    editButton.className = "btn secondary";
+    editButton.type = "button";
+    editButton.textContent = "Editar";
+    editButton.addEventListener("click", () => openObraModal(obra.id));
+    const deleteButton = document.createElement("button");
+    deleteButton.className = "btn danger";
+    deleteButton.type = "button";
+    deleteButton.textContent = "Excluir";
+    deleteButton.addEventListener("click", () => handleDeleteObra(obra.id));
+    actions.append(editButton, deleteButton);
+    row.appendChild(actions);
+    obrasBody.appendChild(row);
   });
 };
 
@@ -514,6 +590,7 @@ const openEditModal = (id) => {
   const equipamento = equipamentos.find((item) => item.id === id);
   if (!equipamento) return;
   editingId = id;
+  const vinculoAtivo = getActiveVinculoByEquip(id);
   modalTitle.textContent = `Editar ${equipamento.id}`;
   formFields.id.value = equipamento.id;
   formFields.id.disabled = true;
@@ -526,7 +603,8 @@ const openEditModal = (id) => {
   formFields.certificado.value = equipamento.certificado || equipamento.numeroCertificado || "";
   formFields.statusLocal.value = equipamento.statusLocal || equipamento.statusOperacional || equipamento.status || "STAND_BY";
   formFields.calibrado.value = equipamento.calibrado || "";
-  formFields.usuarioAtual.value = equipamento.usuarioAtual || equipamento.usuarioResponsavel || "";
+  formFields.usuarioAtual.value = vinculoAtivo?.user_id || equipamento.usuarioAtual || equipamento.usuarioResponsavel || "";
+  formFields.usuarioAtual.disabled = Boolean(vinculoAtivo);
   formFields.localidadeCidadeUF.value = equipamento.localidadeCidadeUF || equipamento.localidade || "";
   formFields.dataEntregaUsuario.value = equipamento.dataEntregaUsuario || "";
   formFields.observacoes.value = equipamento.observacoes || "";
@@ -540,6 +618,7 @@ const openNewModal = () => {
   modalTitle.textContent = "Novo equipamento";
   form.reset();
   formFields.id.disabled = false;
+  formFields.usuarioAtual.disabled = false;
   formFields.statusLocal.value = "STAND_BY";
   formFields.calibrado.value = "Sim";
   formHint.textContent = "Campos com * são obrigatórios.";
@@ -550,7 +629,8 @@ const openNewModal = () => {
 const handleFormSubmit = async (event) => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(form).entries());
-  const normalized = normalizeEquipamento(data);
+  const resolvedId = data.id || editingId || "";
+  const normalized = normalizeEquipamento({ ...data, id: resolvedId });
   const error = validateEquipamento(normalized);
   if (error) {
     formHint.textContent = error;
@@ -562,6 +642,11 @@ const handleFormSubmit = async (event) => {
   }
   const now = new Date().toISOString();
   const existing = editingId ? equipamentos.find((item) => item.id === editingId) : null;
+  const vinculoAtivo = getActiveVinculoByEquip(normalized.id);
+  if (vinculoAtivo) {
+    normalized.usuarioAtual = vinculoAtivo.user_id;
+    normalized.usuarioResponsavel = vinculoAtivo.user_id;
+  }
   await saveEquipamento({
     ...normalized,
     created_at: existing?.created_at || now,
@@ -583,16 +668,17 @@ const handleFormSubmit = async (event) => {
 const handleUsuarioSubmit = async (event) => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(usuarioForm).entries());
-  const userId = normalizeId(data.user_id);
+  const userId = normalizeUserId(data.user_id);
+  const userIdComparable = normalizeUserIdComparable(userId);
   if (!userId || !data.nome || !data.role) {
     usuarioHint.textContent = "ID, nome e perfil são obrigatórios.";
     return;
   }
-  if (!editingUserId && usuarios.some((item) => (item.user_id || item.id) === userId)) {
+  if (!editingUserId && usuarios.some((item) => normalizeUserIdComparable(item.user_id || item.id) === userIdComparable)) {
     usuarioHint.textContent = "ID já existe.";
     return;
   }
-  const existing = usuarios.find((item) => (item.user_id || item.id) === userId);
+  const existing = usuarios.find((item) => normalizeUserIdComparable(item.user_id || item.id) === userIdComparable);
   if (!existing && !data.pin) {
     usuarioHint.textContent = "PIN obrigatório para novo usuário.";
     return;
@@ -634,13 +720,13 @@ const openUsuarioModal = (userId = "") => {
     openModal(usuarioModal);
     return;
   }
-  const usuario = usuarios.find((item) => item.user_id === userId);
+  const usuario = usuarios.find((item) => normalizeUserIdComparable(item.user_id || item.id) === normalizeUserIdComparable(userId));
   if (!usuario) return;
   editingUserId = userId;
-  const userId = usuario.user_id || usuario.id;
+  const resolvedUserId = usuario.user_id || usuario.id;
   const isActive = usuario.status ? usuario.status === "ATIVO" : usuario.ativo;
-  usuarioTitle.textContent = `Editar ${userId}`;
-  usuarioForm.querySelector("#usuarioId").value = userId;
+  usuarioTitle.textContent = `Editar ${resolvedUserId}`;
+  usuarioForm.querySelector("#usuarioId").value = resolvedUserId;
   usuarioForm.querySelector("#usuarioId").disabled = true;
   usuarioForm.querySelector("#usuarioNome").value = usuario.nome;
   usuarioForm.querySelector("#usuarioRole").value = usuario.role;
@@ -726,7 +812,14 @@ const handleEncerrarVinculo = async (vinculoId) => {
     const equipamentoId = encerrado.equipamento_id || encerrado.equip_id;
     const equipamento = equipamentos.find((item) => item.id === equipamentoId);
     if (equipamento) {
-      await saveEquipamento({ ...equipamento, statusLocal: "STAND_BY", statusOperacional: "STAND_BY", status: "STAND_BY" });
+      await saveEquipamento({
+        ...equipamento,
+        statusLocal: "STAND_BY",
+        statusOperacional: "STAND_BY",
+        status: "STAND_BY",
+        usuarioAtual: "",
+        usuarioResponsavel: ""
+      });
     }
   }
   await loadData();
@@ -741,6 +834,68 @@ const openVinculoModal = () => {
   openModal(vinculoModal);
 };
 
+const openObraModal = (obraId = "") => {
+  obraForm.reset();
+  obraHint.textContent = "Campos com * são obrigatórios.";
+  if (!obraId) {
+    editingObraId = null;
+    obraTitle.textContent = "Nova obra";
+    obraForm.querySelector("#obraId").disabled = false;
+    openModal(obraModal);
+    return;
+  }
+  const obra = obras.find((item) => item.id === obraId || item.idObra === obraId);
+  if (!obra) return;
+  editingObraId = obra.id;
+  obraTitle.textContent = `Editar ${obra.idObra || obra.id}`;
+  obraForm.querySelector("#obraId").value = obra.idObra || obra.id;
+  obraForm.querySelector("#obraId").disabled = true;
+  obraForm.querySelector("#obraNome").value = obra.nomeObra || "";
+  obraForm.querySelector("#obraRodovia").value = obra.rodovia || "";
+  obraForm.querySelector("#obraKmInicio").value = obra.kmInicio || "";
+  obraForm.querySelector("#obraKmFim").value = obra.kmFim || "";
+  obraForm.querySelector("#obraCidade").value = obra.cidadeUF || "";
+  obraForm.querySelector("#obraCliente").value = obra.concessionariaCliente || "";
+  obraForm.querySelector("#obraResponsavel").value = obra.responsavelTecnico || "";
+  obraForm.querySelector("#obraObs").value = obra.observacoes || "";
+  openModal(obraModal);
+};
+
+const handleObraSubmit = async (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(obraForm).entries());
+  const normalized = normalizeObra({ ...data, id: editingObraId || data.idObra });
+  const error = validateObra(normalized);
+  if (error) {
+    obraHint.textContent = error;
+    return;
+  }
+  const exists = obras.some((item) => item.id === normalized.id && item.id !== editingObraId);
+  if (exists) {
+    obraHint.textContent = "ID de obra já existe.";
+    return;
+  }
+  const now = new Date().toISOString();
+  await saveObra({
+    ...normalized,
+    created_at: obras.find((item) => item.id === normalized.id)?.created_at || now,
+    updated_at: now
+  });
+  await loadData();
+  renderAll();
+  closeModalElement(obraModal);
+  setStatusMessage(editingObraId ? "Obra atualizada." : "Obra cadastrada.");
+};
+
+const handleDeleteObra = async (obraId) => {
+  const confirmed = window.confirm(`Excluir obra ${obraId}?`);
+  if (!confirmed) return;
+  await deleteObra(obraId);
+  await loadData();
+  renderAll();
+  setStatusMessage("Obra removida.");
+};
+
 const handleSeed = async () => {
   const now = new Date().toISOString();
   await createUserWithPin({
@@ -748,12 +903,12 @@ const handleSeed = async () => {
     nome: "Administrador",
     role: "ADMIN",
     status: "ATIVO",
-    pin: "1234"
+    pin: "2308"
   });
   await createUserWithPin({
     id: "OP001",
     nome: "Operador Exemplo",
-    role: "OPERADOR",
+    role: "USER",
     status: "ATIVO",
     pin: "4321"
   });
@@ -766,7 +921,7 @@ const handleSeed = async () => {
       numeroSerie: "H15001",
       dataAquisicao: "2023-01-10",
       calibrado: "Sim",
-      certificado: "CERT-2023-01",
+      numeroCertificado: "CERT-2023-01",
       fabricante: "Medlux",
       usuarioAtual: "OP001",
       localidadeCidadeUF: "São Paulo-SP",
@@ -781,7 +936,7 @@ const handleSeed = async () => {
       numeroSerie: "V10002",
       dataAquisicao: "2022-11-05",
       calibrado: "Não",
-      certificado: "",
+      numeroCertificado: "",
       fabricante: "Medlux",
       usuarioAtual: "",
       localidadeCidadeUF: "Curitiba-PR",
@@ -873,7 +1028,7 @@ const mapHeaders = (headers) => headers.map((header) => normalizeText(header)
 
 const buildEquipamentoFromRow = (row, rowIndex) => {
   const errors = [];
-  const funcao = normalizeFuncao(row.funcao || row.funcaoequipamento || row.tipo || row.funcaoequipamento);
+  const funcao = normalizeFuncao(row.funcao || row.funcaoequipamento || row.tipo);
   const aquisicao = parseDateString(row.dataaquisicao);
   const entrega = parseDateString(row.dataentregausuario);
   if (row.dataaquisicao && aquisicao.error) errors.push("Data de aquisição inválida");
@@ -886,9 +1041,9 @@ const buildEquipamentoFromRow = (row, rowIndex) => {
     numeroSerie: row.numeroserie || row.numerodeserie || row.ndeserie,
     dataAquisicao: aquisicao.value,
     calibrado: row.calibracao || row.calibrado,
-    certificado: row.ndocertificado || row.numerocertificado || row.ncertificado,
+    numeroCertificado: row.ndocertificado || row.numerocertificado || row.ncertificado,
     fabricante: row.fabricante,
-    usuarioAtual: row.usuario,
+    usuarioAtual: row.usuario || row.usuarioresponsavel,
     localidadeCidadeUF: row.localidadecidadeuf || row.localidade,
     dataEntregaUsuario: entrega.value,
     statusLocal: row.status,
@@ -938,7 +1093,7 @@ const buildPreview = (items) => {
   head.appendChild(headRow);
   table.appendChild(head);
   const body = document.createElement("tbody");
-  items.slice(0, 8).forEach((item) => {
+  items.slice(0, 10).forEach((item) => {
     const row = document.createElement("tr");
     [item.id, formatFuncao(item.funcao), item.modelo || "-", item.numeroSerie || "-", formatStatus(getEquipamentoStatus(item))].forEach((text) => {
       const cell = document.createElement("td");
@@ -986,6 +1141,45 @@ const handleImportXlsx = async () => {
   setStatusMessage("Importação Excel concluída.");
 };
 
+const parseCsv = (text) => {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    const next = text[i + 1];
+    if (char === "\"") {
+      if (inQuotes && next === "\"") {
+        field += "\"";
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (char === "," && !inQuotes) {
+      row.push(field);
+      field = "";
+      continue;
+    }
+    if ((char === "\n" || char === "\r") && !inQuotes) {
+      if (char === "\r" && next === "\n") i += 1;
+      row.push(field);
+      if (row.some((value) => String(value || "").trim())) rows.push(row);
+      row = [];
+      field = "";
+      continue;
+    }
+    field += char;
+  }
+  if (field.length || row.length) {
+    row.push(field);
+    if (row.some((value) => String(value || "").trim())) rows.push(row);
+  }
+  return rows;
+};
+
 const parseDelimited = (text, delimiter) => {
   const lines = text.split(/\r?\n/).filter((line) => line.trim());
   if (!lines.length) return [];
@@ -994,6 +1188,11 @@ const parseDelimited = (text, delimiter) => {
     const values = line.split(delimiter);
     return Object.fromEntries(headers.map((header, index) => [header, values[index]]));
   });
+};
+
+const escapeCsvValue = (value) => {
+  const text = String(value ?? "");
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, "\"\"")}"` : text;
 };
 
 const handleImportBulk = async () => {
@@ -1023,7 +1222,13 @@ const handleImportCsv = async () => {
     return;
   }
   const text = await importCsvFile.files[0].text();
-  const rows = parseDelimited(text, ",");
+  const csvRows = parseCsv(text);
+  if (!csvRows.length) {
+    setStatusMessage("Nenhuma linha encontrada no CSV.");
+    return;
+  }
+  const headers = mapHeaders(csvRows[0]);
+  const rows = csvRows.slice(1).map((row) => Object.fromEntries(headers.map((header, index) => [header, row[index]])));
   const mapped = rows.map((row, index) => buildEquipamentoFromRow(row, index + 2));
   const invalid = mapped.filter((item) => item.errors.length);
   if (invalid.length) {
@@ -1047,17 +1252,17 @@ const handleExportCsv = () => {
     "dataAquisicao",
     "calibrado",
     "dataCalibracao",
-    "certificado",
+    "numeroCertificado",
     "fabricante",
-    "usuarioAtual",
+    "usuarioResponsavel",
     "localidadeCidadeUF",
     "dataEntregaUsuario",
     "statusLocal",
     "observacoes"
   ];
-  const rows = equipamentos.map((equipamento) => headers.map((header) => String(equipamento[header] ?? "")).join(";"));
-  const csv = [headers.join(";"), ...rows].join("\n");
-  const blob = new Blob([csv], { type: "text/csv" });
+  const rows = equipamentos.map((equipamento) => headers.map((header) => escapeCsvValue(equipamento[header] ?? equipamento.usuarioAtual ?? "")));
+  const csv = [headers.map(escapeCsvValue).join(","), ...rows.map((row) => row.join(","))].join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
   link.download = `medlux-equipamentos-${new Date().toISOString().slice(0, 10)}.csv`;
@@ -1080,8 +1285,30 @@ const formatGps = (gps) => {
 };
 
 const formatLocal = (medicao) => {
-  const parts = [medicao.cidadeUF, medicao.enderecoTexto, medicao.rodovia, medicao.km].filter(Boolean);
+  const parts = [medicao.cidadeUF, medicao.enderecoTexto, medicao.rodovia, medicao.km, medicao.sentido, medicao.faixa].filter(Boolean);
   return parts.length ? parts.join(" • ") : "-";
+};
+
+const calculateMedia = (medicao) => {
+  const leituras = (medicao.leituras || []).map((value) => Number(value)).filter((value) => Number.isFinite(value));
+  if (!leituras.length) {
+    const fallback = Number(medicao.valor);
+    return Number.isFinite(fallback) ? fallback : null;
+  }
+  const tipo = String(medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao || "").trim().toUpperCase();
+  if (tipo === "HORIZONTAL") {
+    if (leituras.length < 3) return null;
+    const sorted = [...leituras].sort((a, b) => a - b);
+    const trimmed = sorted.length >= 3 ? sorted.slice(1, sorted.length - 1) : sorted;
+    if (!trimmed.length) return null;
+    return trimmed.reduce((acc, item) => acc + item, 0) / trimmed.length;
+  }
+  return leituras.reduce((acc, item) => acc + item, 0) / leituras.length;
+};
+
+const formatMedia = (medicao) => {
+  const media = calculateMedia(medicao);
+  return media === null ? "-" : media.toFixed(2);
 };
 
 const blobToDataUrl = (blob) => new Promise((resolve, reject) => {
@@ -1113,7 +1340,7 @@ const buildGlobalPdf = async () => {
     getEquipamentoLocalidade(equipamento) || "-",
     formatStatus(getEquipamentoStatus(equipamento)),
     equipamento.calibrado || "-",
-    equipamento.certificado || equipamento.numeroCertificado || "-"
+    equipamento.numeroCertificado || equipamento.certificado || "-"
   ]);
 
   doc.autoTable({
@@ -1146,25 +1373,57 @@ const buildGlobalPdf = async () => {
   const medicaoRows = medicoes.map((medicao) => {
     const leituras = medicao.leituras || [];
     const quantidade = leituras.length || (medicao.valor ? 1 : 0);
+    const anexos = (medicao.fotos || []).length ? "Anexo" : "-";
     return [
-      medicao.obra_id || "-",
-      medicao.relatorio_id || "-",
+      medicao.id || medicao.medicao_id || "-",
+      medicao.dataHora || medicao.data_hora || "-",
+      medicao.user_id || "-",
       medicao.equipamento_id || medicao.equip_id,
-      medicao.user_id,
-      medicao.tipoMedicao || medicao.tipo_medicao,
-      medicao.media ?? medicao.valor ?? "-",
+      medicao.obra_id || "-",
+      medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao,
+      formatMedia(medicao),
       quantidade,
       formatLocal(medicao),
       formatGps(medicao.gps),
-      medicao.dataHora || medicao.data_hora
+      anexos
     ];
   });
   doc.autoTable({
-    head: [["Obra", "Relatório", "Equip.", "Usuário", "Tipo", "Valor (Média)", "N Leituras", "Local", "GPS", "Data/Hora"]],
+    head: [["ID", "Data/Hora", "Usuário", "Equip.", "Obra", "Tipo/Subtipo", "Média", "N Leituras", "Local", "GPS", "Anexos"]],
     body: medicaoRows,
     startY: cursorY + 10,
     styles: { fontSize: 8 }
   });
+
+  let anexosY = doc.lastAutoTable.finalY + 20;
+  const anexos = medicoes.flatMap((medicao) => medicao.fotos || []);
+  if (anexos.length) {
+    doc.setFontSize(12);
+    doc.text("Anexos (miniaturas)", 40, anexosY);
+    anexosY += 10;
+    const thumbSize = 90;
+    let x = 40;
+    let y = anexosY + 10;
+    for (const foto of anexos.slice(0, 9)) {
+      try {
+        const dataUrl = await blobToDataUrl(foto.blob);
+        const format = dataUrl.includes("image/png") ? "PNG" : "JPEG";
+        doc.addImage(dataUrl, format, x, y, thumbSize, thumbSize);
+        x += thumbSize + 10;
+        if (x + thumbSize > 560) {
+          x = 40;
+          y += thumbSize + 16;
+        }
+        if (y + thumbSize > 760) {
+          doc.addPage();
+          x = 40;
+          y = 60;
+        }
+      } catch (error) {
+        // Ignore photo failures
+      }
+    }
+  }
 
   doc.save(`auditoria-global-medlux-${now.toISOString().slice(0, 10)}.pdf`);
 };
@@ -1172,19 +1431,33 @@ const buildGlobalPdf = async () => {
 const buildObraPdf = async () => {
   const obraValue = normalizeText(obraFilter.value).toUpperCase();
   const relatorioValue = normalizeText(relatorioFilter.value).toUpperCase();
+  const faixaValue = normalizeText(faixaFilter.value).toUpperCase();
+  const linhaValue = normalizeText(linhaFilter.value).toUpperCase();
+  const estacaoValue = normalizeText(estacaoFilter.value).toUpperCase();
   if (!obraValue && !relatorioValue) {
     setStatusMessage("Informe uma obra ou ID de relatório para gerar o PDF.");
     return;
   }
   const filtradas = medicoes.filter((medicao) => {
     const matchObra = obraValue ? (medicao.obra_id || "").toUpperCase() === obraValue : true;
-    const matchRelatorio = relatorioValue ? (medicao.relatorio_id || "").toUpperCase() === relatorioValue : true;
-    return matchObra && matchRelatorio;
+    const relatorioId = medicao.identificadorRelatorio || medicao.relatorio_id || "";
+    const matchRelatorio = relatorioValue ? relatorioId.toUpperCase() === relatorioValue : true;
+    const matchFaixa = faixaValue ? normalizeText(medicao.faixa).toUpperCase() === faixaValue : true;
+    const matchLinha = linhaValue ? normalizeText(medicao.linha).toUpperCase() === linhaValue : true;
+    const matchEstacao = estacaoValue ? normalizeText(medicao.estacao).toUpperCase() === estacaoValue : true;
+    return matchObra && matchRelatorio && matchFaixa && matchLinha && matchEstacao;
   });
   if (!filtradas.length) {
     setStatusMessage("Nenhuma medição encontrada para o filtro informado.");
     return;
   }
+
+  const obra = obras.find((item) => normalizeId(item.idObra || item.id) === obraValue) || null;
+  const identificador = relatorioValue || filtradas[0].identificadorRelatorio || filtradas[0].relatorio_id || "-";
+  const datas = filtradas.map((item) => new Date(item.dataHora || item.data_hora)).filter((d) => !Number.isNaN(d.getTime()));
+  const periodo = datas.length
+    ? `${datas.reduce((min, d) => (d < min ? d : min)).toLocaleDateString("pt-BR")} → ${datas.reduce((max, d) => (d > max ? d : max)).toLocaleDateString("pt-BR")}`
+    : "-";
 
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
@@ -1192,26 +1465,36 @@ const buildObraPdf = async () => {
   doc.setFontSize(18);
   doc.text("Relatório por Obra MEDLUX", 40, 40);
   doc.setFontSize(11);
-  doc.text(`Obra: ${obraValue || "-"}`, 40, 64);
-  doc.text(`Relatório: ${relatorioValue || "-"}`, 40, 80);
+  doc.text(`Identificador: ${identificador}`, 40, 64);
+  doc.text(`Obra: ${obraValue || "-"}`, 40, 80);
   doc.text(`Gerado em: ${now.toLocaleString("pt-BR")}`, 40, 96);
-  doc.text(`Responsável técnico: ${responsavelTecnico.value || activeSession?.nome || "-"}`, 40, 112);
-  let currentY = 130;
-  if (obraResumo.value) {
-    doc.text("Resumo:", 40, currentY);
+  doc.text(`Período: ${periodo}`, 40, 112);
+  doc.text(`Responsável técnico: ${responsavelTecnico.value || obra?.responsavelTecnico || activeSession?.nome || "-"}`, 40, 128);
+
+  let currentY = 148;
+  if (obra) {
     doc.setFontSize(10);
+    doc.text(`Nome: ${obra.nomeObra || "-"}`, 40, currentY);
+    doc.text(`Rodovia: ${obra.rodovia || "-"} • KM ${obra.kmInicio || "-"} → ${obra.kmFim || "-"}`, 40, currentY + 14);
+    doc.text(`Cidade/UF: ${obra.cidadeUF || "-"} • Cliente: ${obra.concessionariaCliente || "-"}`, 40, currentY + 28);
+    currentY += 44;
+  }
+
+  if (obraResumo.value) {
+    doc.setFontSize(10);
+    doc.text("Resumo:", 40, currentY);
     const resumoLines = doc.splitTextToSize(obraResumo.value, 520);
-    doc.text(resumoLines, 40, currentY + 16);
-    currentY += 16 + resumoLines.length * 12;
+    doc.text(resumoLines, 40, currentY + 14);
+    currentY += 14 + resumoLines.length * 12;
   }
 
   const primeiroGps = filtradas.find((item) => item.gps?.lat !== null && item.gps?.lng !== null);
   if (primeiroGps) {
-    const link = `https://www.openstreetmap.org/?mlat=${primeiroGps.gps.lat}&mlon=${primeiroGps.gps.lng}#map=18/${primeiroGps.gps.lat}/${primeiroGps.gps.lng}`;
+    const link = `https://www.google.com/maps?q=${primeiroGps.gps.lat},${primeiroGps.gps.lng}`;
     doc.setFontSize(10);
     const linkY = currentY + 14;
     if (doc.textWithLink) {
-      doc.textWithLink("Abrir mapa da obra", 40, linkY, { url: link });
+      doc.textWithLink("Abrir mapa da obra (Google Maps)", 40, linkY, { url: link });
     } else {
       doc.text(`Mapa: ${link}`, 40, linkY);
     }
@@ -1222,21 +1505,77 @@ const buildObraPdf = async () => {
   doc.setFontSize(12);
   doc.text("Resumo das medições", 40, resumoStart);
   const resumoRows = filtradas.map((medicao) => [
-    medicao.equipamento_id || medicao.equip_id,
-    medicao.tipoMedicao || medicao.tipo_medicao,
-    medicao.media ?? medicao.valor ?? "-",
+    medicao.id || medicao.medicao_id,
+    medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao,
+    `${medicao.linha || "-"} • Est. ${medicao.estacao || "-"}`,
+    formatMedia(medicao),
     (medicao.leituras || []).length || 1,
     formatLocal(medicao),
     medicao.dataHora || medicao.data_hora
   ]);
   doc.autoTable({
-    head: [["Equip.", "Tipo", "Valor (Média)", "N Leituras", "Local", "Data/Hora"]],
+    head: [["ID", "Subtipo", "Linha/Estação", "Média", "N Leituras", "Local", "Data/Hora"]],
     body: resumoRows,
     startY: resumoStart + 10,
     styles: { fontSize: 8 }
   });
 
   let cursorY = doc.lastAutoTable.finalY + 20;
+  const agrupado = filtradas.reduce((acc, medicao) => {
+    const chave = String(medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao || "OUTROS").toUpperCase();
+    const media = calculateMedia(medicao);
+    if (!acc[chave]) acc[chave] = { count: 0, sum: 0 };
+    if (media !== null) {
+      acc[chave].count += 1;
+      acc[chave].sum += media;
+    }
+    return acc;
+  }, {});
+  const resumoStats = Object.entries(agrupado).map(([chave, data]) => [
+    chave,
+    data.count,
+    data.count ? (data.sum / data.count).toFixed(2) : "-"
+  ]);
+  if (resumoStats.length) {
+    doc.setFontSize(12);
+    doc.text("Resumo estatístico por subtipo", 40, cursorY);
+    doc.autoTable({
+      head: [["Subtipo", "Qtd.", "Média geral"]],
+      body: resumoStats,
+      startY: cursorY + 10,
+      styles: { fontSize: 8 }
+    });
+    cursorY = doc.lastAutoTable.finalY + 20;
+  }
+
+  const legendas = filtradas.filter((medicao) => String(medicao.subtipo || "").toUpperCase() === "LEGENDA");
+  if (legendas.length) {
+    const letras = legendas.reduce((acc, medicao) => {
+      const letra = medicao.letra || "-";
+      const media = calculateMedia(medicao);
+      if (!acc[letra]) acc[letra] = { count: 0, sum: 0 };
+      if (media !== null) {
+        acc[letra].count += 1;
+        acc[letra].sum += media;
+      }
+      return acc;
+    }, {});
+    const rows = Object.entries(letras).map(([letra, data]) => [
+      letra,
+      data.count,
+      data.count ? (data.sum / data.count).toFixed(2) : "-"
+    ]);
+    doc.setFontSize(12);
+    doc.text("Legendas por letra", 40, cursorY);
+    doc.autoTable({
+      head: [["Letra", "Qtd.", "Média"]],
+      body: rows,
+      startY: cursorY + 10,
+      styles: { fontSize: 8 }
+    });
+    cursorY = doc.lastAutoTable.finalY + 20;
+  }
+
   doc.setFontSize(12);
   doc.text("Fotos da obra", 40, cursorY);
   cursorY += 10;
@@ -1274,13 +1613,14 @@ const renderAll = () => {
   renderQuickSearch();
   renderUsuarios();
   renderVinculos();
+  renderObras();
   refreshSelectOptions();
 };
 
 const handleLogin = async (event) => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(loginForm).entries());
-  const result = await authenticate(normalizeId(data.user_id), data.pin);
+  const result = await authenticate(data.user_id, data.pin);
   if (!result.success) {
     loginHint.textContent = result.message;
     return;
@@ -1367,6 +1707,11 @@ newVinculo.addEventListener("click", openVinculoModal);
 closeVinculo.addEventListener("click", () => closeModalElement(vinculoModal));
 cancelVinculo.addEventListener("click", () => closeModalElement(vinculoModal));
 vinculoForm.addEventListener("submit", handleVinculoSubmit);
+
+newObra.addEventListener("click", () => openObraModal());
+closeObra.addEventListener("click", () => closeModalElement(obraModal));
+cancelObra.addEventListener("click", () => closeModalElement(obraModal));
+obraForm.addEventListener("submit", handleObraSubmit);
 
 loginForm.addEventListener("submit", handleLogin);
 logoutButton.addEventListener("click", () => {

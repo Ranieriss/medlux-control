@@ -6,6 +6,8 @@
   <meta name="app-version" content="1.0.0" />
   <title>MEDLUX Reflective Control</title>
   <link rel="stylesheet" href="../medlux-control/styles.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js" defer></script>
   <script type="module" src="./app.js" defer></script>
 </head>
 <body>
@@ -43,12 +45,38 @@
                 <input id="medicaoTipo" name="tipo_medicao" placeholder="RL, Qd..." required />
               </div>
               <div class="field">
-                <label for="medicaoObra">Obra *</label>
-                <input id="medicaoObra" name="obra_id" placeholder="OBRA-001" required />
+                <label for="medicaoSubtipo">Subtipo *</label>
+                <select id="medicaoSubtipo" name="subtipo" required>
+                  <option value="">Selecione</option>
+                  <option value="HORIZONTAL">Horizontal</option>
+                  <option value="VERTICAL">Vertical</option>
+                  <option value="TACHAS">Tachas</option>
+                  <option value="LEGENDA">Legenda</option>
+                  <option value="PLACA">Placa</option>
+                </select>
               </div>
               <div class="field">
-                <label for="medicaoRelatorio">ID do relatório</label>
-                <input id="medicaoRelatorio" name="relatorio_id" placeholder="REL-2024-001" />
+                <label for="medicaoObra">Obra *</label>
+                <input id="medicaoObra" name="obra_id" placeholder="OBRA-001" list="obraList" required />
+                <datalist id="obraList"></datalist>
+              </div>
+              <div class="field">
+                <label for="medicaoRelatorio">Identificador do relatório</label>
+                <input id="medicaoRelatorio" name="identificadorRelatorio" placeholder="REL-2024-001" />
+              </div>
+              <div class="field">
+                <label for="medicaoMarcacao">Tipo de marcação</label>
+                <select id="medicaoMarcacao" name="tipoDeMarcacao">
+                  <option value="">Selecione</option>
+                  <option value="BORDO_DIREITO">Bordo direito</option>
+                  <option value="BORDO_ESQUERDO">Bordo esquerdo</option>
+                  <option value="EIXO_DIREITO">Eixo direito</option>
+                  <option value="EIXO_ESQUERDO">Eixo esquerdo</option>
+                  <option value="ZEBRADO">Zebrado</option>
+                  <option value="CANALIZACAO">Canalização</option>
+                  <option value="SETA">Seta</option>
+                  <option value="LEGENDA">Legenda</option>
+                </select>
               </div>
               <div class="field">
                 <label for="medicaoRodovia">Rodovia</label>
@@ -73,6 +101,34 @@
               <div class="field">
                 <label for="medicaoFaixa">Faixa</label>
                 <input id="medicaoFaixa" name="faixa" />
+              </div>
+              <div class="field">
+                <label for="medicaoLinha">Linha</label>
+                <input id="medicaoLinha" name="linha" placeholder="Bordo/Eixo" />
+              </div>
+              <div class="field">
+                <label for="medicaoEstacao">Estação</label>
+                <input id="medicaoEstacao" name="estacao" placeholder="Est. 1" />
+              </div>
+              <div class="field">
+                <label for="medicaoLetra">Letra (legenda)</label>
+                <input id="medicaoLetra" name="letra" placeholder="P, A, R, E..." />
+              </div>
+              <div class="field">
+                <label for="medicaoCor">Cor (placa)</label>
+                <input id="medicaoCor" name="cor" placeholder="Branco, Vermelho..." />
+              </div>
+              <div class="field">
+                <label for="medicaoAngulo">Ângulo (placa)</label>
+                <select id="medicaoAngulo" name="angulo">
+                  <option value="">Selecione</option>
+                  <option value="0">0°</option>
+                  <option value="90">90°</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="medicaoPosicao">Posição (placa)</label>
+                <input id="medicaoPosicao" name="posicao" placeholder="Centro, topo..." />
               </div>
               <div class="field">
                 <label for="medicaoClima">Condição climática</label>
@@ -111,6 +167,10 @@
                     <input id="gpsAcc" name="gps_accuracy" type="number" step="0.1" />
                   </div>
                   <div class="field">
+                    <label for="gpsDateTime">Data/hora GPS</label>
+                    <input id="gpsDateTime" name="dataHoraGPS" type="datetime-local" />
+                  </div>
+                  <div class="field">
                     <label for="gpsSource">Origem</label>
                     <input id="gpsSource" name="gps_source" readonly />
                   </div>
@@ -122,11 +182,13 @@
                   <div class="photo-field">
                     <label for="fotoMedicao">Adicionar foto da medição</label>
                     <input id="fotoMedicao" name="foto_medicao" type="file" accept="image/*" capture="environment" multiple />
+                    <button class="btn secondary small" type="button" id="clearFotoMedicao">Remover fotos</button>
                     <div class="muted" id="fotoMedicaoInfo">Nenhuma foto selecionada.</div>
                   </div>
                   <div class="photo-field">
                     <label for="fotoLocal">Adicionar foto do local</label>
                     <input id="fotoLocal" name="foto_local" type="file" accept="image/*" capture="environment" multiple />
+                    <button class="btn secondary small" type="button" id="clearFotoLocal">Remover fotos</button>
                     <div class="muted" id="fotoLocalInfo">Nenhuma foto selecionada.</div>
                   </div>
                 </div>
@@ -153,7 +215,7 @@
                   <tr>
                     <th>Obra</th>
                     <th>Equipamento</th>
-                    <th>Tipo</th>
+                    <th>Subtipo</th>
                     <th>Média</th>
                     <th>Qtd Leituras</th>
                     <th>Data/Hora</th>
@@ -162,6 +224,26 @@
                 <tbody id="medicoesBody"></tbody>
               </table>
             </div>
+          </div>
+
+          <div class="subpanel">
+            <h3>Relatório individual</h3>
+            <p class="muted">Gera PDF apenas das medições do operador logado.</p>
+            <div class="form-grid">
+              <div class="field">
+                <label for="userReportObra">Obra</label>
+                <input id="userReportObra" placeholder="OBRA-001" list="obraList" />
+              </div>
+              <div class="field">
+                <label for="userReportStart">Data início</label>
+                <input id="userReportStart" type="date" />
+              </div>
+              <div class="field">
+                <label for="userReportEnd">Data fim</label>
+                <input id="userReportEnd" type="date" />
+              </div>
+            </div>
+            <button class="btn" id="generateUserPdf" type="button">Gerar PDF individual</button>
           </div>
         </section>
       </div>
