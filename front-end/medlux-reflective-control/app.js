@@ -7,7 +7,7 @@ import {
   getAllObras,
   saveAuditoria
 } from "../shared/db.js";
-import { ensureDefaultAdmin, authenticate, logout, requireAuth } from "../shared/auth.js";
+import { ensureDefaultAdmin, authenticate, logout, requireAuth, getSession } from "../shared/auth.js";
 
 const medicaoForm = document.getElementById("medicaoForm");
 const medicaoEquip = document.getElementById("medicaoEquip");
@@ -188,11 +188,20 @@ const calculateMediaFromLeituras = (leituras, subtipo) => {
   if (!valores.length) return null;
   const tipo = String(subtipo || "").trim().toUpperCase();
   if (tipo === "HORIZONTAL") {
-    if (valores.length < 3) return null;
+    if (valores.length < 10) return null;
     const sorted = [...valores].sort((a, b) => a - b);
-    const trimmed = sorted.length >= 3 ? sorted.slice(1, sorted.length - 1) : sorted;
+    const trimmed = sorted.slice(1, sorted.length - 1);
     if (!trimmed.length) return null;
     return trimmed.reduce((acc, item) => acc + item, 0) / trimmed.length;
+  }
+  if (tipo === "PLACA") {
+    if (valores.length < 5) return null;
+  }
+  if (tipo === "LEGENDA") {
+    if (valores.length < 3) return null;
+  }
+  if (tipo === "VERTICAL") {
+    if (valores.length < 5) return null;
   }
   return valores.reduce((acc, item) => acc + item, 0) / valores.length;
 };
@@ -231,7 +240,7 @@ const formatGps = (gps) => {
 };
 
 const formatLocal = (medicao) => {
-  const parts = [medicao.cidadeUF, medicao.rodovia, medicao.km, medicao.sentido, medicao.faixa].filter(Boolean);
+  const parts = [medicao.cidadeUF, medicao.enderecoTexto, medicao.rodovia, medicao.km, medicao.sentido, medicao.faixa].filter(Boolean);
   return parts.length ? parts.join(" • ") : "-";
 };
 
@@ -335,6 +344,7 @@ const handleLogin = async (event) => {
     if (!possuiVinculo) {
       loginHint.textContent = "Sem vínculo ativo";
       logout();
+      window.location.href = "../index.html";
       return;
     }
   }
@@ -393,6 +403,10 @@ const handleMedicaoSubmit = async (event) => {
   }
   if (subtipo === "HORIZONTAL" && (!data.linha || !data.estacao)) {
     medicaoHint.textContent = "Horizontal exige linha e estação.";
+    return;
+  }
+  if (subtipo === "VERTICAL" && leituras.length !== 5) {
+    medicaoHint.textContent = "Vertical exige 5 leituras por ponto.";
     return;
   }
   if (subtipo === "LEGENDA" && leituras.length !== 3) {
@@ -576,15 +590,15 @@ const buildUserPdf = async () => {
 
 const initialize = async () => {
   await ensureDefaultAdmin();
-  const session = requireAuth({
+  const authorized = requireAuth({
     allowRoles: ["USER", "OPERADOR", "ADMIN"],
     onMissing: () => openModal(loginModal),
     onUnauthorized: () => { window.location.href = "../index.html"; }
   });
   rebuildLeituras();
   updateSubtipoFields();
-  if (!session) return;
-  activeSession = session;
+  if (!authorized) return;
+  activeSession = getSession();
   await loadData();
   if (["USER", "OPERADOR"].includes(activeSession.role)) {
     const possuiVinculo = vinculos.some(
