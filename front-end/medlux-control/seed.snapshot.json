@@ -1,0 +1,102 @@
+{
+  "version": 4,
+  "generatedAt": "2024-09-01T12:00:00.000Z",
+  "equipamentos": [
+    {
+      "id": "MLX-H15-001",
+      "modelo": "MLX-H15",
+      "funcao": "HORIZONTAL",
+      "geometria": "15m",
+      "numeroSerie": "H15001",
+      "fabricante": "Medlux",
+      "dataAquisicao": "2023-01-12",
+      "calibrado": "Sim",
+      "dataCalibracao": "2023-01-12",
+      "numeroCertificado": "CERT-2023-01",
+      "usuarioAtual": "OP001",
+      "localidadeCidadeUF": "São Paulo-SP",
+      "dataEntregaUsuario": "2023-01-12",
+      "statusLocal": "OBRA",
+      "observacoes": "Seed exemplo",
+      "created_at": "2024-09-01T12:00:00.000Z",
+      "updated_at": "2024-09-01T12:00:00.000Z"
+    }
+  ],
+  "users": [
+    {
+      "id": "OP001",
+      "user_id": "OP001",
+      "nome": "Operador Exemplo",
+      "role": "USER",
+      "status": "ATIVO",
+      "pinHash": "hda+A/+BdrnvSdNH4PVC8y1rwv+9XCduAIylpFADBFc=",
+      "salt": "LaBmD3EM2BfKKpi8eyZ1xA==",
+      "id_normalized": "OP001",
+      "created_at": "2024-09-01T12:00:00.000Z",
+      "updated_at": "2024-09-01T12:00:00.000Z"
+    }
+  ],
+  "vinculos": [
+    {
+      "id": "VINC-001",
+      "equipamento_id": "MLX-H15-001",
+      "user_id": "OP001",
+      "inicio": "2024-09-01",
+      "status": "ATIVO",
+      "termo_pdf": null,
+      "created_at": "2024-09-01T12:00:00.000Z",
+      "updated_at": "2024-09-01T12:00:00.000Z"
+    }
+  ],
+  "obras": [
+    {
+      "id": "OBRA-001",
+      "idObra": "OBRA-001",
+      "nomeObra": "Duplicação BR-116",
+      "rodovia": "BR-116",
+      "kmInicio": "120",
+      "kmFim": "130",
+      "cidadeUF": "São Paulo-SP",
+      "concessionariaCliente": "Concessionária Exemplo",
+      "responsavelTecnico": "Eng. Responsável",
+      "observacoes": "Seed exemplo",
+      "created_at": "2024-09-01T12:00:00.000Z",
+      "updated_at": "2024-09-01T12:00:00.000Z"
+    }
+  ],
+  "medicoes": [
+    {
+      "id": "MED-001",
+      "medicao_id": "MED-001",
+      "equipamento_id": "MLX-H15-001",
+      "equip_id": "MLX-H15-001",
+      "user_id": "OP001",
+      "obra_id": "OBRA-001",
+      "relatorio_id": "REL-2024-001",
+      "identificadorRelatorio": "REL-2024-001",
+      "tipoMedicao": "RL",
+      "tipo_medicao": "RL",
+      "subtipo": "HORIZONTAL",
+      "leituras": [210, 215, 208, 220, 214, 212, 209, 218, 216, 211],
+      "media": 213.25,
+      "dataHora": "2024-09-01T12:00:00.000Z",
+      "data_hora": "2024-09-01T12:00:00.000Z",
+      "enderecoTexto": "Pista Norte, km 125",
+      "cidadeUF": "São Paulo-SP",
+      "rodovia": "BR-116",
+      "km": "125",
+      "sentido": "Norte",
+      "faixa": "1",
+      "tipoDeMarcacao": "BORDO_DIREITO",
+      "linha": "Bordo direito",
+      "estacao": "Est. 1 / Est. 2",
+      "estacoes": ["Est. 1", "Est. 2"],
+      "gps": { "lat": -23.55052, "lng": -46.633308, "accuracy": 6, "source": "AUTO" },
+      "dataHoraGPS": "2024-09-01T12:00:00.000Z",
+      "fotos": [],
+      "observacoes": "Medição seed",
+      "created_at": "2024-09-01T12:00:00.000Z"
+    }
+  ],
+  "audit_log": []
+}

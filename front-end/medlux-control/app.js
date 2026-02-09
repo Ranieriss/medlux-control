@@ -15,6 +15,7 @@ import {
   getAllObras,
   saveObra,
   deleteObra,
+  getAllAuditoria,
   exportSnapshot,
   importSnapshot,
   clearAllStores,
@@ -142,11 +143,40 @@ const FUNCAO_LABELS = {
   VERTICAL: "Vertical",
   TACHAS: "Tachas"
 };
+const EQUIPAMENTO_SCHEMA = [
+  { key: "id", label: "ID" },
+  { key: "funcao", label: "Função" },
+  { key: "geometria", label: "Geometria" },
+  { key: "modelo", label: "Modelo" },
+  { key: "numeroSerie", label: "Número de série" },
+  { key: "dataAquisicao", label: "Data de aquisição" },
+  { key: "calibrado", label: "Calibrado" },
+  { key: "dataCalibracao", label: "Data de calibração" },
+  { key: "numeroCertificado", label: "Número do certificado" },
+  { key: "fabricante", label: "Fabricante" },
+  { key: "usuarioAtual", label: "Usuário responsável" },
+  { key: "localidadeCidadeUF", label: "Localidade (Cidade/UF)" },
+  { key: "dataEntregaUsuario", label: "Data entrega usuário" },
+  { key: "statusLocal", label: "Status" },
+  { key: "observacoes", label: "Observações" }
+];
+const EQUIPAMENTO_REQUIRED_KEYS = ["id", "funcao", "statusLocal"];
+const EQUIPAMENTO_LABEL_BY_KEY = new Map(EQUIPAMENTO_SCHEMA.map((item) => [item.key, item.label]));
+const EQUIPAMENTO_SCHEMA_MAP = new Map(EQUIPAMENTO_SCHEMA.map((item) => [
+  normalizeText(item.label)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, ""),
+  item.key
+]));
 
 const normalizeText = (value) => String(value || "").trim().replace(/\s+/g, " ");
 const normalizeId = (value) => normalizeText(value).toUpperCase();
 const normalizeUserId = (value) => normalizeText(value);
 const normalizeUserIdComparable = (value) => normalizeText(value).toUpperCase();
+const getAppVersion = () => document.querySelector("meta[name='app-version']")?.content || "-";
+const isVinculoAtivo = (item) => item.status === "ATIVO" || item.ativo === true;
 
 const normalizeFuncao = (value) => {
   const raw = normalizeText(value).toUpperCase();
@@ -230,6 +260,7 @@ let usuarios = [];
 let vinculos = [];
 let medicoes = [];
 let obras = [];
+let auditoria = [];
 let editingId = null;
 let editingUserId = null;
 let editingObraId = null;
@@ -301,12 +332,13 @@ const validateObra = (obra) => {
 };
 
 const loadData = async () => {
-  [equipamentos, usuarios, vinculos, medicoes, obras] = await Promise.all([
+  [equipamentos, usuarios, vinculos, medicoes, obras, auditoria] = await Promise.all([
     getAllEquipamentos(),
     getAllUsuarios(),
     getAllVinculos(),
     getAllMedicoes(),
-    getAllObras()
+    getAllObras(),
+    getAllAuditoria()
   ]);
 };
 
@@ -1020,33 +1052,47 @@ const handleImportBackup = async () => {
   setStatusMessage("Importação concluída.");
 };
 
-const mapHeaders = (headers) => headers.map((header) => normalizeText(header)
+const normalizeHeaderLabel = (header) => normalizeText(header)
   .normalize("NFD")
   .replace(/[\u0300-\u036f]/g, "")
   .toLowerCase()
-  .replace(/[^a-z0-9]/g, ""));
+  .replace(/[^a-z0-9]/g, "");
+
+const mapSchemaHeaders = (headers) => headers.map((header) => EQUIPAMENTO_SCHEMA_MAP.get(normalizeHeaderLabel(header)) || "");
+
+const validateSchemaHeaders = (headers) => {
+  const mapped = mapSchemaHeaders(headers);
+  const unknown = headers.filter((header, index) => !mapped[index]);
+  const missing = EQUIPAMENTO_REQUIRED_KEYS
+    .filter((key) => !mapped.includes(key))
+    .map((key) => EQUIPAMENTO_LABEL_BY_KEY.get(key) || key);
+  return { mapped, unknown, missing };
+};
 
 const buildEquipamentoFromRow = (row, rowIndex) => {
   const errors = [];
-  const funcao = normalizeFuncao(row.funcao || row.funcaoequipamento || row.tipo);
-  const aquisicao = parseDateString(row.dataaquisicao);
-  const entrega = parseDateString(row.dataentregausuario);
-  if (row.dataaquisicao && aquisicao.error) errors.push("Data de aquisição inválida");
-  if (row.dataentregausuario && entrega.error) errors.push("Data de entrega inválida");
+  const funcao = normalizeFuncao(row.funcao);
+  const aquisicao = parseDateString(row.dataAquisicao);
+  const entrega = parseDateString(row.dataEntregaUsuario);
+  const calibracao = parseDateString(row.dataCalibracao);
+  if (row.dataAquisicao && aquisicao.error) errors.push("Data de aquisição inválida");
+  if (row.dataEntregaUsuario && entrega.error) errors.push("Data de entrega inválida");
+  if (row.dataCalibracao && calibracao.error) errors.push("Data de calibração inválida");
   const equipamento = normalizeEquipamento({
-    id: row.id || row.identificacao,
+    id: row.id,
     modelo: row.modelo,
     funcao,
     geometria: row.geometria,
-    numeroSerie: row.numeroserie || row.numerodeserie || row.ndeserie,
+    numeroSerie: row.numeroSerie,
     dataAquisicao: aquisicao.value,
-    calibrado: row.calibracao || row.calibrado,
-    numeroCertificado: row.ndocertificado || row.numerocertificado || row.ncertificado,
+    calibrado: row.calibrado,
+    dataCalibracao: calibracao.value,
+    numeroCertificado: row.numeroCertificado,
     fabricante: row.fabricante,
-    usuarioAtual: row.usuario || row.usuarioresponsavel,
-    localidadeCidadeUF: row.localidadecidadeuf || row.localidade,
+    usuarioAtual: row.usuarioAtual,
+    localidadeCidadeUF: row.localidadeCidadeUF,
     dataEntregaUsuario: entrega.value,
-    statusLocal: row.status,
+    statusLocal: row.statusLocal,
     observacoes: row.observacoes
   });
   const baseError = validateEquipamento(equipamento);
@@ -1060,7 +1106,7 @@ const summarizeImportErrors = (invalidRows) => invalidRows
   .join(" | ");
 
 const parseXlsx = async () => {
-  if (!importXlsxFile.files.length) return [];
+  if (!importXlsxFile.files.length) return { rows: [], errors: ["Selecione um Excel."] };
   const file = importXlsxFile.files[0];
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: "array" });
@@ -1068,11 +1114,16 @@ const parseXlsx = async () => {
   const worksheet = workbook.Sheets[firstSheet];
   const raw = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
   const [headerRow, ...rows] = raw;
-  if (!headerRow) return [];
-  const headers = mapHeaders(headerRow);
-  return rows
+  if (!headerRow) return { rows: [], errors: ["Cabeçalho não encontrado no Excel."] };
+  const { mapped, unknown, missing } = validateSchemaHeaders(headerRow);
+  const errors = [];
+  if (unknown.length) errors.push(`Colunas desconhecidas: ${unknown.join(", ")}`);
+  if (missing.length) errors.push(`Colunas obrigatórias ausentes: ${missing.join(", ")}`);
+  if (errors.length) return { rows: [], errors };
+  const parsedRows = rows
     .filter((row) => row.some((cell) => String(cell || "").trim()))
-    .map((row) => Object.fromEntries(headers.map((header, index) => [header, row[index]])));
+    .map((row) => Object.fromEntries(mapped.map((header, index) => [header, row[index]])));
+  return { rows: parsedRows, errors: [] };
 };
 
 const buildPreview = (items) => {
@@ -1107,7 +1158,12 @@ const buildPreview = (items) => {
 };
 
 const handlePreviewXlsx = async () => {
-  const rows = await parseXlsx();
+  const { rows, errors } = await parseXlsx();
+  if (errors.length) {
+    setStatusMessage(`Erro no Excel: ${errors.join(" | ")}`);
+    buildPreview([]);
+    return;
+  }
   const mapped = rows.map((row, index) => buildEquipamentoFromRow(row, index + 2));
   const invalid = mapped.filter((item) => item.errors.length);
   if (invalid.length) {
@@ -1118,7 +1174,11 @@ const handlePreviewXlsx = async () => {
 };
 
 const handleImportXlsx = async () => {
-  const rows = await parseXlsx();
+  const { rows, errors } = await parseXlsx();
+  if (errors.length) {
+    setStatusMessage(`Erro no Excel: ${errors.join(" | ")}`);
+    return;
+  }
   if (!rows.length) {
     setStatusMessage("Nenhum dado encontrado no Excel.");
     return;
@@ -1182,12 +1242,18 @@ const parseCsv = (text) => {
 
 const parseDelimited = (text, delimiter) => {
   const lines = text.split(/\r?\n/).filter((line) => line.trim());
-  if (!lines.length) return [];
-  const headers = mapHeaders(lines[0].split(delimiter));
-  return lines.slice(1).map((line) => {
+  if (!lines.length) return { rows: [], errors: ["Nenhuma linha encontrada."] };
+  const rawHeaders = lines[0].split(delimiter);
+  const { mapped, unknown, missing } = validateSchemaHeaders(rawHeaders);
+  const errors = [];
+  if (unknown.length) errors.push(`Colunas desconhecidas: ${unknown.join(", ")}`);
+  if (missing.length) errors.push(`Colunas obrigatórias ausentes: ${missing.join(", ")}`);
+  if (errors.length) return { rows: [], errors };
+  const rows = lines.slice(1).map((line) => {
     const values = line.split(delimiter);
-    return Object.fromEntries(headers.map((header, index) => [header, values[index]]));
+    return Object.fromEntries(mapped.map((header, index) => [header, values[index]]));
   });
+  return { rows, errors: [] };
 };
 
 const escapeCsvValue = (value) => {
@@ -1202,7 +1268,11 @@ const handleImportBulk = async () => {
     return;
   }
   const delimiter = text.includes("\t") ? "\t" : ",";
-  const rows = parseDelimited(text, delimiter);
+  const { rows, errors } = parseDelimited(text, delimiter);
+  if (errors.length) {
+    setStatusMessage(`Erro na importação em lote: ${errors.join(" | ")}`);
+    return;
+  }
   const mapped = rows.map((row, index) => buildEquipamentoFromRow(row, index + 2));
   const invalid = mapped.filter((item) => item.errors.length);
   if (invalid.length) {
@@ -1227,8 +1297,15 @@ const handleImportCsv = async () => {
     setStatusMessage("Nenhuma linha encontrada no CSV.");
     return;
   }
-  const headers = mapHeaders(csvRows[0]);
-  const rows = csvRows.slice(1).map((row) => Object.fromEntries(headers.map((header, index) => [header, row[index]])));
+  const { mapped, unknown, missing } = validateSchemaHeaders(csvRows[0]);
+  const headerErrors = [];
+  if (unknown.length) headerErrors.push(`Colunas desconhecidas: ${unknown.join(", ")}`);
+  if (missing.length) headerErrors.push(`Colunas obrigatórias ausentes: ${missing.join(", ")}`);
+  if (headerErrors.length) {
+    setStatusMessage(`Erro no CSV: ${headerErrors.join(" | ")}`);
+    return;
+  }
+  const rows = csvRows.slice(1).map((row) => Object.fromEntries(mapped.map((header, index) => [header, row[index]])));
   const mapped = rows.map((row, index) => buildEquipamentoFromRow(row, index + 2));
   const invalid = mapped.filter((item) => item.errors.length);
   if (invalid.length) {
@@ -1243,24 +1320,13 @@ const handleImportCsv = async () => {
 };
 
 const handleExportCsv = () => {
-  const headers = [
-    "id",
-    "modelo",
-    "funcao",
-    "geometria",
-    "numeroSerie",
-    "dataAquisicao",
-    "calibrado",
-    "dataCalibracao",
-    "numeroCertificado",
-    "fabricante",
-    "usuarioResponsavel",
-    "localidadeCidadeUF",
-    "dataEntregaUsuario",
-    "statusLocal",
-    "observacoes"
-  ];
-  const rows = equipamentos.map((equipamento) => headers.map((header) => escapeCsvValue(equipamento[header] ?? equipamento.usuarioAtual ?? "")));
+  const headers = EQUIPAMENTO_SCHEMA.map((item) => item.label);
+  const keys = EQUIPAMENTO_SCHEMA.map((item) => item.key);
+  const rows = equipamentos.map((equipamento) => keys.map((key) => {
+    if (key === "usuarioAtual") return escapeCsvValue(equipamento.usuarioAtual || equipamento.usuarioResponsavel || "");
+    if (key === "statusLocal") return escapeCsvValue(getEquipamentoStatus(equipamento));
+    return escapeCsvValue(equipamento[key] ?? "");
+  }));
   const csv = [headers.map(escapeCsvValue).join(","), ...rows.map((row) => row.join(","))].join("\r\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
   const link = document.createElement("a");
@@ -1282,6 +1348,22 @@ const formatGps = (gps) => {
   if (!gps || gps.lat === null || gps.lng === null) return "-";
   const acc = gps.accuracy ? `±${gps.accuracy}m` : "-";
   return `${gps.lat}, ${gps.lng} (${acc})`;
+};
+
+const formatEstacoes = (medicao) => {
+  const estacoes = Array.isArray(medicao.estacoes) ? medicao.estacoes.filter(Boolean) : [];
+  if (estacoes.length) return estacoes.join(" / ");
+  return medicao.estacao || "-";
+};
+
+const formatLinhaEstacao = (medicao) => `${medicao.linha || "-"} • Est. ${formatEstacoes(medicao)}`;
+
+const matchEstacao = (medicao, value) => {
+  if (!value) return true;
+  const normalized = normalizeText(value).toUpperCase();
+  const estacoes = Array.isArray(medicao.estacoes) ? medicao.estacoes : [];
+  if (estacoes.some((item) => normalizeText(item).toUpperCase() === normalized)) return true;
+  return normalizeText(medicao.estacao).toUpperCase() === normalized;
 };
 
 const formatLocal = (medicao) => {
@@ -1322,13 +1404,27 @@ const buildGlobalPdf = async () => {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
   const now = new Date();
-  const title = "Relatório Global MEDLUX";
-  doc.setFontSize(16);
-  doc.text(title, 40, 40);
-  doc.setFontSize(10);
-  doc.text(`Gerado em: ${now.toLocaleString("pt-BR")}`, 40, 58);
-  doc.text(`Auditor: ${activeSession?.nome || "-"} (${activeSession?.id || activeSession?.user_id || "-"})`, 40, 72);
+  const reportId = `GLOBAL-${now.toISOString().slice(0, 10)}`;
+  const appVersion = getAppVersion();
+  const responsavel = responsavelTecnico.value || activeSession?.nome || "-";
+  const datas = medicoes.map((item) => new Date(item.dataHora || item.data_hora)).filter((d) => !Number.isNaN(d.getTime()));
+  const periodo = datas.length
+    ? `${datas.reduce((min, d) => (d < min ? d : min)).toLocaleDateString("pt-BR")} → ${datas.reduce((max, d) => (d > max ? d : max)).toLocaleDateString("pt-BR")}`
+    : "-";
 
+  doc.setFontSize(18);
+  doc.text("Relatório Global MEDLUX", 40, 40);
+  doc.setFontSize(11);
+  doc.text(`ID: ${reportId}`, 40, 64);
+  doc.text("Obra: Todas", 40, 80);
+  doc.text(`Responsável: ${responsavel}`, 40, 96);
+  doc.text(`Período: ${periodo}`, 40, 112);
+  doc.text(`Versão do sistema: ${appVersion}`, 40, 128);
+  doc.text(`Gerado em: ${now.toLocaleString("pt-BR")}`, 40, 144);
+
+  let cursorY = 170;
+  doc.setFontSize(12);
+  doc.text("Equipamentos (calibração)", 40, cursorY);
   const equipamentoRows = equipamentos.map((equipamento) => [
     equipamento.id,
     formatFuncao(equipamento.funcao),
@@ -1340,28 +1436,30 @@ const buildGlobalPdf = async () => {
     getEquipamentoLocalidade(equipamento) || "-",
     formatStatus(getEquipamentoStatus(equipamento)),
     equipamento.calibrado || "-",
+    formatDate(equipamento.dataCalibracao || "-"),
     equipamento.numeroCertificado || equipamento.certificado || "-"
   ]);
 
   doc.autoTable({
-    head: [["ID", "Função", "Geom.", "Modelo", "Série", "Fabricante", "Usuário", "Localidade", "Status", "Calibração", "Certificado"]],
+    head: [["ID", "Função", "Geom.", "Modelo", "Série", "Fabricante", "Usuário", "Localidade", "Status", "Calibrado", "Data calib.", "Certificado"]],
     body: equipamentoRows,
-    startY: 90,
+    startY: cursorY + 10,
     styles: { fontSize: 8 }
   });
 
-  let cursorY = doc.lastAutoTable.finalY + 20;
+  cursorY = doc.lastAutoTable.finalY + 20;
   doc.setFontSize(12);
-  doc.text("Histórico de vínculos", 40, cursorY);
-  const vinculoRows = vinculos.map((vinculo) => [
-    vinculo.equipamento_id || vinculo.equip_id,
-    vinculo.user_id,
-    formatDate(vinculo.inicio || vinculo.data_inicio),
-    vinculo.fim || vinculo.data_fim ? formatDate(vinculo.fim || vinculo.data_fim) : "Ativo",
-    vinculo.termo_pdf || vinculo.termo_cautela_pdf ? "Sim" : "Não"
-  ]);
+  doc.text("Vínculos ativos", 40, cursorY);
+  const vinculoRows = vinculos
+    .filter((vinculo) => isVinculoAtivo(vinculo))
+    .map((vinculo) => [
+      vinculo.equipamento_id || vinculo.equip_id,
+      vinculo.user_id,
+      formatDate(vinculo.inicio || vinculo.data_inicio),
+      vinculo.termo_pdf || vinculo.termo_cautela_pdf ? "Sim" : "Não"
+    ]);
   doc.autoTable({
-    head: [["Equipamento", "Usuário", "Início", "Fim", "Termo"]],
+    head: [["Equipamento", "Usuário", "Início", "Termo"]],
     body: vinculoRows,
     startY: cursorY + 10,
     styles: { fontSize: 8 }
@@ -1369,50 +1467,111 @@ const buildGlobalPdf = async () => {
 
   cursorY = doc.lastAutoTable.finalY + 20;
   doc.setFontSize(12);
-  doc.text("Histórico de medições", 40, cursorY);
+  doc.text("Medições (todas)", 40, cursorY);
   const medicaoRows = medicoes.map((medicao) => {
     const leituras = medicao.leituras || [];
     const quantidade = leituras.length || (medicao.valor ? 1 : 0);
-    const anexos = (medicao.fotos || []).length ? "Anexo" : "-";
     return [
-      medicao.id || medicao.medicao_id || "-",
-      medicao.dataHora || medicao.data_hora || "-",
-      medicao.user_id || "-",
       medicao.equipamento_id || medicao.equip_id,
+      medicao.user_id || "-",
       medicao.obra_id || "-",
-      medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao,
-      formatMedia(medicao),
-      quantidade,
-      formatLocal(medicao),
       formatGps(medicao.gps),
-      anexos
+      formatLocal(medicao),
+      medicao.dataHora || medicao.data_hora || "-",
+      formatMedia(medicao),
+      quantidade
     ];
   });
   doc.autoTable({
-    head: [["ID", "Data/Hora", "Usuário", "Equip.", "Obra", "Tipo/Subtipo", "Média", "N Leituras", "Local", "GPS", "Anexos"]],
+    head: [["Equip.", "Usuário", "Obra", "GPS", "Endereço", "Data/Hora", "Média", "N Leituras"]],
     body: medicaoRows,
     startY: cursorY + 10,
     styles: { fontSize: 8 }
   });
 
-  let anexosY = doc.lastAutoTable.finalY + 20;
+  cursorY = doc.lastAutoTable.finalY + 20;
+  const agrupado = medicoes.reduce((acc, medicao) => {
+    const chave = String(medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao || "OUTROS").toUpperCase();
+    const media = calculateMedia(medicao);
+    if (!acc[chave]) acc[chave] = { count: 0, sum: 0 };
+    if (media !== null) {
+      acc[chave].count += 1;
+      acc[chave].sum += media;
+    }
+    return acc;
+  }, {});
+  const resumoStats = Object.entries(agrupado).map(([chave, data]) => [
+    chave,
+    data.count,
+    data.count ? (data.sum / data.count).toFixed(2) : "-"
+  ]);
+  if (resumoStats.length) {
+    doc.setFontSize(12);
+    doc.text("Estatísticas por subtipo", 40, cursorY);
+    doc.autoTable({
+      head: [["Subtipo", "Qtd.", "Média geral"]],
+      body: resumoStats,
+      startY: cursorY + 10,
+      styles: { fontSize: 8 }
+    });
+    cursorY = doc.lastAutoTable.finalY + 20;
+  }
+
+  const mapas = medicoes.filter((medicao) => medicao.gps?.lat !== null && medicao.gps?.lng !== null);
+  if (mapas.length) {
+    doc.setFontSize(12);
+    doc.text("Mapas (links)", 40, cursorY);
+    const mapaRows = mapas.map((medicao) => [
+      medicao.id || medicao.medicao_id || "-",
+      `https://www.google.com/maps?q=${medicao.gps.lat},${medicao.gps.lng}`
+    ]);
+    doc.autoTable({
+      head: [["Medição", "Link"]],
+      body: mapaRows,
+      startY: cursorY + 10,
+      styles: { fontSize: 8 }
+    });
+    cursorY = doc.lastAutoTable.finalY + 20;
+  }
+
+  const auditRows = (auditoria || []).map((item) => [
+    item.data_hora || "-",
+    item.entity || "-",
+    item.action || "-",
+    item.payload?.user_id || item.payload?.equip_id || "-"
+  ]);
+  if (auditRows.length) {
+    doc.setFontSize(12);
+    doc.text("Auditoria consolidada", 40, cursorY);
+    doc.autoTable({
+      head: [["Data/Hora", "Entidade", "Ação", "Referência"]],
+      body: auditRows,
+      startY: cursorY + 10,
+      styles: { fontSize: 8 }
+    });
+    cursorY = doc.lastAutoTable.finalY + 20;
+  }
+
   const anexos = medicoes.flatMap((medicao) => medicao.fotos || []);
   if (anexos.length) {
     doc.setFontSize(12);
-    doc.text("Anexos (miniaturas)", 40, anexosY);
-    anexosY += 10;
+    doc.text("Fotos (leitura/local)", 40, cursorY);
+    cursorY += 10;
     const thumbSize = 90;
     let x = 40;
-    let y = anexosY + 10;
-    for (const foto of anexos.slice(0, 9)) {
+    let y = cursorY + 10;
+    for (const foto of anexos.slice(0, 12)) {
       try {
         const dataUrl = await blobToDataUrl(foto.blob);
         const format = dataUrl.includes("image/png") ? "PNG" : "JPEG";
         doc.addImage(dataUrl, format, x, y, thumbSize, thumbSize);
-        x += thumbSize + 10;
+        doc.setFontSize(8);
+        doc.text(foto.tipo || "Foto", x, y + thumbSize + 10);
+        doc.setFontSize(12);
+        x += thumbSize + 20;
         if (x + thumbSize > 560) {
           x = 40;
-          y += thumbSize + 16;
+          y += thumbSize + 30;
         }
         if (y + thumbSize > 760) {
           doc.addPage();
@@ -1423,7 +1582,20 @@ const buildGlobalPdf = async () => {
         // Ignore photo failures
       }
     }
+    cursorY = y + thumbSize + 30;
   }
+
+  if (cursorY > 720) {
+    doc.addPage();
+    cursorY = 60;
+  }
+  doc.setFontSize(12);
+  doc.text("Assinaturas", 40, cursorY);
+  doc.line(40, cursorY + 30, 250, cursorY + 30);
+  doc.line(320, cursorY + 30, 520, cursorY + 30);
+  doc.setFontSize(9);
+  doc.text("Responsável técnico", 40, cursorY + 44);
+  doc.text("Fiscalização", 320, cursorY + 44);
 
   doc.save(`auditoria-global-medlux-${now.toISOString().slice(0, 10)}.pdf`);
 };
@@ -1444,8 +1616,8 @@ const buildObraPdf = async () => {
     const matchRelatorio = relatorioValue ? relatorioId.toUpperCase() === relatorioValue : true;
     const matchFaixa = faixaValue ? normalizeText(medicao.faixa).toUpperCase() === faixaValue : true;
     const matchLinha = linhaValue ? normalizeText(medicao.linha).toUpperCase() === linhaValue : true;
-    const matchEstacao = estacaoValue ? normalizeText(medicao.estacao).toUpperCase() === estacaoValue : true;
-    return matchObra && matchRelatorio && matchFaixa && matchLinha && matchEstacao;
+    const matchEstacaoValue = estacaoValue ? matchEstacao(medicao, estacaoValue) : true;
+    return matchObra && matchRelatorio && matchFaixa && matchLinha && matchEstacaoValue;
   });
   if (!filtradas.length) {
     setStatusMessage("Nenhuma medição encontrada para o filtro informado.");
@@ -1462,16 +1634,19 @@ const buildObraPdf = async () => {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
   const now = new Date();
+  const appVersion = getAppVersion();
+  const responsavel = responsavelTecnico.value || obra?.responsavelTecnico || activeSession?.nome || "-";
   doc.setFontSize(18);
   doc.text("Relatório por Obra MEDLUX", 40, 40);
   doc.setFontSize(11);
   doc.text(`Identificador: ${identificador}`, 40, 64);
   doc.text(`Obra: ${obraValue || "-"}`, 40, 80);
-  doc.text(`Gerado em: ${now.toLocaleString("pt-BR")}`, 40, 96);
+  doc.text(`Responsável: ${responsavel}`, 40, 96);
   doc.text(`Período: ${periodo}`, 40, 112);
-  doc.text(`Responsável técnico: ${responsavelTecnico.value || obra?.responsavelTecnico || activeSession?.nome || "-"}`, 40, 128);
+  doc.text(`Versão do sistema: ${appVersion}`, 40, 128);
+  doc.text(`Gerado em: ${now.toLocaleString("pt-BR")}`, 40, 144);
 
-  let currentY = 148;
+  let currentY = 164;
   if (obra) {
     doc.setFontSize(10);
     doc.text(`Nome: ${obra.nomeObra || "-"}`, 40, currentY);
@@ -1486,6 +1661,50 @@ const buildObraPdf = async () => {
     const resumoLines = doc.splitTextToSize(obraResumo.value, 520);
     doc.text(resumoLines, 40, currentY + 14);
     currentY += 14 + resumoLines.length * 12;
+  }
+
+  const equipIds = new Set(filtradas.map((medicao) => medicao.equipamento_id || medicao.equip_id).filter(Boolean));
+  const equipamentosObra = equipamentos.filter((equipamento) => equipIds.has(equipamento.id));
+  if (equipamentosObra.length) {
+    doc.setFontSize(12);
+    doc.text("Equipamentos (calibração)", 40, currentY + 10);
+    const equipRows = equipamentosObra.map((equipamento) => [
+      equipamento.id,
+      formatFuncao(equipamento.funcao),
+      equipamento.modelo || "-",
+      equipamento.numeroSerie || "-",
+      equipamento.calibrado || "-",
+      formatDate(equipamento.dataCalibracao || "-"),
+      equipamento.numeroCertificado || equipamento.certificado || "-"
+    ]);
+    doc.autoTable({
+      head: [["ID", "Função", "Modelo", "Série", "Calibrado", "Data calib.", "Certificado"]],
+      body: equipRows,
+      startY: currentY + 20,
+      styles: { fontSize: 8 }
+    });
+    currentY = doc.lastAutoTable.finalY + 10;
+  }
+
+  const vinculosAtivos = vinculos.filter(
+    (vinculo) => isVinculoAtivo(vinculo) && equipIds.has(vinculo.equipamento_id || vinculo.equip_id)
+  );
+  if (vinculosAtivos.length) {
+    doc.setFontSize(12);
+    doc.text("Vínculos ativos", 40, currentY + 10);
+    const vincRows = vinculosAtivos.map((vinculo) => [
+      vinculo.equipamento_id || vinculo.equip_id,
+      vinculo.user_id,
+      formatDate(vinculo.inicio || vinculo.data_inicio),
+      vinculo.termo_pdf || vinculo.termo_cautela_pdf ? "Sim" : "Não"
+    ]);
+    doc.autoTable({
+      head: [["Equipamento", "Usuário", "Início", "Termo"]],
+      body: vincRows,
+      startY: currentY + 20,
+      styles: { fontSize: 8 }
+    });
+    currentY = doc.lastAutoTable.finalY + 10;
   }
 
   const primeiroGps = filtradas.find((item) => item.gps?.lat !== null && item.gps?.lng !== null);
@@ -1507,7 +1726,7 @@ const buildObraPdf = async () => {
   const resumoRows = filtradas.map((medicao) => [
     medicao.id || medicao.medicao_id,
     medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao,
-    `${medicao.linha || "-"} • Est. ${medicao.estacao || "-"}`,
+    formatLinhaEstacao(medicao),
     formatMedia(medicao),
     (medicao.leituras || []).length || 1,
     formatLocal(medicao),
@@ -1542,6 +1761,33 @@ const buildObraPdf = async () => {
     doc.autoTable({
       head: [["Subtipo", "Qtd.", "Média geral"]],
       body: resumoStats,
+      startY: cursorY + 10,
+      styles: { fontSize: 8 }
+    });
+    cursorY = doc.lastAutoTable.finalY + 20;
+  }
+
+  const trechoStats = filtradas.reduce((acc, medicao) => {
+    const chave = formatLinhaEstacao(medicao);
+    const media = calculateMedia(medicao);
+    if (!acc[chave]) acc[chave] = { count: 0, sum: 0 };
+    if (media !== null) {
+      acc[chave].count += 1;
+      acc[chave].sum += media;
+    }
+    return acc;
+  }, {});
+  const trechoRows = Object.entries(trechoStats).map(([chave, data]) => [
+    chave,
+    data.count,
+    data.count ? (data.sum / data.count).toFixed(2) : "-"
+  ]);
+  if (trechoRows.length) {
+    doc.setFontSize(12);
+    doc.text("Estatísticas por trecho", 40, cursorY);
+    doc.autoTable({
+      head: [["Trecho", "Qtd.", "Média geral"]],
+      body: trechoRows,
       startY: cursorY + 10,
       styles: { fontSize: 8 }
     });
@@ -1589,6 +1835,9 @@ const buildObraPdf = async () => {
       const dataUrl = await blobToDataUrl(foto.blob);
       const format = dataUrl.includes("image/png") ? "PNG" : "JPEG";
       doc.addImage(dataUrl, format, x, y, thumbSize, thumbSize);
+      doc.setFontSize(8);
+      doc.text(foto.tipo || "Foto", x, y + thumbSize + 10);
+      doc.setFontSize(12);
       x += thumbSize + 12;
       if (x + thumbSize > 560) {
         x = 40;

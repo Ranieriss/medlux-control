@@ -20,12 +20,27 @@ Sistema offline-first para gestão de equipamentos MEDLUX, usuários, vínculos 
   - **PIN:** `2308`
   - Após o login, o ADMIN pode criar operadores e vínculos ativos.
 
+### Procedimentos de login (ADMIN e OPERADOR)
+
+- **ADMIN**: use o ID `ADMIN` e PIN inicial `2308` (altere depois em **Usuários**).
+- **OPERADOR/USER**: deve ser cadastrado pelo ADMIN com PIN próprio.
+- Login é **case-insensitive** para o ID (maiúsculas/minúsculas).
+
 ### Criar operador e vínculo
 
 1. No **MEDLUX Control**, abra a aba **Usuários** e clique em **Novo usuário**.
 2. Informe o ID, nome, perfil **USER** e PIN.
 3. Na aba **Vínculos**, selecione o equipamento e o operador, defina a data de início e salve.
 4. Cadastre a **Obra** na aba **Obras** para liberar a referência nas medições.
+
+### Como criar uma medição
+
+1. Acesse o **MEDLUX Reflective Control** e selecione o equipamento vinculado.
+2. Informe **Obra**, **Relatório ID**, **tipo/subtipo**, **tipo de marcação**, **Rodovia/KM**, **faixa/sentido** e **endereço completo**.
+3. Para **Horizontal**, preencha até **3 estações** (ex: bordo direito, eixo, bordo esquerdo) e registre **10 leituras**.
+4. Clique em **Capturar GPS** (se não houver GPS, preencha manualmente).
+5. Anexe **Foto da leitura** e **Foto do local**.
+6. Salve a medição.
 
 ## Equipamentos
 
@@ -54,10 +69,11 @@ Sistema offline-first para gestão de equipamentos MEDLUX, usuários, vínculos 
 ## Relatórios em PDF
 
 - **MEDLUX Control (ADMIN)**:
-  - **Relatório Global**: inclui equipamentos, vínculos e medições com médias calculadas, coordenadas e anexos.
-  - **Relatório por Obra**: capa com identificador, dados da obra, período, resumo estatístico e fotos.
+  - **Relatório Global**: capa com ID, período, versão do sistema, seção de equipamentos (calibração), vínculos ativos,
+    medições com média/qtde leituras, estatísticas por tipo, mapas e miniaturas de fotos, auditoria consolidada e assinaturas.
+  - **Relatório por Obra**: mesma estrutura do global, filtrada por obra, com mapa inicial, estatísticas por trecho e fotos com legendas.
 - **MEDLUX Reflective Control (USER)**:
-  - **Relatório Individual** apenas das próprias medições (por obra/período).
+  - **Relatório Individual** apenas das próprias medições (por obra/período), com capa simplificada e anexos.
 
 ## Backup / Importação
 
@@ -66,12 +82,20 @@ Sistema offline-first para gestão de equipamentos MEDLUX, usuários, vínculos 
 - **Importar Excel (.xlsx):**
   - Selecione um arquivo `.xlsx` e clique em **Pré-visualizar Excel**.
   - Em seguida, escolha **Mesclar** ou **Substituir tudo** e clique em **Importar Excel (.xlsx)**.
-  - Colunas aceitas (tolerante a variações):
-    - Identificação, Função, Geometria, Modelo, Nº de série, Data de aquisição, Calibrado, Data de calibração,
-      Nº Certificado, Fabricante, Usuário responsável, Localidade (Cidade/UF), Data entrega usuário, Status.
+  - O cabeçalho deve seguir o **schema técnico uniforme**:
+    - ID, Função, Geometria, Modelo, Número de série, Data de aquisição, Calibrado, Data de calibração,
+      Número do certificado, Fabricante, Usuário responsável, Localidade (Cidade/UF),
+      Data entrega usuário, Status, Observações.
 - **Importação em lote (colar):** cole conteúdo do Excel (TSV) ou CSV com cabeçalhos padrão.
 - **Importar CSV:** use CSV RFC 4180 (vírgula e escape com aspas) com cabeçalhos padrão (exemplo em `front-end/medlux-control/seed.csv`).
 - **Resetar dados locais:** remove todo o conteúdo salvo no IndexedDB.
+
+### Seed opcional
+
+- `front-end/medlux-control/seed.csv`: equipamentos de exemplo no schema uniforme.
+- `front-end/medlux-control/seed.snapshot.json`: snapshot com **equipamento + vínculo + medição**.
+  - Usuário seed: **OP001** (PIN `1234`).
+  - Importe via **Exportar/Importar JSON** no MEDLUX Control.
 
 ## Instalar como PWA
 

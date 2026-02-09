@@ -137,6 +137,12 @@ const normalizeMedicaoRecord = (record = {}) => {
   const dataHora = record.dataHora || record.data_hora || "";
   const tipoMedicao = record.tipoMedicao || record.tipo_medicao || "";
   const subtipo = record.subtipo || record.subtipo_medicao || "";
+  const estacoes = Array.isArray(record.estacoes)
+    ? record.estacoes.filter((item) => String(item || "").trim())
+    : (record.estacao || record.estacao_id || "")
+      .split("/")
+      .map((item) => item.trim())
+      .filter(Boolean);
   const leiturasRaw = Array.isArray(record.leituras) ? record.leituras : [];
   const leituras = leiturasRaw.map((item) => toNumber(item)).filter((item) => item !== null);
   if (!leituras.length && record.valor !== undefined) {
@@ -177,7 +183,8 @@ const normalizeMedicaoRecord = (record = {}) => {
     faixa: record.faixa || "",
     tipoDeMarcacao: record.tipoDeMarcacao || record.tipo_marcacao || "",
     identificadorRelatorio: record.identificadorRelatorio || record.relatorio_id || record.relatorioId || "",
-    estacao: record.estacao || record.estacao_id || "",
+    estacao: record.estacao || record.estacao_id || estacoes[0] || "",
+    estacoes,
     linha: record.linha || "",
     letra: record.letra || "",
     cor: record.cor || "",
@@ -463,24 +470,31 @@ const getMedicoesByUser = async (userId) => {
   return items.filter((item) => item.user_id === userId);
 };
 
+const uniqueAuditoria = (items) => {
+  const map = new Map();
+  (items || []).forEach((item) => {
+    const key = item?.auditoria_id
+      || `${item?.entity || ""}-${item?.action || ""}-${item?.data_hora || ""}-${JSON.stringify(item?.payload || {})}`;
+    if (!map.has(key)) map.set(key, item);
+  });
+  return Array.from(map.values()).sort((a, b) => String(a?.data_hora || "").localeCompare(String(b?.data_hora || "")));
+};
+
 const getAllAuditoria = async () => {
-  const auditoria = await getAllFromStore(STORE_AUDITORIA).catch(() => []);
   const auditLog = await getAllFromStore(STORE_AUDIT_LOG).catch(() => []);
-  return [...(auditoria || []), ...(auditLog || [])];
+  const auditoria = await getAllFromStore(STORE_AUDITORIA).catch(() => []);
+  const combined = auditLog && auditLog.length ? [...auditLog, ...auditoria] : auditoria;
+  return uniqueAuditoria(combined);
 };
 const saveAuditoria = async (entry) => {
   const db = await openDB();
-  const stores = [STORE_AUDITORIA, STORE_AUDIT_LOG].filter((name) => db.objectStoreNames.contains(name));
-  if (!stores.length) return null;
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction(stores, "readwrite");
-    stores.forEach((storeName) => {
-      transaction.objectStore(storeName).put(entry);
-    });
-    transaction.oncomplete = () => resolve(entry);
-    transaction.onerror = () => reject(transaction.error);
-    transaction.onabort = () => reject(transaction.error);
-  });
+  if (db.objectStoreNames.contains(STORE_AUDIT_LOG)) {
+    return putInStore(STORE_AUDIT_LOG, entry);
+  }
+  if (db.objectStoreNames.contains(STORE_AUDITORIA)) {
+    return putInStore(STORE_AUDITORIA, entry);
+  }
+  return null;
 };
 
 const getAllObras = () => getAllFromStore(STORE_OBRAS).then((items) => (items || []).map(normalizeObraRecord));
@@ -527,7 +541,6 @@ const importSnapshot = async (payload) => runTransaction(
     (payload.medicoes || []).forEach((item) => medStore.put(prepareMedicaoRecord(item)));
     (payload.obras || []).forEach((item) => obraStore.put(prepareObraRecord(item)));
     (payload.auditoria || payload.audit_log || []).forEach((item) => {
-      auditStore.put(item);
       auditLogStore.put(item);
     });
   }

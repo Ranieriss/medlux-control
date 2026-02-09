@@ -15,6 +15,8 @@ const medicaoSubtipo = document.getElementById("medicaoSubtipo");
 const medicaoMarcacao = document.getElementById("medicaoMarcacao");
 const medicaoLinha = document.getElementById("medicaoLinha");
 const medicaoEstacao = document.getElementById("medicaoEstacao");
+const medicaoEstacao2 = document.getElementById("medicaoEstacao2");
+const medicaoEstacao3 = document.getElementById("medicaoEstacao3");
 const medicaoLetra = document.getElementById("medicaoLetra");
 const medicaoCor = document.getElementById("medicaoCor");
 const medicaoAngulo = document.getElementById("medicaoAngulo");
@@ -222,6 +224,8 @@ const updateSubtipoFields = () => {
   toggleField(medicaoPosicao, subtipo === "PLACA");
   toggleField(medicaoLinha, subtipo === "HORIZONTAL");
   toggleField(medicaoEstacao, subtipo === "HORIZONTAL");
+  toggleField(medicaoEstacao2, subtipo === "HORIZONTAL");
+  toggleField(medicaoEstacao3, subtipo === "HORIZONTAL");
   updateMedia();
 };
 
@@ -231,7 +235,7 @@ const formatGps = (gps) => {
 };
 
 const formatLocal = (medicao) => {
-  const parts = [medicao.cidadeUF, medicao.rodovia, medicao.km, medicao.sentido, medicao.faixa].filter(Boolean);
+  const parts = [medicao.cidadeUF, medicao.enderecoTexto, medicao.rodovia, medicao.km, medicao.sentido, medicao.faixa].filter(Boolean);
   return parts.length ? parts.join(" • ") : "-";
 };
 
@@ -391,8 +395,9 @@ const handleMedicaoSubmit = async (event) => {
     medicaoHint.textContent = "Horizontal exige exatamente 10 leituras por estação.";
     return;
   }
-  if (subtipo === "HORIZONTAL" && (!data.linha || !data.estacao)) {
-    medicaoHint.textContent = "Horizontal exige linha e estação.";
+  const estacoes = [data.estacao, data.estacao2, data.estacao3].map(normalizeText).filter(Boolean);
+  if (subtipo === "HORIZONTAL" && (!data.linha || !estacoes.length)) {
+    medicaoHint.textContent = "Horizontal exige linha e ao menos uma estação.";
     return;
   }
   if (subtipo === "LEGENDA" && leituras.length !== 3) {
@@ -437,6 +442,7 @@ const handleMedicaoSubmit = async (event) => {
     source: gpsSource.value || (Number.isFinite(gpsLatValue) && Number.isFinite(gpsLngValue) ? "MANUAL" : "")
   };
   const fotos = await collectFotos();
+  const estacaoLabel = estacoes.join(" / ");
   const medicao = {
     id: medicaoId,
     medicao_id: medicaoId,
@@ -462,7 +468,8 @@ const handleMedicaoSubmit = async (event) => {
     faixa: data.faixa || "",
     tipoDeMarcacao: data.tipoDeMarcacao || "",
     linha: data.linha || "",
-    estacao: data.estacao || "",
+    estacao: estacaoLabel || "",
+    estacoes,
     letra: data.letra || "",
     cor: data.cor || "",
     angulo: data.angulo || "",
@@ -515,13 +522,17 @@ const buildUserPdf = async () => {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
   const now = new Date();
+  const appVersion = document.querySelector("meta[name='app-version']")?.content || "-";
+  const reportId = `IND-${activeSession.id}-${now.toISOString().slice(0, 10)}`;
   doc.setFontSize(16);
   doc.text("Relatório Individual MEDLUX", 40, 40);
   doc.setFontSize(10);
-  doc.text(`Operador: ${activeSession.nome} (${activeSession.id})`, 40, 58);
-  doc.text(`Gerado em: ${now.toLocaleString("pt-BR")}`, 40, 72);
+  doc.text(`ID: ${reportId}`, 40, 58);
+  doc.text(`Operador: ${activeSession.nome} (${activeSession.id})`, 40, 72);
   doc.text(`Obra: ${obraValue || "Todas"}`, 40, 86);
   doc.text(`Período: ${userReportStart.value || "-"} → ${userReportEnd.value || "-"}`, 40, 100);
+  doc.text(`Versão do sistema: ${appVersion}`, 40, 114);
+  doc.text(`Gerado em: ${now.toLocaleString("pt-BR")}`, 40, 128);
 
   const rows = filtered.map((medicao) => [
     medicao.id || medicao.medicao_id,
@@ -537,7 +548,7 @@ const buildUserPdf = async () => {
   doc.autoTable({
     head: [["ID", "Obra", "Equip.", "Subtipo", "Média", "Local", "GPS", "Data/Hora"]],
     body: rows,
-    startY: 120,
+    startY: 148,
     styles: { fontSize: 8 }
   });
 

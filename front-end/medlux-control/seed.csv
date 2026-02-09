@@ -1,4 +1,4 @@
-Identificação,Modelo,Função,Geometria,N° de série,Data de aquisição,Calibração,N° do certificado,Fabricante,Usuário,Localidade Cidade-UF,Data de entrega ao usuário,Status
-MLX-H15-001,MLX-H15,HORIZONTAL,15m,H15001,12/01/2023,Sim,CERT-2023-01,Medlux,OP001,São Paulo-SP,12/01/2023,OBRA
-MLX-V10-002,MLX-V10,VERTICAL,,V10002,05/08/2022,Não,,Medlux,,Curitiba-PR,,STAND_BY
-MLX-T02-003,MLX-T02,TACHAS,,T02003,20/03/2021,Sim,CERT-2021-09,Medlux,ADMIN,Belo Horizonte-MG,21/03/2021,LAB_TINTAS
+ID,Função,Geometria,Modelo,Número de série,Data de aquisição,Calibrado,Data de calibração,Número do certificado,Fabricante,Usuário responsável,Localidade (Cidade/UF),Data entrega usuário,Status,Observações
+MLX-H15-001,HORIZONTAL,15m,MLX-H15,H15001,12/01/2023,Sim,12/01/2023,CERT-2023-01,Medlux,OP001,São Paulo-SP,12/01/2023,OBRA,
+MLX-V10-002,VERTICAL,,MLX-V10,V10002,05/08/2022,Não,,,Medlux,,Curitiba-PR,,STAND_BY,
+MLX-T02-003,TACHAS,,MLX-T02,T02003,20/03/2021,Sim,20/03/2021,CERT-2021-09,Medlux,ADMIN,Belo Horizonte-MG,21/03/2021,LAB_TINTAS,

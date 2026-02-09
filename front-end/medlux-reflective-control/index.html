@@ -61,7 +61,7 @@
                 <datalist id="obraList"></datalist>
               </div>
               <div class="field">
-                <label for="medicaoRelatorio">Identificador do relatório</label>
+                <label for="medicaoRelatorio">Relatório ID</label>
                 <input id="medicaoRelatorio" name="identificadorRelatorio" placeholder="REL-2024-001" />
               </div>
               <div class="field">
@@ -91,7 +91,7 @@
                 <input id="medicaoCidade" name="cidadeUF" placeholder="São Paulo-SP" />
               </div>
               <div class="field">
-                <label for="medicaoEndereco">Endereço/Localidade</label>
+                <label for="medicaoEndereco">Endereço completo</label>
                 <input id="medicaoEndereco" name="enderecoTexto" placeholder="Pista Norte, acesso km 120" />
               </div>
               <div class="field">
@@ -109,6 +109,14 @@
               <div class="field">
                 <label for="medicaoEstacao">Estação</label>
                 <input id="medicaoEstacao" name="estacao" placeholder="Est. 1" />
+              </div>
+              <div class="field">
+                <label for="medicaoEstacao2">Estação 2 (opcional)</label>
+                <input id="medicaoEstacao2" name="estacao2" placeholder="Est. 2" />
+              </div>
+              <div class="field">
+                <label for="medicaoEstacao3">Estação 3 (opcional)</label>
+                <input id="medicaoEstacao3" name="estacao3" placeholder="Est. 3" />
               </div>
               <div class="field">
                 <label for="medicaoLetra">Letra (legenda)</label>
@@ -180,7 +188,7 @@
                 <label>Fotos</label>
                 <div class="photo-grid">
                   <div class="photo-field">
-                    <label for="fotoMedicao">Adicionar foto da medição</label>
+                    <label for="fotoMedicao">Foto da leitura</label>
                     <input id="fotoMedicao" name="foto_medicao" type="file" accept="image/*" capture="environment" multiple />
                     <button class="btn secondary small" type="button" id="clearFotoMedicao">Remover fotos</button>
                     <div class="muted" id="fotoMedicaoInfo">Nenhuma foto selecionada.</div>
