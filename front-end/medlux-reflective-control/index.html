@@ -16,7 +16,10 @@
           <h1><span class="dot"></span>MEDLUX Reflective Control</h1>
           <p>Registro de medições de retrorrefletância para equipamentos vinculados.</p>
         </div>
-        <div class="badge" id="syncStatus">Offline pronto • IndexedDB</div>
+        <div class="header-actions">
+          <div class="badge" id="syncStatus">Offline pronto • IndexedDB</div>
+          <button class="btn secondary small" id="logoutButton" type="button">Sair</button>
+        </div>
       </header>
 
       <div class="content">
@@ -40,10 +43,18 @@
                 <input id="medicaoTipo" name="tipo_medicao" placeholder="RL, Qd..." required />
               </div>
               <div class="field">
-                <label for="medicaoValor">Valor *</label>
-                <input id="medicaoValor" name="valor" type="number" step="0.01" required />
+                <label for="medicaoQtd">Quantidade de leituras *</label>
+                <input id="medicaoQtd" name="quantidade_leituras" type="number" min="1" max="50" value="10" required />
               </div>
               <div class="field">
+                <label for="medicaoMedia">Média</label>
+                <input id="medicaoMedia" name="media" type="number" step="0.01" readonly />
+              </div>
+              <div class="field field-full">
+                <label>Leituras *</label>
+                <div class="reading-list" id="leiturasList"></div>
+              </div>
+              <div class="field field-full">
                 <label for="medicaoObs">Observações</label>
                 <input id="medicaoObs" name="observacoes" />
               </div>
@@ -58,14 +69,15 @@
 
           <div class="subpanel">
             <h3>Medições recentes</h3>
-            <p class="muted">Histórico do operador logado.</p>
+            <p class="muted">Histórico do operador logado (ou visão completa do ADMIN).</p>
             <div class="table-wrapper">
               <table class="table" aria-label="Tabela de medições">
                 <thead>
                   <tr>
                     <th>Equipamento</th>
                     <th>Tipo</th>
-                    <th>Valor</th>
+                    <th>Média</th>
+                    <th>Qtd Leituras</th>
                     <th>Data/Hora</th>
                   </tr>
                 </thead>

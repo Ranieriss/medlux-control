@@ -16,7 +16,7 @@ import {
   clearAllStores,
   saveAuditoria
 } from "./db.js";
-import { ensureDefaultAdmin, authenticate, getSession, updatePin, createUserWithPin } from "../shared/auth.js";
+import { ensureDefaultAdmin, authenticate, updatePin, createUserWithPin, logout, requireAuth } from "../shared/auth.js";
 
 const tabs = document.querySelectorAll(".tab");
 const panels = document.querySelectorAll("[data-panel]");
@@ -54,6 +54,7 @@ const generateAuditPdf = document.getElementById("generateAuditPdf");
 const statusMessage = document.getElementById("statusMessage");
 const syncStatus = document.getElementById("syncStatus");
 const sortButtons = document.querySelectorAll("[data-sort]");
+const logoutButton = document.getElementById("logoutButton");
 
 const modal = document.getElementById("equipamentoModal");
 const modalTitle = document.getElementById("modalTitle");
@@ -97,10 +98,10 @@ const formFields = {
   dataAquisicao: document.getElementById("equipAquisicao"),
   fabricante: document.getElementById("equipFabricante"),
   numeroCertificado: document.getElementById("equipCertificado"),
-  status: document.getElementById("equipStatus"),
+  statusOperacional: document.getElementById("equipStatus"),
   calibrado: document.getElementById("equipCalibrado"),
   usuarioResponsavel: document.getElementById("equipResponsavel"),
-  localidade: document.getElementById("equipLocalidade"),
+  localidadeCidadeUF: document.getElementById("equipLocalidade"),
   dataEntregaUsuario: document.getElementById("equipEntrega"),
   observacoes: document.getElementById("equipObs")
 };
@@ -159,6 +160,9 @@ const formatDate = (dateString) => {
   return `${day}/${month}/${year}`;
 };
 
+const getEquipamentoStatus = (equipamento) => equipamento.statusOperacional || equipamento.status || "Stand-by";
+const getEquipamentoLocalidade = (equipamento) => equipamento.localidadeCidadeUF || equipamento.localidade || "";
+
 const setStatusMessage = (message) => {
   statusMessage.textContent = message;
 };
@@ -185,10 +189,12 @@ let currentPage = 1;
 
 const ensureLogin = async () => {
   await ensureDefaultAdmin();
-  activeSession = getSession();
-  if (!activeSession) {
-    openModal(loginModal);
-  }
+  activeSession = requireAuth({
+    allowRoles: ["ADMIN"],
+    onMissing: () => openModal(loginModal),
+    onUnauthorized: () => { window.location.href = "../medlux-reflective-control/index.html"; }
+  });
+  return activeSession;
 };
 
 const validateEquipamento = (data) => {
@@ -208,12 +214,13 @@ const normalizeEquipamento = (data) => {
     numeroSerie: normalizeText(data.numeroSerie),
     dataAquisicao: data.dataAquisicao ? parseDateString(data.dataAquisicao).value : "",
     calibrado: data.calibrado === true || data.calibrado === "true",
+    dataCalibracao: data.dataCalibracao ? parseDateString(data.dataCalibracao).value : "",
     numeroCertificado: normalizeText(data.numeroCertificado),
     fabricante: normalizeText(data.fabricante),
     usuarioResponsavel: normalizeText(data.usuarioResponsavel),
-    localidade: normalizeText(data.localidade),
+    localidadeCidadeUF: normalizeText(data.localidadeCidadeUF || data.localidade),
     dataEntregaUsuario: data.dataEntregaUsuario ? parseDateString(data.dataEntregaUsuario).value : "",
-    status: normalizeStatus(data.status || "Stand-by"),
+    statusOperacional: normalizeStatus(data.statusOperacional || data.status || "Stand-by"),
     observacoes: normalizeText(data.observacoes)
   };
 };
@@ -227,14 +234,15 @@ const loadData = async () => {
   ]);
 };
 
-const getActiveVinculos = () => vinculos.filter((item) => item.ativo);
+const getActiveVinculos = () => vinculos.filter((item) => item.status === "ATIVO" || item.ativo);
 
 const renderDashboard = () => {
   statusCards.textContent = "";
   const total = equipamentos.length;
   const byStatus = STATUS_ORDER.reduce((acc, status) => ({ ...acc, [status]: 0 }), {});
   equipamentos.forEach((equipamento) => {
-    byStatus[equipamento.status] = (byStatus[equipamento.status] || 0) + 1;
+    const status = getEquipamentoStatus(equipamento);
+    byStatus[status] = (byStatus[status] || 0) + 1;
   });
 
   const cards = [
@@ -261,10 +269,11 @@ const renderDashboard = () => {
     return;
   }
   active.forEach((vinculo) => {
-    const equipamento = equipamentos.find((item) => item.id === vinculo.equip_id);
-    const usuario = usuarios.find((item) => item.user_id === vinculo.user_id);
+    const equipamentoId = vinculo.equipamento_id || vinculo.equip_id;
+    const equipamento = equipamentos.find((item) => item.id === equipamentoId);
+    const usuario = usuarios.find((item) => (item.user_id || item.id) === vinculo.user_id);
     const item = document.createElement("li");
-    item.textContent = `${vinculo.equip_id} • ${equipamento?.modelo || "Sem modelo"} • ${usuario?.nome || vinculo.user_id}`;
+    item.textContent = `${equipamentoId} • ${equipamento?.modelo || "Sem modelo"} • ${usuario?.nome || vinculo.user_id}`;
     dueSoonList.appendChild(item);
   });
 };
@@ -281,7 +290,7 @@ const getFilteredEquipamentos = () => {
   const status = statusFilter.value;
   return equipamentos.filter((equipamento) => {
     if (funcao && equipamento.funcao !== funcao) return false;
-    if (status && equipamento.status !== status) return false;
+    if (status && getEquipamentoStatus(equipamento) !== status) return false;
     return matchesSearch(equipamento, term);
   });
 };
@@ -316,8 +325,8 @@ const renderEquipamentos = () => {
       equipamento.modelo || "-",
       equipamento.numeroSerie || "-",
       equipamento.usuarioResponsavel || "-",
-      equipamento.status,
-      equipamento.localidade || "-"
+      getEquipamentoStatus(equipamento),
+      getEquipamentoLocalidade(equipamento) || "-"
     ].forEach((text) => {
       const cell = document.createElement("td");
       cell.textContent = text;
@@ -368,7 +377,8 @@ const renderUsuarios = () => {
   usuariosBody.textContent = "";
   usuarios.forEach((usuario) => {
     const row = document.createElement("tr");
-    [usuario.user_id, usuario.nome, usuario.role, usuario.ativo ? "Ativo" : "Inativo"].forEach((text) => {
+    const statusLabel = (usuario.status || (usuario.ativo ? "ATIVO" : "INATIVO")) === "ATIVO" ? "Ativo" : "Inativo";
+    [usuario.user_id || usuario.id, usuario.nome, usuario.role, statusLabel].forEach((text) => {
       const cell = document.createElement("td");
       cell.textContent = text;
       row.appendChild(cell);
@@ -378,17 +388,17 @@ const renderUsuarios = () => {
     editButton.className = "btn secondary";
     editButton.type = "button";
     editButton.textContent = "Editar";
-    editButton.addEventListener("click", () => openUsuarioModal(usuario.user_id));
+    editButton.addEventListener("click", () => openUsuarioModal(usuario.user_id || usuario.id));
     const resetButton = document.createElement("button");
     resetButton.className = "btn secondary";
     resetButton.type = "button";
     resetButton.textContent = "Resetar PIN";
-    resetButton.addEventListener("click", () => handleResetPin(usuario.user_id));
+    resetButton.addEventListener("click", () => handleResetPin(usuario.user_id || usuario.id));
     const deleteButton = document.createElement("button");
     deleteButton.className = "btn danger";
     deleteButton.type = "button";
     deleteButton.textContent = "Excluir";
-    deleteButton.addEventListener("click", () => handleDeleteUsuario(usuario.user_id));
+    deleteButton.addEventListener("click", () => handleDeleteUsuario(usuario.user_id || usuario.id));
     actions.append(editButton, resetButton, deleteButton);
     row.appendChild(actions);
     usuariosBody.appendChild(row);
@@ -399,14 +409,15 @@ const renderVinculos = () => {
   vinculosBody.textContent = "";
   vinculos.forEach((vinculo) => {
     const row = document.createElement("tr");
-    const equipamento = equipamentos.find((item) => item.id === vinculo.equip_id);
+    const equipamentoId = vinculo.equipamento_id || vinculo.equip_id;
+    const equipamento = equipamentos.find((item) => item.id === equipamentoId);
     const usuario = usuarios.find((item) => item.user_id === vinculo.user_id);
-    const statusLabel = vinculo.ativo ? "Ativo" : "Encerrado";
-    const termoLabel = vinculo.termo_cautela_pdf ? "Arquivo anexado" : "-";
+    const statusLabel = vinculo.status === "ATIVO" || vinculo.ativo ? "Ativo" : "Encerrado";
+    const termoLabel = vinculo.termo_pdf || vinculo.termo_cautela_pdf ? "Arquivo anexado" : "-";
     [
-      `${vinculo.equip_id}${equipamento?.modelo ? ` • ${equipamento.modelo}` : ""}`,
+      `${equipamentoId}${equipamento?.modelo ? ` • ${equipamento.modelo}` : ""}`,
       `${vinculo.user_id}${usuario?.nome ? ` • ${usuario.nome}` : ""}`,
-      formatDate(vinculo.data_inicio),
+      formatDate(vinculo.inicio || vinculo.data_inicio),
       statusLabel,
       termoLabel
     ].forEach((text) => {
@@ -415,12 +426,12 @@ const renderVinculos = () => {
       row.appendChild(cell);
     });
     const actions = document.createElement("td");
-    if (vinculo.ativo) {
+    if (vinculo.status === "ATIVO" || vinculo.ativo) {
       const endButton = document.createElement("button");
       endButton.className = "btn secondary";
       endButton.type = "button";
       endButton.textContent = "Encerrar";
-      endButton.addEventListener("click", () => handleEncerrarVinculo(vinculo.vinculo_id));
+      endButton.addEventListener("click", () => handleEncerrarVinculo(vinculo.vinculo_id || vinculo.id));
       actions.appendChild(endButton);
     }
     row.appendChild(actions);
@@ -445,10 +456,11 @@ const refreshSelectOptions = () => {
   emptyUser.value = "";
   emptyUser.textContent = "Selecione";
   vinculoUser.appendChild(emptyUser);
-  usuarios.filter((user) => user.ativo).forEach((user) => {
+  usuarios.filter((user) => user.status === "ATIVO" || user.ativo).forEach((user) => {
+    const userId = user.user_id || user.id;
     const option = document.createElement("option");
-    option.value = user.user_id;
-    option.textContent = `${user.user_id} • ${user.nome}`;
+    option.value = userId;
+    option.textContent = `${userId} • ${user.nome}`;
     vinculoUser.appendChild(option);
   });
 };
@@ -476,10 +488,10 @@ const openEditModal = (id) => {
   formFields.dataAquisicao.value = equipamento.dataAquisicao || "";
   formFields.fabricante.value = equipamento.fabricante || "";
   formFields.numeroCertificado.value = equipamento.numeroCertificado || "";
-  formFields.status.value = equipamento.status || "Stand-by";
+  formFields.statusOperacional.value = equipamento.statusOperacional || equipamento.status || "Stand-by";
   formFields.calibrado.value = equipamento.calibrado ? "true" : "false";
   formFields.usuarioResponsavel.value = equipamento.usuarioResponsavel || "";
-  formFields.localidade.value = equipamento.localidade || "";
+  formFields.localidadeCidadeUF.value = equipamento.localidadeCidadeUF || equipamento.localidade || "";
   formFields.dataEntregaUsuario.value = equipamento.dataEntregaUsuario || "";
   formFields.observacoes.value = equipamento.observacoes || "";
   formHint.textContent = "Campos com * são obrigatórios.";
@@ -492,7 +504,7 @@ const openNewModal = () => {
   modalTitle.textContent = "Novo equipamento";
   form.reset();
   formFields.id.disabled = false;
-  formFields.status.value = "Stand-by";
+  formFields.statusOperacional.value = "Stand-by";
   formFields.calibrado.value = "true";
   formHint.textContent = "Campos com * são obrigatórios.";
   updateGeometriaState();
@@ -512,7 +524,13 @@ const handleFormSubmit = async (event) => {
     formHint.textContent = "ID já existe.";
     return;
   }
-  await saveEquipamento(normalized);
+  const now = new Date().toISOString();
+  const existing = editingId ? equipamentos.find((item) => item.id === editingId) : null;
+  await saveEquipamento({
+    ...normalized,
+    created_at: existing?.created_at || now,
+    updated_at: now
+  });
   await saveAuditoria({
     auditoria_id: crypto.randomUUID(),
     entity: "equipamentos",
@@ -534,21 +552,26 @@ const handleUsuarioSubmit = async (event) => {
     usuarioHint.textContent = "ID, nome e perfil são obrigatórios.";
     return;
   }
-  if (!editingUserId && usuarios.some((item) => item.user_id === userId)) {
+  if (!editingUserId && usuarios.some((item) => (item.user_id || item.id) === userId)) {
     usuarioHint.textContent = "ID já existe.";
     return;
   }
-  const existing = usuarios.find((item) => item.user_id === userId);
+  const existing = usuarios.find((item) => (item.user_id || item.id) === userId);
   if (!existing && !data.pin) {
     usuarioHint.textContent = "PIN obrigatório para novo usuário.";
     return;
   }
+  const status = data.ativo === "false" ? "INATIVO" : "ATIVO";
   const updated = {
     ...existing,
     user_id: userId,
+    id: userId,
     nome: normalizeText(data.nome),
     role: data.role,
-    ativo: data.ativo === "true"
+    ativo: data.ativo === "true",
+    status,
+    updated_at: new Date().toISOString(),
+    created_at: existing?.created_at || new Date().toISOString()
   };
   if (!existing) {
     await createUserWithPin({ ...updated, pin: data.pin });
@@ -578,12 +601,14 @@ const openUsuarioModal = (userId = "") => {
   const usuario = usuarios.find((item) => item.user_id === userId);
   if (!usuario) return;
   editingUserId = userId;
-  usuarioTitle.textContent = `Editar ${usuario.user_id}`;
-  usuarioForm.querySelector("#usuarioId").value = usuario.user_id;
+  const userId = usuario.user_id || usuario.id;
+  const isActive = usuario.status ? usuario.status === "ATIVO" : usuario.ativo;
+  usuarioTitle.textContent = `Editar ${userId}`;
+  usuarioForm.querySelector("#usuarioId").value = userId;
   usuarioForm.querySelector("#usuarioId").disabled = true;
   usuarioForm.querySelector("#usuarioNome").value = usuario.nome;
   usuarioForm.querySelector("#usuarioRole").value = usuario.role;
-  usuarioForm.querySelector("#usuarioAtivo").value = usuario.ativo ? "true" : "false";
+  usuarioForm.querySelector("#usuarioAtivo").value = isActive ? "true" : "false";
   usuarioForm.querySelector("#usuarioPin").value = "";
   openModal(usuarioModal);
 };
@@ -620,19 +645,34 @@ const handleVinculoSubmit = async (event) => {
   }
   const termoFile = vinculoTermo.files[0];
   const termo = termoFile ? await fileToBase64(termoFile) : "";
+  const now = new Date().toISOString();
+  const vinculoId = crypto.randomUUID();
   const vinculo = {
-    vinculo_id: crypto.randomUUID(),
+    id: vinculoId,
+    vinculo_id: vinculoId,
+    equipamento_id: data.equip_id,
     equip_id: data.equip_id,
     user_id: data.user_id,
+    inicio: parseDateString(data.data_inicio).value,
     data_inicio: parseDateString(data.data_inicio).value,
+    fim: null,
     data_fim: null,
+    status: "ATIVO",
+    ativo: true,
+    termo_pdf: termo,
     termo_cautela_pdf: termo,
-    ativo: true
+    created_at: now,
+    updated_at: now
   };
   await saveVinculo(vinculo);
   const equipamento = equipamentos.find((item) => item.id === data.equip_id);
   if (equipamento) {
-    await saveEquipamento({ ...equipamento, status: "Obra", usuarioResponsavel: data.user_id });
+    await saveEquipamento({
+      ...equipamento,
+      statusOperacional: "Obra",
+      status: "Obra",
+      usuarioResponsavel: data.user_id
+    });
   }
   await loadData();
   renderAll();
@@ -645,9 +685,10 @@ const handleEncerrarVinculo = async (vinculoId) => {
   if (!confirmed) return;
   const encerrado = await encerrarVinculo(vinculoId, new Date().toISOString());
   if (encerrado) {
-    const equipamento = equipamentos.find((item) => item.id === encerrado.equip_id);
+    const equipamentoId = encerrado.equipamento_id || encerrado.equip_id;
+    const equipamento = equipamentos.find((item) => item.id === equipamentoId);
     if (equipamento) {
-      await saveEquipamento({ ...equipamento, status: "Stand-by" });
+      await saveEquipamento({ ...equipamento, statusOperacional: "Stand-by", status: "Stand-by" });
     }
   }
   await loadData();
@@ -675,9 +716,9 @@ const handleSeed = async () => {
       numeroCertificado: "CERT-2023-01",
       fabricante: "Medlux",
       usuarioResponsavel: "ADMIN",
-      localidade: "São Paulo-SP",
+      localidadeCidadeUF: "São Paulo-SP",
       dataEntregaUsuario: "2023-01-12",
-      status: "Obra"
+      statusOperacional: "Obra"
     },
     {
       id: "MLX-V10-002",
@@ -690,9 +731,9 @@ const handleSeed = async () => {
       numeroCertificado: "",
       fabricante: "Medlux",
       usuarioResponsavel: "",
-      localidade: "Curitiba-PR",
+      localidadeCidadeUF: "Curitiba-PR",
       dataEntregaUsuario: "",
-      status: "Stand-by"
+      statusOperacional: "Stand-by"
     }
   ];
   await bulkSaveEquipamentos(seed.map(normalizeEquipamento));
@@ -750,12 +791,13 @@ const mapRowToEquipamento = (row) => {
     numeroSerie: row.numeroserie || row.numerodeserie || row.ndeserie,
     dataAquisicao: row.dataaquisicao,
     calibrado: row.calibrado,
+    dataCalibracao: row.datacalibracao,
     numeroCertificado: row.numerocertificado || row.ndocertificado || row.ncertificado,
     fabricante: row.fabricante,
     usuarioResponsavel: row.usuarioresponsavel,
-    localidade: row.localidade,
+    localidadeCidadeUF: row.localidade,
     dataEntregaUsuario: row.dataentregausuario,
-    status: row.status,
+    statusOperacional: row.status,
     observacoes: row.observacoes
   });
 };
@@ -796,7 +838,7 @@ const buildPreview = (items) => {
   const body = document.createElement("tbody");
   items.slice(0, 8).forEach((item) => {
     const row = document.createElement("tr");
-    [item.id, item.funcao, item.modelo || "-", item.numeroSerie || "-", item.status].forEach((text) => {
+    [item.id, item.funcao, item.modelo || "-", item.numeroSerie || "-", getEquipamentoStatus(item)].forEach((text) => {
       const cell = document.createElement("td");
       cell.textContent = text;
       row.appendChild(cell);
@@ -893,12 +935,13 @@ const handleExportCsv = () => {
     "numeroSerie",
     "dataAquisicao",
     "calibrado",
+    "dataCalibracao",
     "numeroCertificado",
     "fabricante",
     "usuarioResponsavel",
-    "localidade",
+    "localidadeCidadeUF",
     "dataEntregaUsuario",
-    "status",
+    "statusOperacional",
     "observacoes"
   ];
   const rows = equipamentos.map((equipamento) => headers.map((header) => String(equipamento[header] ?? "")).join(";"));
@@ -928,7 +971,7 @@ const buildAuditPdf = async () => {
   doc.text(title, 40, 40);
   doc.setFontSize(10);
   doc.text(`Gerado em: ${now.toLocaleString("pt-BR")}`, 40, 58);
-  doc.text(`Auditor: ${activeSession?.nome || "-"} (${activeSession?.user_id || "-"})`, 40, 72);
+  doc.text(`Auditor: ${activeSession?.nome || "-"} (${activeSession?.id || activeSession?.user_id || "-"})`, 40, 72);
 
   const equipamentoRows = equipamentos.map((equipamento) => [
     equipamento.id,
@@ -938,8 +981,8 @@ const buildAuditPdf = async () => {
     equipamento.numeroSerie || "-",
     equipamento.fabricante || "-",
     equipamento.usuarioResponsavel || "-",
-    equipamento.localidade || "-",
-    equipamento.status,
+    getEquipamentoLocalidade(equipamento) || "-",
+    getEquipamentoStatus(equipamento),
     equipamento.calibrado ? "Sim" : "Não",
     equipamento.numeroCertificado || "-"
   ]);
@@ -955,11 +998,11 @@ const buildAuditPdf = async () => {
   doc.setFontSize(12);
   doc.text("Histórico de vínculos", 40, cursorY);
   const vinculoRows = vinculos.map((vinculo) => [
-    vinculo.equip_id,
+    vinculo.equipamento_id || vinculo.equip_id,
     vinculo.user_id,
-    formatDate(vinculo.data_inicio),
-    vinculo.data_fim ? formatDate(vinculo.data_fim) : "Ativo",
-    vinculo.termo_cautela_pdf ? "Sim" : "Não"
+    formatDate(vinculo.inicio || vinculo.data_inicio),
+    vinculo.fim || vinculo.data_fim ? formatDate(vinculo.fim || vinculo.data_fim) : "Ativo",
+    vinculo.termo_pdf || vinculo.termo_cautela_pdf ? "Sim" : "Não"
   ]);
   doc.autoTable({
     head: [["Equipamento", "Usuário", "Início", "Fim", "Termo"]],
@@ -971,15 +1014,27 @@ const buildAuditPdf = async () => {
   cursorY = doc.lastAutoTable.finalY + 20;
   doc.setFontSize(12);
   doc.text("Histórico de medições", 40, cursorY);
-  const medicaoRows = medicoes.map((medicao) => [
-    medicao.equip_id,
-    medicao.user_id,
-    medicao.tipo_medicao,
-    medicao.valor,
-    medicao.data_hora
-  ]);
+  const formatLeituras = (leituras) => {
+    if (!leituras || !leituras.length) return "-";
+    const joined = leituras.map((item) => String(item)).join(", ");
+    if (joined.length <= 40) return joined;
+    return `L1..L${leituras.length}`;
+  };
+  const medicaoRows = medicoes.map((medicao) => {
+    const leituras = medicao.leituras || [];
+    const quantidade = leituras.length || (medicao.valor ? 1 : 0);
+    return [
+      medicao.equipamento_id || medicao.equip_id,
+      medicao.user_id,
+      medicao.tipoMedicao || medicao.tipo_medicao,
+      medicao.media ?? medicao.valor ?? "-",
+      quantidade,
+      formatLeituras(leituras),
+      medicao.dataHora || medicao.data_hora
+    ];
+  });
   doc.autoTable({
-    head: [["Equipamento", "Usuário", "Tipo", "Valor", "Data/Hora"]],
+    head: [["Equipamento", "Usuário", "Tipo", "Média", "Qtd Leituras", "Leituras", "Data/Hora"]],
     body: medicaoRows,
     startY: cursorY + 10,
     styles: { fontSize: 8 }
@@ -1003,6 +1058,12 @@ const handleLogin = async (event) => {
   const result = await authenticate(normalizeId(data.user_id), data.pin);
   if (!result.success) {
     loginHint.textContent = result.message;
+    return;
+  }
+  if (result.session.role !== "ADMIN") {
+    loginHint.textContent = "Acesso restrito ao ADMIN.";
+    logout();
+    window.location.href = "../medlux-reflective-control/index.html";
     return;
   }
   activeSession = result.session;
@@ -1052,6 +1113,8 @@ const updateGeometriaState = () => {
   const funcao = formFields.funcao.value;
   const isHorizontal = funcao === "Horizontal";
   formFields.geometria.disabled = !isHorizontal;
+  const geometryField = formFields.geometria.closest(".field");
+  if (geometryField) geometryField.style.display = isHorizontal ? "" : "none";
   if (!isHorizontal) formFields.geometria.value = "";
 };
 
@@ -1081,6 +1144,10 @@ cancelVinculo.addEventListener("click", () => closeModalElement(vinculoModal));
 vinculoForm.addEventListener("submit", handleVinculoSubmit);
 
 loginForm.addEventListener("submit", handleLogin);
+logoutButton.addEventListener("click", () => {
+  logout();
+  window.location.href = "../index.html";
+});
 
 seedButton.addEventListener("click", handleSeed);
 exportBackup.addEventListener("click", handleExportBackup);

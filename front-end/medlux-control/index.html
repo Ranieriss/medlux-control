@@ -20,7 +20,10 @@
           <h1><span class="dot"></span>MEDLUX Control</h1>
           <p>Controle offline-first de equipamentos MEDLUX com cautelas, usuários e auditoria.</p>
         </div>
-        <div class="badge" id="syncStatus">Offline pronto • IndexedDB</div>
+        <div class="header-actions">
+          <div class="badge" id="syncStatus">Offline pronto • IndexedDB</div>
+          <button class="btn secondary small" id="logoutButton" type="button">Sair</button>
+        </div>
       </header>
 
       <nav class="nav" aria-label="Abas do módulo">
@@ -359,7 +362,7 @@
             <input id="equipResponsavel" name="usuarioResponsavel" />
           </div>
           <div class="field">
-            <label for="equipLocalidade">Localidade</label>
+            <label for="equipLocalidade">Localidade (Cidade/UF)</label>
             <input id="equipLocalidade" name="localidade" placeholder="Cidade-UF" />
           </div>
           <div class="field">
