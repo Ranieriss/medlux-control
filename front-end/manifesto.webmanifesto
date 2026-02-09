@@ -1,9 +1,0 @@
-{
-  "name": "MEDLUX Control",
-  "short_name": "MEDLUX",
-  "start_url": "./index.html",
-  "scope": "./",
-  "display": "standalone",
-  "background_color": "#070A12",
-  "theme_color": "#0C1328"
-}
