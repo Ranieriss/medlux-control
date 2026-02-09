@@ -4,10 +4,13 @@ import {
   saveMedicao,
   getMedicoesByUser,
   getAllMedicoes,
-  getAllObras,
-  saveAuditoria
+  getAllObras
 } from "../shared/db.js";
 import { ensureDefaultAdmin, authenticate, logout, requireAuth, getSession } from "../shared/auth.js";
+import { AUDIT_ACTIONS, buildDiff, logAudit } from "../shared/audit.js";
+import { validateMedicao } from "../shared/validation.js";
+import { initGlobalErrorHandling, logError } from "../shared/errors.js";
+import { sanitizeText } from "../shared/utils.js";
 
 const medicaoForm = document.getElementById("medicaoForm");
 const medicaoEquip = document.getElementById("medicaoEquip");
@@ -59,8 +62,15 @@ let vinculos = [];
 let medicoes = [];
 let obras = [];
 
+initGlobalErrorHandling("medlux-reflective-control");
+
 const normalizeText = (value) => String(value || "").trim().replace(/\s+/g, " ");
 const normalizeUserIdComparable = (value) => normalizeText(value).toUpperCase();
+
+const MAX_PHOTOS_PER_MEDICAO = 6;
+const MAX_PHOTO_SIZE = 1.5 * 1024 * 1024;
+const PHOTO_MAX_WIDTH = 1600;
+const PHOTO_QUALITY = 0.75;
 
 const openModal = (element) => {
   element.classList.add("active");
@@ -249,6 +259,8 @@ const formatMediaLabel = (medicao) => {
   return media === null ? (medicao.media ?? medicao.valor ?? "-") : media.toFixed(2);
 };
 
+const toSafeText = (value) => sanitizeText(value ?? "-");
+
 const blobToDataUrl = (blob) => new Promise((resolve, reject) => {
   const reader = new FileReader();
   reader.onload = () => resolve(reader.result);
@@ -258,7 +270,9 @@ const blobToDataUrl = (blob) => new Promise((resolve, reject) => {
 
 const updatePhotoInfo = (input, target) => {
   const count = input.files?.length || 0;
-  target.textContent = count ? `${count} foto(s) selecionada(s).` : "Nenhuma foto selecionada.";
+  target.textContent = count
+    ? `${count} foto(s) selecionada(s) (máx. ${MAX_PHOTOS_PER_MEDICAO}).`
+    : "Nenhuma foto selecionada.";
 };
 
 const compressImage = (file) => new Promise((resolve, reject) => {
@@ -266,24 +280,24 @@ const compressImage = (file) => new Promise((resolve, reject) => {
   reader.onload = () => {
     const img = new Image();
     img.onload = () => {
-      const maxSize = 1600;
       let { width, height } = img;
-      if (width > height && width > maxSize) {
-        height = Math.round((height * maxSize) / width);
-        width = maxSize;
-      } else if (height > maxSize) {
-        width = Math.round((width * maxSize) / height);
-        height = maxSize;
+      if (width > height && width > PHOTO_MAX_WIDTH) {
+        height = Math.round((height * PHOTO_MAX_WIDTH) / width);
+        width = PHOTO_MAX_WIDTH;
+      } else if (height > PHOTO_MAX_WIDTH) {
+        width = Math.round((width * PHOTO_MAX_WIDTH) / height);
+        height = PHOTO_MAX_WIDTH;
       }
       const canvas = document.createElement("canvas");
       canvas.width = width;
       canvas.height = height;
       const ctx = canvas.getContext("2d");
       ctx.drawImage(img, 0, 0, width, height);
+      const outputType = file.type === "image/png" ? "image/jpeg" : (file.type || "image/jpeg");
       canvas.toBlob(
-        (blob) => resolve(blob || file),
-        file.type || "image/jpeg",
-        0.75
+        (blob) => resolve({ blob: blob || file, width, height }),
+        outputType,
+        PHOTO_QUALITY
       );
     };
     img.onerror = () => reject(new Error("Falha ao carregar imagem."));
@@ -295,24 +309,45 @@ const compressImage = (file) => new Promise((resolve, reject) => {
 
 const collectFotos = async () => {
   const fotos = [];
+  const errors = [];
   const addFiles = async (files, tipo) => {
     for (const file of Array.from(files || [])) {
+      if (fotos.length >= MAX_PHOTOS_PER_MEDICAO) {
+        errors.push(`Limite de ${MAX_PHOTOS_PER_MEDICAO} fotos atingido.`);
+        break;
+      }
       try {
-        const blob = await compressImage(file);
+        const { blob, width, height } = await compressImage(file);
+        if (blob.size > MAX_PHOTO_SIZE) {
+          errors.push(`Foto ${file.name} excede ${(MAX_PHOTO_SIZE / (1024 * 1024)).toFixed(1)}MB após compressão.`);
+          continue;
+        }
         fotos.push({
+          id: crypto.randomUUID(),
           name: file.name,
           mime: blob.type || file.type || "image/jpeg",
+          size: blob.size,
+          width,
+          height,
+          created_at: new Date().toISOString(),
           blob,
           tipo
         });
       } catch (error) {
-        // Ignora falhas de compressão
+        errors.push(`Falha ao processar ${file.name}.`);
+        await logError({
+          module: "medlux-reflective-control",
+          action: "COMPRESS_FOTO",
+          message: error.message,
+          stack: error.stack,
+          context: { name: file.name, type: file.type }
+        });
       }
     }
   };
   await addFiles(fotoMedicaoInput.files, "MEDICAO");
   await addFiles(fotoLocalInput.files, "LOCAL");
-  return fotos;
+  return { fotos, errors };
 };
 
 const updateGpsInputs = ({ lat, lng, accuracy, source, dateTime }) => {
@@ -387,42 +422,17 @@ const handleCaptureGps = () => {
 const handleMedicaoSubmit = async (event) => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(medicaoForm).entries());
-  if (!data.equip_id || !data.tipo_medicao || !data.obra_id || !data.subtipo) {
-    medicaoHint.textContent = "Preencha todos os campos obrigatórios.";
-    return;
-  }
   const leituras = getLeituras();
-  if (!leituras.length || leituras.some((item) => item === null)) {
-    medicaoHint.textContent = "Informe as leituras corretamente.";
-    return;
-  }
   const subtipo = String(data.subtipo || "").toUpperCase();
-  if (subtipo === "HORIZONTAL" && leituras.length !== 10) {
-    medicaoHint.textContent = "Horizontal exige exatamente 10 leituras por estação.";
-    return;
-  }
-  if (subtipo === "HORIZONTAL" && (!data.linha || !data.estacao)) {
-    medicaoHint.textContent = "Horizontal exige linha e estação.";
-    return;
-  }
-  if (subtipo === "VERTICAL" && leituras.length !== 5) {
-    medicaoHint.textContent = "Vertical exige 5 leituras por ponto.";
-    return;
-  }
-  if (subtipo === "LEGENDA" && leituras.length !== 3) {
-    medicaoHint.textContent = "Legenda exige 3 leituras por letra.";
-    return;
-  }
-  if (subtipo === "LEGENDA" && !data.letra) {
-    medicaoHint.textContent = "Informe a letra da legenda.";
-    return;
-  }
-  if (subtipo === "PLACA" && leituras.length !== 5) {
-    medicaoHint.textContent = "Placa exige 5 leituras por cor e ângulo.";
-    return;
-  }
-  if (subtipo === "PLACA" && (!data.cor || !data.angulo)) {
-    medicaoHint.textContent = "Placa exige cor e ângulo.";
+  const validation = validateMedicao({
+    ...data,
+    equipamento_id: data.equip_id,
+    user_id: activeSession?.id,
+    leituras,
+    subtipo
+  });
+  if (!validation.ok) {
+    medicaoHint.textContent = validation.errors.map((item) => item.message).join(" ");
     return;
   }
   if (!isAdmin()) {
@@ -450,7 +460,11 @@ const handleMedicaoSubmit = async (event) => {
     accuracy: Number.isFinite(gpsAccValue) ? gpsAccValue : null,
     source: gpsSource.value || (Number.isFinite(gpsLatValue) && Number.isFinite(gpsLngValue) ? "MANUAL" : "")
   };
-  const fotos = await collectFotos();
+  const { fotos, errors } = await collectFotos();
+  if (errors.length) {
+    medicaoHint.textContent = errors.join(" ");
+    return;
+  }
   const medicao = {
     id: medicaoId,
     medicao_id: medicaoId,
@@ -488,13 +502,26 @@ const handleMedicaoSubmit = async (event) => {
     fotos,
     created_at: now
   };
-  await saveMedicao(medicao);
-  await saveAuditoria({
-    auditoria_id: crypto.randomUUID(),
-    entity: "medicoes",
-    action: "create",
-    data_hora: now,
-    payload: { equip_id: data.equip_id, user_id: activeSession.id }
+  try {
+    await saveMedicao(medicao);
+  } catch (error) {
+    await logError({
+      module: "medlux-reflective-control",
+      action: "SAVE_MEDICAO",
+      message: "Falha ao salvar medição com fotos no IndexedDB.",
+      stack: error.stack,
+      context: { medicao_id: medicaoId, fotos: fotos.length }
+    });
+    window.alert("Falha ao salvar fotos no IndexedDB. Tente remover algumas fotos e salvar novamente.");
+    return;
+  }
+  await logAudit({
+    action: AUDIT_ACTIONS.ENTITY_CREATED,
+    entity_type: "medicoes",
+    entity_id: medicaoId,
+    actor_user_id: activeSession?.id || null,
+    summary: `Medição registrada para equipamento ${data.equip_id}.`,
+    diff: buildDiff(null, medicao, ["id", "equipamento_id", "user_id", "obra_id", "subtipo"])
   });
   medicoes = isAdmin() ? await getAllMedicoes() : await getMedicoesByUser(activeSession.id);
   renderMedicoes();
@@ -530,22 +557,22 @@ const buildUserPdf = async () => {
   const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
   const now = new Date();
   doc.setFontSize(16);
-  doc.text("Relatório Individual MEDLUX", 40, 40);
+  doc.text(toSafeText("Relatório Individual MEDLUX"), 40, 40);
   doc.setFontSize(10);
-  doc.text(`Operador: ${activeSession.nome} (${activeSession.id})`, 40, 58);
-  doc.text(`Gerado em: ${now.toLocaleString("pt-BR")}`, 40, 72);
-  doc.text(`Obra: ${obraValue || "Todas"}`, 40, 86);
-  doc.text(`Período: ${userReportStart.value || "-"} → ${userReportEnd.value || "-"}`, 40, 100);
+  doc.text(toSafeText(`Operador: ${activeSession.nome} (${activeSession.id})`), 40, 58);
+  doc.text(toSafeText(`Gerado em: ${now.toLocaleString("pt-BR")}`), 40, 72);
+  doc.text(toSafeText(`Obra: ${obraValue || "Todas"}`), 40, 86);
+  doc.text(toSafeText(`Período: ${userReportStart.value || "-"} → ${userReportEnd.value || "-"}`), 40, 100);
 
   const rows = filtered.map((medicao) => [
-    medicao.id || medicao.medicao_id,
-    medicao.obra_id || "-",
-    medicao.equipamento_id || medicao.equip_id,
-    medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao,
-    formatMediaLabel(medicao),
-    formatLocal(medicao),
-    formatGps(medicao.gps),
-    medicao.dataHora || medicao.data_hora
+    toSafeText(medicao.id || medicao.medicao_id),
+    toSafeText(medicao.obra_id || "-"),
+    toSafeText(medicao.equipamento_id || medicao.equip_id),
+    toSafeText(medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao),
+    toSafeText(formatMediaLabel(medicao)),
+    toSafeText(formatLocal(medicao)),
+    toSafeText(formatGps(medicao.gps)),
+    toSafeText(medicao.dataHora || medicao.data_hora)
   ]);
 
   doc.autoTable({
@@ -559,7 +586,7 @@ const buildUserPdf = async () => {
   if (fotos.length) {
     let cursorY = doc.lastAutoTable.finalY + 20;
     doc.setFontSize(12);
-    doc.text("Anexos (miniaturas)", 40, cursorY);
+    doc.text(toSafeText("Anexos (miniaturas)"), 40, cursorY);
     cursorY += 10;
     const thumbSize = 90;
     let x = 40;
@@ -586,6 +613,13 @@ const buildUserPdf = async () => {
   }
 
   doc.save(`relatorio-individual-${activeSession.id}-${now.toISOString().slice(0, 10)}.pdf`);
+  await logAudit({
+    action: AUDIT_ACTIONS.PDF_GENERATED,
+    entity_type: "relatorios",
+    entity_id: activeSession.id,
+    actor_user_id: activeSession.id,
+    summary: "PDF individual gerado."
+  });
 };
 
 const initialize = async () => {

@@ -1,4 +1,4 @@
-const CACHE_NAME = "medlux-control-v6";
+const CACHE_NAME = "medlux-control-v7";
 const ASSETS = [
   "./",
   "./index.html",
@@ -10,7 +10,11 @@ const ASSETS = [
   "./icons/icon-192.svg",
   "./icons/icon-512.svg",
   "../shared/db.js",
-  "../shared/auth.js"
+  "../shared/auth.js",
+  "../shared/audit.js",
+  "../shared/validation.js",
+  "../shared/errors.js",
+  "../shared/utils.js"
 ];
 
 self.addEventListener("install", (event) => {

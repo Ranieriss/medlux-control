@@ -1,5 +1,6 @@
 const DB_NAME = "medlux_suite_db";
-const DB_VERSION = 4;
+const DB_VERSION = 6;
+const EXPORT_VERSION = 1;
 
 const STORE_EQUIPAMENTOS = "equipamentos";
 const STORE_USERS = "users";
@@ -10,6 +11,7 @@ const STORE_OBRAS = "obras";
 const STORE_ANEXOS = "anexos";
 const STORE_AUDITORIA = "auditoria";
 const STORE_AUDIT_LOG = "audit_log";
+const STORE_ERRORS_LOG = "errors_log";
 
 const nowIso = () => new Date().toISOString();
 const toNumber = (value) => {
@@ -17,6 +19,8 @@ const toNumber = (value) => {
   return Number.isFinite(num) ? num : null;
 };
 const normalizeId = (value) => String(value || "").trim().toUpperCase();
+
+const resolveUuid = (record = {}) => record.uuid || record.internal_id || record.user_uuid || "";
 
 const normalizeUserRecord = (record = {}) => {
   const id = record.id || record.user_id || "";
@@ -27,6 +31,7 @@ const normalizeUserRecord = (record = {}) => {
   const pinHash = record.pinHash || record.pin_hash || "";
   return {
     id,
+    uuid: resolveUuid(record) || "",
     nome: record.nome || "",
     role: record.role || "",
     status,
@@ -82,6 +87,7 @@ const normalizeEquipamentoRecord = (record = {}) => {
   const certificado = record.certificado || record.numeroCertificado || record.numero_certificado || "";
   return {
     id: record.id || "",
+    uuid: resolveUuid(record) || "",
     modelo: record.modelo || "",
     funcao,
     geometria,
@@ -115,6 +121,7 @@ const normalizeVinculoRecord = (record = {}) => {
   const updated_at = record.updated_at || record.updatedAt || created_at;
   return {
     id,
+    uuid: resolveUuid(record) || id,
     equipamento_id: record.equipamento_id || record.equip_id || "",
     user_id: record.user_id || "",
     inicio,
@@ -146,7 +153,7 @@ const normalizeMedicaoRecord = (record = {}) => {
   const media = record.media !== undefined
     ? toNumber(record.media)
     : (leituras.length ? leituras.reduce((acc, item) => acc + item, 0) / leituras.length : toNumber(record.valor));
-  const created_at = record.created_at || record.createdAt || nowIso();
+  const created_at = record.created_at || record.createdAt || dataHora || nowIso();
   const gps = record.gps && typeof record.gps === "object"
     ? record.gps
     : {
@@ -158,6 +165,7 @@ const normalizeMedicaoRecord = (record = {}) => {
   const fotos = Array.isArray(record.fotos) ? record.fotos : [];
   return {
     id,
+    uuid: resolveUuid(record) || id,
     equipamento_id: record.equipamento_id || record.equip_id || "",
     user_id: record.user_id || "",
     obra_id: record.obra_id || record.obraId || "",
@@ -198,9 +206,11 @@ const normalizeMedicaoRecord = (record = {}) => {
 
 const prepareUserRecord = (record = {}) => {
   const normalized = normalizeUserRecord(record);
+  const uuid = normalized.uuid || resolveUuid(record) || crypto.randomUUID();
   return {
     ...normalized,
     id: normalized.id,
+    uuid,
     pinHash: normalized.pinHash,
     status: normalized.status,
     created_at: normalized.created_at,
@@ -210,8 +220,10 @@ const prepareUserRecord = (record = {}) => {
 
 const prepareEquipamentoRecord = (record = {}) => {
   const normalized = normalizeEquipamentoRecord(record);
+  const uuid = normalized.uuid || resolveUuid(record) || crypto.randomUUID();
   return {
     ...normalized,
+    uuid,
     statusOperacional: normalized.statusLocal,
     statusLocal: normalized.statusLocal,
     localidadeCidadeUF: normalized.localidadeCidadeUF,
@@ -223,8 +235,10 @@ const prepareEquipamentoRecord = (record = {}) => {
 
 const prepareVinculoRecord = (record = {}) => {
   const normalized = normalizeVinculoRecord(record);
+  const uuid = normalized.uuid || resolveUuid(record) || normalized.id || crypto.randomUUID();
   return {
     ...normalized,
+    uuid,
     status: normalized.status,
     inicio: normalized.inicio,
     fim: normalized.fim,
@@ -236,8 +250,10 @@ const prepareVinculoRecord = (record = {}) => {
 
 const prepareMedicaoRecord = (record = {}) => {
   const normalized = normalizeMedicaoRecord(record);
+  const uuid = normalized.uuid || resolveUuid(record) || normalized.id || crypto.randomUUID();
   return {
     ...normalized,
+    uuid,
     tipoMedicao: normalized.tipoMedicao,
     dataHora: normalized.dataHora,
     created_at: normalized.created_at
@@ -266,52 +282,136 @@ const normalizeObraRecord = (record = {}) => {
 
 const prepareObraRecord = (record = {}) => normalizeObraRecord(record);
 
+const normalizeAuditRecord = (record = {}) => {
+  const audit_id = record.audit_id || record.auditoria_id || record.id || record.auditId || crypto.randomUUID();
+  const created_at = record.created_at || record.data_hora || record.dataHora || nowIso();
+  return {
+    ...record,
+    audit_id,
+    auditoria_id: record.auditoria_id || audit_id,
+    created_at,
+    data_hora: record.data_hora || created_at
+  };
+};
+
+const normalizeErrorRecord = (record = {}) => ({
+  error_id: record.error_id || record.id || crypto.randomUUID(),
+  created_at: record.created_at || record.data_hora || nowIso(),
+  module: record.module || "",
+  action: record.action || "",
+  message: record.message || "",
+  stack: record.stack || "",
+  context: record.context || null
+});
+
+const ensureStoreIndexes = (store, indexes = []) => {
+  indexes.forEach(({ name, keyPath, options }) => {
+    if (!store.indexNames.contains(name)) {
+      store.createIndex(name, keyPath, options);
+    }
+  });
+};
+
+const ensureRecordUuids = (store, builder) => {
+  const request = store.openCursor();
+  request.onsuccess = (event) => {
+    const cursor = event.target.result;
+    if (!cursor) return;
+    const updated = builder(cursor.value, cursor.key);
+    if (updated) cursor.update(updated);
+    cursor.continue();
+  };
+};
+
 const openDB = () => new Promise((resolve, reject) => {
   const request = indexedDB.open(DB_NAME, DB_VERSION);
   request.onupgradeneeded = () => {
     const db = request.result;
     const transaction = request.transaction;
-    if (!db.objectStoreNames.contains(STORE_EQUIPAMENTOS)) {
-      const store = db.createObjectStore(STORE_EQUIPAMENTOS, { keyPath: "id" });
-      store.createIndex("funcao", "funcao", { unique: false });
-      store.createIndex("statusOperacional", "statusOperacional", { unique: false });
-    }
-    if (!db.objectStoreNames.contains(STORE_USERS)) {
-      const store = db.createObjectStore(STORE_USERS, { keyPath: "id" });
-      store.createIndex("role", "role", { unique: false });
-      store.createIndex("status", "status", { unique: false });
-    }
-    if (!db.objectStoreNames.contains(STORE_VINCULOS)) {
-      const store = db.createObjectStore(STORE_VINCULOS, { keyPath: "id" });
-      store.createIndex("equipamento_id", "equipamento_id", { unique: false });
-      store.createIndex("user_id", "user_id", { unique: false });
-      store.createIndex("status", "status", { unique: false });
-    }
-    if (!db.objectStoreNames.contains(STORE_MEDICOES)) {
-      const store = db.createObjectStore(STORE_MEDICOES, { keyPath: "id" });
-      store.createIndex("equipamento_id", "equipamento_id", { unique: false });
-      store.createIndex("user_id", "user_id", { unique: false });
-    }
-    if (!db.objectStoreNames.contains(STORE_OBRAS)) {
-      const store = db.createObjectStore(STORE_OBRAS, { keyPath: "id" });
-      store.createIndex("idObra", "idObra", { unique: false });
-      store.createIndex("cidadeUF", "cidadeUF", { unique: false });
-    }
-    if (!db.objectStoreNames.contains(STORE_ANEXOS)) {
-      const store = db.createObjectStore(STORE_ANEXOS, { keyPath: "id" });
-      store.createIndex("medicao_id", "medicao_id", { unique: false });
-      store.createIndex("tipo", "tipo", { unique: false });
-    }
-    if (!db.objectStoreNames.contains(STORE_AUDITORIA)) {
-      const store = db.createObjectStore(STORE_AUDITORIA, { keyPath: "auditoria_id" });
-      store.createIndex("entity", "entity", { unique: false });
-      store.createIndex("data_hora", "data_hora", { unique: false });
-    }
-    if (!db.objectStoreNames.contains(STORE_AUDIT_LOG)) {
-      const store = db.createObjectStore(STORE_AUDIT_LOG, { keyPath: "auditoria_id" });
-      store.createIndex("entity", "entity", { unique: false });
-      store.createIndex("data_hora", "data_hora", { unique: false });
-    }
+    const equipamentosStore = db.objectStoreNames.contains(STORE_EQUIPAMENTOS)
+      ? transaction.objectStore(STORE_EQUIPAMENTOS)
+      : db.createObjectStore(STORE_EQUIPAMENTOS, { keyPath: "id" });
+    ensureStoreIndexes(equipamentosStore, [
+      { name: "funcao", keyPath: "funcao", options: { unique: false } },
+      { name: "statusOperacional", keyPath: "statusOperacional", options: { unique: false } }
+    ]);
+
+    const usersStore = db.objectStoreNames.contains(STORE_USERS)
+      ? transaction.objectStore(STORE_USERS)
+      : db.createObjectStore(STORE_USERS, { keyPath: "id" });
+    ensureStoreIndexes(usersStore, [
+      { name: "role", keyPath: "role", options: { unique: false } },
+      { name: "status", keyPath: "status", options: { unique: false } }
+    ]);
+
+    const vinculosStore = db.objectStoreNames.contains(STORE_VINCULOS)
+      ? transaction.objectStore(STORE_VINCULOS)
+      : db.createObjectStore(STORE_VINCULOS, { keyPath: "id" });
+    ensureStoreIndexes(vinculosStore, [
+      { name: "equipamento_id", keyPath: "equipamento_id", options: { unique: false } },
+      { name: "user_id", keyPath: "user_id", options: { unique: false } },
+      { name: "status", keyPath: "status", options: { unique: false } },
+      { name: "by_user_id", keyPath: "user_id", options: { unique: false } },
+      { name: "by_equip_id", keyPath: "equipamento_id", options: { unique: false } },
+      { name: "by_status", keyPath: "status", options: { unique: false } }
+    ]);
+
+    const medicoesStore = db.objectStoreNames.contains(STORE_MEDICOES)
+      ? transaction.objectStore(STORE_MEDICOES)
+      : db.createObjectStore(STORE_MEDICOES, { keyPath: "id" });
+    ensureStoreIndexes(medicoesStore, [
+      { name: "equipamento_id", keyPath: "equipamento_id", options: { unique: false } },
+      { name: "user_id", keyPath: "user_id", options: { unique: false } },
+      { name: "by_equip_id", keyPath: "equipamento_id", options: { unique: false } },
+      { name: "by_user_id", keyPath: "user_id", options: { unique: false } },
+      { name: "by_obra_id", keyPath: "obra_id", options: { unique: false } },
+      { name: "by_relatorio_id", keyPath: "relatorio_id", options: { unique: false } },
+      { name: "by_created_at", keyPath: "created_at", options: { unique: false } }
+    ]);
+
+    const obrasStore = db.objectStoreNames.contains(STORE_OBRAS)
+      ? transaction.objectStore(STORE_OBRAS)
+      : db.createObjectStore(STORE_OBRAS, { keyPath: "id" });
+    ensureStoreIndexes(obrasStore, [
+      { name: "idObra", keyPath: "idObra", options: { unique: false } },
+      { name: "cidadeUF", keyPath: "cidadeUF", options: { unique: false } }
+    ]);
+
+    const anexosStore = db.objectStoreNames.contains(STORE_ANEXOS)
+      ? transaction.objectStore(STORE_ANEXOS)
+      : db.createObjectStore(STORE_ANEXOS, { keyPath: "id" });
+    ensureStoreIndexes(anexosStore, [
+      { name: "medicao_id", keyPath: "medicao_id", options: { unique: false } },
+      { name: "tipo", keyPath: "tipo", options: { unique: false } }
+    ]);
+
+    const auditoriaStore = db.objectStoreNames.contains(STORE_AUDITORIA)
+      ? transaction.objectStore(STORE_AUDITORIA)
+      : db.createObjectStore(STORE_AUDITORIA, { keyPath: "auditoria_id" });
+    ensureStoreIndexes(auditoriaStore, [
+      { name: "entity", keyPath: "entity", options: { unique: false } },
+      { name: "data_hora", keyPath: "data_hora", options: { unique: false } }
+    ]);
+
+    const auditLogStore = db.objectStoreNames.contains(STORE_AUDIT_LOG)
+      ? transaction.objectStore(STORE_AUDIT_LOG)
+      : db.createObjectStore(STORE_AUDIT_LOG, { keyPath: "auditoria_id" });
+    ensureStoreIndexes(auditLogStore, [
+      { name: "entity", keyPath: "entity", options: { unique: false } },
+      { name: "data_hora", keyPath: "data_hora", options: { unique: false } },
+      { name: "by_created_at", keyPath: "created_at", options: { unique: false } },
+      { name: "by_entity", keyPath: "entity_type", options: { unique: false } },
+      { name: "by_action", keyPath: "action", options: { unique: false } }
+    ]);
+
+    const errorsStore = db.objectStoreNames.contains(STORE_ERRORS_LOG)
+      ? transaction.objectStore(STORE_ERRORS_LOG)
+      : db.createObjectStore(STORE_ERRORS_LOG, { keyPath: "error_id" });
+    ensureStoreIndexes(errorsStore, [
+      { name: "by_created_at", keyPath: "created_at", options: { unique: false } },
+      { name: "by_module", keyPath: "module", options: { unique: false } },
+      { name: "by_action", keyPath: "action", options: { unique: false } }
+    ]);
 
     if (db.objectStoreNames.contains(STORE_USUARIOS) && db.objectStoreNames.contains(STORE_USERS)) {
       const legacyStore = transaction.objectStore(STORE_USUARIOS);
@@ -321,6 +421,47 @@ const openDB = () => new Promise((resolve, reject) => {
         (legacyRequest.result || []).forEach((item) => {
           usersStore.put(prepareUserRecord(item));
         });
+      };
+    }
+
+    ensureRecordUuids(equipamentosStore, (record) => {
+      if (record.uuid) return null;
+      return { ...record, uuid: record.uuid || crypto.randomUUID() };
+    });
+    ensureRecordUuids(usersStore, (record) => {
+      if (record.uuid) return null;
+      return { ...record, uuid: record.uuid || crypto.randomUUID() };
+    });
+    ensureRecordUuids(vinculosStore, (record) => {
+      if (record.uuid) return null;
+      return { ...record, uuid: record.uuid || record.id || crypto.randomUUID() };
+    });
+    ensureRecordUuids(medicoesStore, (record) => {
+      if (!record.created_at) {
+        return {
+          ...record,
+          uuid: record.uuid || record.id || crypto.randomUUID(),
+          created_at: record.dataHora || record.data_hora || nowIso()
+        };
+      }
+      if (record.uuid) return null;
+      return { ...record, uuid: record.uuid || record.id || crypto.randomUUID() };
+    });
+    ensureRecordUuids(auditLogStore, (record, key) => {
+      const normalized = normalizeAuditRecord({ ...record, auditoria_id: record.auditoria_id || key });
+      if (normalized.audit_id === record.audit_id && normalized.auditoria_id === record.auditoria_id && normalized.created_at === record.created_at) {
+        return null;
+      }
+      return normalized;
+    });
+
+    if (db.objectStoreNames.contains(STORE_AUDITORIA)) {
+      const legacyAuditRequest = auditoriaStore.getAll();
+      legacyAuditRequest.onsuccess = () => {
+        (legacyAuditRequest.result || []).forEach((item) => {
+          auditLogStore.put(normalizeAuditRecord(item));
+        });
+        auditoriaStore.clear();
       };
     }
   };
@@ -466,7 +607,8 @@ const getMedicoesByUser = async (userId) => {
 const uniqueAuditoria = (items = []) => {
   const map = new Map();
   items.forEach((item) => {
-    const key = item.auditoria_id || item.id || crypto.randomUUID();
+    const key = item.auditoria_id || item.audit_id || item.id;
+    if (!key) return;
     if (!map.has(key)) map.set(key, item);
   });
   return Array.from(map.values());
@@ -475,17 +617,32 @@ const uniqueAuditoria = (items = []) => {
 const dedupeAuditoria = uniqueAuditoria;
 
 const getAllAuditoria = async () => {
-  const auditoria = await getAllFromStore(STORE_AUDITORIA).catch(() => []);
-  const auditLog = await getAllFromStore(STORE_AUDIT_LOG).catch(() => []);
-  return uniqueAuditoria([...(auditLog || []), ...(auditoria || [])]);
+  const db = await openDB();
+  const store = db.objectStoreNames.contains(STORE_AUDIT_LOG) ? STORE_AUDIT_LOG : STORE_AUDITORIA;
+  const items = await getAllFromStore(store).catch(() => []);
+  return uniqueAuditoria(items || []);
 };
 const saveAuditoria = async (entry) => {
   const db = await openDB();
   const primaryStore = db.objectStoreNames.contains(STORE_AUDIT_LOG) ? STORE_AUDIT_LOG : STORE_AUDITORIA;
   if (!primaryStore) return null;
-  return runTransaction([primaryStore], "readwrite", (transaction) => {
-    transaction.objectStore(primaryStore).put(entry);
-    return entry;
+  const normalized = normalizeAuditRecord(entry);
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([primaryStore], "readwrite");
+    const store = transaction.objectStore(primaryStore);
+    const getRequest = store.get(normalized.auditoria_id);
+    getRequest.onsuccess = () => {
+      if (getRequest.result) {
+        resolve(getRequest.result);
+        return;
+      }
+      const putRequest = store.put(normalized);
+      putRequest.onsuccess = () => resolve(normalized);
+      putRequest.onerror = () => reject(putRequest.error);
+    };
+    getRequest.onerror = () => reject(getRequest.error);
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
   });
 };
 
@@ -494,7 +651,42 @@ const getObraById = (id) => getByKey(STORE_OBRAS, id).then((item) => (item ? nor
 const saveObra = (obra) => putInStore(STORE_OBRAS, prepareObraRecord(obra));
 const deleteObra = (id) => deleteFromStore(STORE_OBRAS, id);
 
-const exportSnapshot = async () => {
+const saveErrorLog = (error) => putInStore(STORE_ERRORS_LOG, normalizeErrorRecord(error));
+const getAllErrors = () => getAllFromStore(STORE_ERRORS_LOG).then((items) => (items || []).map(normalizeErrorRecord));
+const getRecentErrors = async (limit = 30) => {
+  const items = await getAllErrors();
+  return items.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, limit);
+};
+
+const getStoreCounts = async () => {
+  const db = await openDB();
+  const stores = [
+    STORE_EQUIPAMENTOS,
+    STORE_USERS,
+    STORE_VINCULOS,
+    STORE_MEDICOES,
+    STORE_OBRAS,
+    STORE_ANEXOS,
+    STORE_AUDIT_LOG,
+    STORE_ERRORS_LOG,
+    STORE_AUDITORIA
+  ].filter((name) => db.objectStoreNames.contains(name));
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(stores, "readonly");
+    const counts = {};
+    stores.forEach((storeName) => {
+      const request = transaction.objectStore(storeName).count();
+      request.onsuccess = () => {
+        counts[storeName] = request.result || 0;
+      };
+    });
+    transaction.oncomplete = () => resolve(counts);
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+};
+
+const exportSnapshot = async ({ appVersion = "" } = {}) => {
   const [equipamentos, usuarios, vinculos, medicoes, auditoria] = await Promise.all([
     getAllEquipamentos(),
     getAllUsers(),
@@ -504,44 +696,107 @@ const exportSnapshot = async () => {
   ]);
   const obras = await getAllObras();
   return {
-    version: 4,
-    generatedAt: new Date().toISOString(),
+    export_version: EXPORT_VERSION,
+    schema_version: DB_VERSION,
+    created_at: new Date().toISOString(),
+    app_version: appVersion || "",
     equipamentos,
     users: usuarios,
     usuarios,
     vinculos,
     medicoes,
     obras,
-    auditoria,
     audit_log: auditoria
   };
 };
 
-const importSnapshot = async (payload) => runTransaction(
-  [STORE_EQUIPAMENTOS, STORE_USERS, STORE_VINCULOS, STORE_MEDICOES, STORE_OBRAS, STORE_AUDITORIA, STORE_AUDIT_LOG],
-  "readwrite",
-  (transaction) => {
-    const equipStore = transaction.objectStore(STORE_EQUIPAMENTOS);
-    const userStore = transaction.objectStore(STORE_USERS);
-    const vincStore = transaction.objectStore(STORE_VINCULOS);
-    const medStore = transaction.objectStore(STORE_MEDICOES);
-    const obraStore = transaction.objectStore(STORE_OBRAS);
-    const hasAuditLog = transaction.objectStoreNames.contains(STORE_AUDIT_LOG);
-    const auditStore = transaction.objectStore(hasAuditLog ? STORE_AUDIT_LOG : STORE_AUDITORIA);
-    (payload.equipamentos || []).forEach((item) => equipStore.put(prepareEquipamentoRecord(item)));
-    (payload.users || payload.usuarios || []).forEach((item) => userStore.put(prepareUserRecord(item)));
-    (payload.vinculos || []).forEach((item) => vincStore.put(prepareVinculoRecord(item)));
-    (payload.medicoes || []).forEach((item) => medStore.put(prepareMedicaoRecord(item)));
-    (payload.obras || []).forEach((item) => obraStore.put(prepareObraRecord(item)));
-    (payload.audit_log || payload.auditoria || []).forEach((item) => {
-      auditStore.put(item);
+const normalizeImportPayload = (payload = {}) => {
+  const schemaVersion = Number(payload.schema_version || payload.version || 1);
+  return {
+    schema_version: Number.isFinite(schemaVersion) ? schemaVersion : 1,
+    equipamentos: payload.equipamentos || [],
+    users: payload.users || payload.usuarios || [],
+    vinculos: payload.vinculos || [],
+    medicoes: payload.medicoes || [],
+    obras: payload.obras || [],
+    audit_log: payload.audit_log || payload.auditoria || []
+  };
+};
+
+const buildImportPreview = async (payload) => {
+  const normalized = normalizeImportPayload(payload);
+  const [
+    equipamentos,
+    usuarios,
+    vinculos,
+    medicoes,
+    obras,
+    auditoria
+  ] = await Promise.all([
+    getAllEquipamentos(),
+    getAllUsers(),
+    getAllVinculos(),
+    getAllMedicoes(),
+    getAllObras(),
+    getAllAuditoria()
+  ]);
+  const countById = (existing, incoming, resolver) => {
+    const existingMap = new Map(existing.map((item) => [resolver(item), item]));
+    const seen = new Set();
+    let created = 0;
+    let updated = 0;
+    incoming.forEach((item) => {
+      const key = resolver(item);
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      if (existingMap.has(key)) updated += 1;
+      else created += 1;
     });
+    return { created, updated, ignored: incoming.length - created - updated };
+  };
+  return {
+    schema_version: normalized.schema_version,
+    equipamentos: countById(equipamentos, normalized.equipamentos, (item) => item.id),
+    users: countById(usuarios, normalized.users, (item) => item.id || item.user_id),
+    vinculos: countById(vinculos, normalized.vinculos, (item) => item.id || item.vinculo_id),
+    medicoes: countById(medicoes, normalized.medicoes, (item) => item.id || item.medicao_id),
+    obras: countById(obras, normalized.obras, (item) => item.id || item.idObra),
+    audit_log: countById(auditoria, normalized.audit_log, (item) => item.auditoria_id || item.audit_id)
+  };
+};
+
+const importSnapshot = async (payload) => {
+  const normalized = normalizeImportPayload(payload);
+  if (normalized.schema_version > DB_VERSION) {
+    throw new Error("Versão do schema não suportada.");
   }
-);
+  return runTransaction(
+    [STORE_EQUIPAMENTOS, STORE_USERS, STORE_VINCULOS, STORE_MEDICOES, STORE_OBRAS, STORE_AUDIT_LOG, STORE_AUDITORIA],
+    "readwrite",
+    (transaction) => {
+      const equipStore = transaction.objectStore(STORE_EQUIPAMENTOS);
+      const userStore = transaction.objectStore(STORE_USERS);
+      const vincStore = transaction.objectStore(STORE_VINCULOS);
+      const medStore = transaction.objectStore(STORE_MEDICOES);
+      const obraStore = transaction.objectStore(STORE_OBRAS);
+      const auditStore = transaction.objectStore(
+        transaction.objectStoreNames.contains(STORE_AUDIT_LOG) ? STORE_AUDIT_LOG : STORE_AUDITORIA
+      );
+      normalized.equipamentos.forEach((item) => equipStore.put(prepareEquipamentoRecord(item)));
+      normalized.users.forEach((item) => userStore.put(prepareUserRecord(item)));
+      normalized.vinculos.forEach((item) => vincStore.put(prepareVinculoRecord(item)));
+      normalized.medicoes.forEach((item) => medStore.put(prepareMedicaoRecord(item)));
+      normalized.obras.forEach((item) => obraStore.put(prepareObraRecord(item)));
+      uniqueAuditoria(normalized.audit_log.map(normalizeAuditRecord)).forEach((item) => {
+        auditStore.put(item);
+      });
+    }
+  );
+};
 
 const clearAllStores = async () => {
   const db = await openDB();
-  const stores = [STORE_EQUIPAMENTOS, STORE_USERS, STORE_VINCULOS, STORE_MEDICOES, STORE_OBRAS, STORE_ANEXOS, STORE_AUDITORIA, STORE_AUDIT_LOG]
+  const stores = [STORE_EQUIPAMENTOS, STORE_USERS, STORE_VINCULOS, STORE_MEDICOES, STORE_OBRAS, STORE_ANEXOS, STORE_AUDITORIA, STORE_AUDIT_LOG, STORE_ERRORS_LOG]
     .filter((name) => db.objectStoreNames.contains(name));
   if (db.objectStoreNames.contains(STORE_USUARIOS)) stores.push(STORE_USUARIOS);
   return new Promise((resolve, reject) => {
@@ -556,6 +811,8 @@ const clearAllStores = async () => {
 };
 
 export {
+  DB_VERSION,
+  EXPORT_VERSION,
   getAllEquipamentos,
   getEquipamentoById,
   saveEquipamento,
@@ -588,7 +845,13 @@ export {
   getObraById,
   saveObra,
   deleteObra,
+  saveErrorLog,
+  getAllErrors,
+  getRecentErrors,
+  getStoreCounts,
   exportSnapshot,
   importSnapshot,
+  normalizeImportPayload,
+  buildImportPreview,
   clearAllStores
 };

@@ -304,6 +304,7 @@
                 <label><input type="radio" name="importMode" value="merge" checked /> Mesclar</label>
                 <label><input type="radio" name="importMode" value="replace" /> Substituir tudo</label>
               </div>
+              <p class="muted import-preview" id="importPreview">Prévia: aguarde o arquivo JSON.</p>
               <button class="btn secondary" id="importBackup" type="button">Importar JSON</button>
             </div>
             <div class="subpanel">
@@ -339,6 +340,20 @@
               <h3>Resetar dados locais</h3>
               <p class="muted">Remove todo o conteúdo salvo no IndexedDB.</p>
               <button class="btn danger" id="resetData" type="button">Resetar IndexedDB</button>
+            </div>
+            <div class="subpanel" id="diagnosticoPanel" hidden>
+              <h3>Diagnóstico (ADMIN)</h3>
+              <p class="muted">Versão do app, versão do DB e últimos erros capturados localmente.</p>
+              <div class="diagnostic-meta" id="diagnosticoVersion">App - • DB -</div>
+              <div class="diagnostic-section">
+                <h4>Contagem por store</h4>
+                <ul id="diagnosticoCounts" class="diagnostic-list"></ul>
+              </div>
+              <div class="diagnostic-section">
+                <h4>Últimos erros (30)</h4>
+                <ul id="diagnosticoErrors" class="diagnostic-list"></ul>
+              </div>
+              <button class="btn secondary" id="diagnosticoExport" type="button">Exportar diagnóstico (JSON)</button>
             </div>
           </div>
         </section>
