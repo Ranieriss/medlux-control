@@ -18,6 +18,9 @@ Sistema offline-first para gestão de equipamentos MEDLUX, usuários, vínculos 
 - Primeiro acesso (ADMIN padrão):
   - **Usuário:** `ADMIN`
   - **PIN:** `1234`
+- Regras de acesso:
+  - **ADMIN** pode acessar **MEDLUX Control** e **MEDLUX Reflective Control**.
+  - **OPERADOR** acessa apenas **MEDLUX Reflective Control** e é redirecionado se tentar abrir o Control.
 
 ### Criar operador e vínculo
 
