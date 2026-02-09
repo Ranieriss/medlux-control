@@ -451,6 +451,38 @@ input:focus, select:focus, textarea:focus{
   font-size: 13px;
 }
 
+.preview-card{
+  display:grid;
+  gap:10px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px dashed rgba(255,255,255,.12);
+  background: rgba(7,10,18,.55);
+  font-size: 13px;
+}
+
+.preview-header{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+
+.preview-table{
+  font-size: 12px;
+}
+
+.preview-errors,
+.preview-warnings{
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(12,19,40,.6);
+}
+
+.warning-text{
+  color: #ffe4a3;
+  font-size: 13px;
+}
+
 footer{
   padding: 12px 18px 18px;
   color: rgba(255,255,255,.55);

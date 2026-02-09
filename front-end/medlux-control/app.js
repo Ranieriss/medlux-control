@@ -37,10 +37,15 @@ const importFile = document.getElementById("importFile");
 const importBackup = document.getElementById("importBackup");
 const importCsvFile = document.getElementById("importCsvFile");
 const importCsv = document.getElementById("importCsv");
+const importXlsxFile = document.getElementById("importXlsxFile");
+const previewXlsx = document.getElementById("previewXlsx");
+const importXlsx = document.getElementById("importXlsx");
+const xlsxPreview = document.getElementById("xlsxPreview");
 const importFeedback = document.getElementById("importFeedback");
 const resetData = document.getElementById("resetData");
 const bulkPaste = document.getElementById("bulkPaste");
 const importBulk = document.getElementById("importBulk");
+const generateAuditPdf = document.getElementById("generateAuditPdf");
 const statusMessage = document.getElementById("statusMessage");
 const syncStatus = document.getElementById("syncStatus");
 const sortButtons = document.querySelectorAll("[data-sort]");
@@ -205,6 +210,8 @@ const normalizeEquipamento = (data) => {
       : data.local
         ? normalizeText(data.local)
         : "",
+    fabricante: data.fabricante ? normalizeText(data.fabricante) : "",
+    certificado: data.certificado ? normalizeText(data.certificado) : "",
     observacoes: data.observacoes ? normalizeText(data.observacoes) : ""
   };
 };
@@ -751,9 +758,14 @@ const mapRowsToEntries = (headers, rows) => {
     ultimacalibracao: "dataCalibracao",
     local: "responsavelAtual",
     responsavel: "responsavelAtual",
+    fabricante: "fabricante",
     "2modelo": "modelo",
     segundomodelo: "modelo",
-    modelo: "modelo"
+    modelo: "modelo",
+    certificado: "certificado",
+    ncertificado: "certificado",
+    nocertificado: "certificado",
+    numerocertificado: "certificado"
   };
 
   return effectiveRows.map((values) => {
@@ -778,6 +790,8 @@ const normalizeImportRows = (rows, errors) => rows
       dataAquisicao: row.dataAquisicao,
       dataCalibracao: row.dataCalibracao,
       responsavelAtual: normalizeText(row.responsavelAtual),
+      fabricante: normalizeText(row.fabricante),
+      certificado: normalizeText(row.certificado),
       status: normalizeStatus(row.status)
     };
 
@@ -796,6 +810,448 @@ const normalizeImportRows = (rows, errors) => rows
     return normalizedItem;
   })
   .filter(Boolean);
+
+const getArrayBuffer = (file) => {
+  if (file.arrayBuffer) {
+    return file.arrayBuffer();
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsArrayBuffer(file);
+  });
+};
+
+const parseExcelDateValue = (value) => {
+  if (value === null || value === undefined || value === "") return { value: "", error: "" };
+  if (value instanceof Date) {
+    const iso = toISODate(value);
+    return iso ? { value: iso, error: "" } : { value: "", error: "Data inválida" };
+  }
+  if (typeof value === "number" && Number.isFinite(value) && window.XLSX?.SSF?.parse_date_code) {
+    const parsed = window.XLSX.SSF.parse_date_code(value);
+    if (parsed) {
+      const date = new Date(Date.UTC(parsed.y, parsed.m - 1, parsed.d));
+      const iso = toISODate(date);
+      return iso ? { value: iso, error: "" } : { value: "", error: "Data inválida" };
+    }
+    return { value: "", error: "Data inválida" };
+  }
+  return parseDateString(value);
+};
+
+const EXCEL_HEADER_MAP = {
+  identificacao: "id",
+  id: "id",
+  funcao: "tipo",
+  funcaoequipamento: "tipo",
+  tipo: "tipo",
+  "2modelo": "modelo",
+  "2omodelo": "modelo",
+  segundomodelo: "modelo",
+  modelo: "modelo",
+  numerodeserie: "numeroSerie",
+  numeroserie: "numeroSerie",
+  ndeserie: "numeroSerie",
+  nserie: "numeroSerie",
+  datadeaquisicao: "dataAquisicao",
+  dataaquisicao: "dataAquisicao",
+  datadecalibracao: "dataCalibracao",
+  datacalibracao: "dataCalibracao",
+  dataultimacalibracao: "dataCalibracao",
+  ultimacalibracao: "dataCalibracao",
+  fabricante: "fabricante",
+  local: "responsavelAtual",
+  responsavelatual: "responsavelAtual",
+  responsavel: "responsavelAtual",
+  certificado: "certificado",
+  ncertificado: "certificado",
+  nocertificado: "certificado",
+  numerocertificado: "certificado"
+};
+
+const mapExcelRows = (rows) => {
+  const headers = (rows[0] || []).map((header) => normalizeHeader(header));
+  const mappedRows = rows
+    .slice(1)
+    .filter((row) => row.some((cell) => normalizeText(cell)))
+    .map((row) => {
+      const entry = {};
+      row.forEach((cell, index) => {
+        const field = EXCEL_HEADER_MAP[headers[index]];
+        if (!field) return;
+        entry[field] = cell;
+      });
+      return entry;
+    });
+  return { headers, mappedRows };
+};
+
+const normalizeExcelRows = (rows, warnings, errors) => rows
+  .map((row, index) => {
+    const aq = parseExcelDateValue(row.dataAquisicao);
+    const cal = parseExcelDateValue(row.dataCalibracao);
+    if (aq.error) warnings.push(`Linha ${index + 1}: Data de aquisição inválida.`);
+    if (cal.error) warnings.push(`Linha ${index + 1}: Data de calibração inválida.`);
+    const normalizedItem = normalizeEquipamento({
+      id: normalizeId(row.id),
+      tipo: normalizeTipo(row.tipo),
+      modelo: normalizeText(row.modelo),
+      numeroSerie: normalizeText(row.numeroSerie),
+      dataAquisicao: aq.value,
+      dataCalibracao: cal.value,
+      dataUltimaCalibracao: cal.value,
+      responsavelAtual: normalizeText(row.responsavelAtual),
+      fabricante: normalizeText(row.fabricante),
+      certificado: normalizeText(row.certificado)
+    });
+
+    if (!validateImportItem(normalizedItem, index, errors)) return null;
+    return normalizedItem;
+  })
+  .filter(Boolean);
+
+const renderXlsxPreview = (state) => {
+  xlsxPreview.textContent = "";
+  importXlsx.disabled = true;
+  if (!state) return;
+
+  const header = document.createElement("div");
+  header.className = "preview-header";
+  const title = document.createElement("strong");
+  title.textContent = `Pré-visualização: ${state.fileName}`;
+  const summary = document.createElement("span");
+  summary.className = "muted";
+  summary.textContent = `Linhas válidas: ${state.validRows.length} de ${state.totalRows}`;
+  header.append(title, summary);
+  xlsxPreview.appendChild(header);
+
+  if (state.duplicates.length) {
+    const dup = document.createElement("p");
+    dup.className = "warning-text";
+    dup.textContent = `Encontramos ${state.duplicates.length} ID(s) já cadastrados. Escolha mesclar ou substituir tudo.`;
+    xlsxPreview.appendChild(dup);
+  }
+
+  if (state.errors.length) {
+    const errorBlock = document.createElement("div");
+    errorBlock.className = "preview-errors";
+    const errorTitle = document.createElement("p");
+    errorTitle.textContent = "Campos obrigatórios ausentes:";
+    const errorList = document.createElement("ul");
+    errorList.className = "list";
+    state.errors.slice(0, 6).forEach((error) => {
+      const item = document.createElement("li");
+      item.textContent = error;
+      errorList.appendChild(item);
+    });
+    errorBlock.append(errorTitle, errorList);
+    xlsxPreview.appendChild(errorBlock);
+  }
+
+  if (state.warnings.length) {
+    const warnBlock = document.createElement("div");
+    warnBlock.className = "preview-warnings";
+    const warnTitle = document.createElement("p");
+    warnTitle.textContent = "Avisos de datas ou colunas:";
+    const warnList = document.createElement("ul");
+    warnList.className = "list";
+    state.warnings.slice(0, 6).forEach((warning) => {
+      const item = document.createElement("li");
+      item.textContent = warning;
+      warnList.appendChild(item);
+    });
+    warnBlock.append(warnTitle, warnList);
+    xlsxPreview.appendChild(warnBlock);
+  }
+
+  const previewTable = document.createElement("table");
+  previewTable.className = "table preview-table";
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  const headers = [
+    "Identificação",
+    "Tipo",
+    "Modelo",
+    "Nº Série",
+    "Fabricante",
+    "Responsável",
+    "Últ. calibração",
+    "Vencimento",
+    "Certificado"
+  ];
+  headers.forEach((label) => {
+    const th = document.createElement("th");
+    th.textContent = label;
+    headRow.appendChild(th);
+  });
+  thead.appendChild(headRow);
+  previewTable.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  state.validRows.slice(0, 5).forEach((item) => {
+    const row = document.createElement("tr");
+    const vencimento = getVencimento(item);
+    const cells = [
+      item.id,
+      item.tipo,
+      item.modelo,
+      item.numeroSerie,
+      item.fabricante || "-",
+      item.responsavelAtual || "-",
+      formatDate(item.dataCalibracao),
+      formatDate(vencimento),
+      item.certificado || "-"
+    ];
+    cells.forEach((value) => {
+      const cell = document.createElement("td");
+      cell.textContent = value || "-";
+      row.appendChild(cell);
+    });
+    tbody.appendChild(row);
+  });
+  previewTable.appendChild(tbody);
+  xlsxPreview.appendChild(previewTable);
+
+  importXlsx.disabled = state.validRows.length === 0;
+};
+
+const handlePreviewXlsx = async () => {
+  if (!importXlsxFile.files.length) {
+    setStatusMessage("Selecione um arquivo Excel (.xlsx) para importar.");
+    return;
+  }
+  if (!window.XLSX) {
+    setStatusMessage("Biblioteca XLSX não carregada.");
+    return;
+  }
+  const file = importXlsxFile.files[0];
+  try {
+    const buffer = await getArrayBuffer(file);
+    const workbook = window.XLSX.read(buffer, { type: "array", cellDates: true });
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const rows = window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+    if (!rows.length) {
+      setStatusMessage("Planilha vazia.");
+      return;
+    }
+
+    const { headers, mappedRows } = mapExcelRows(rows);
+    const warnings = [];
+    const errors = [];
+    if (!headers.some((header) => EXCEL_HEADER_MAP[header] === "id")) {
+      warnings.push("Coluna de Identificação não encontrada.");
+    }
+    if (!headers.some((header) => EXCEL_HEADER_MAP[header] === "tipo")) {
+      warnings.push("Coluna de Função/Tipo não encontrada.");
+    }
+
+    const normalized = normalizeExcelRows(mappedRows, warnings, errors);
+    const duplicates = normalized.filter((item) => equipamentos.some((existing) => existing.id === item.id));
+    xlsxState = {
+      fileName: file.name,
+      totalRows: mappedRows.length,
+      validRows: normalized,
+      warnings,
+      errors,
+      duplicates
+    };
+    renderXlsxPreview(xlsxState);
+    setStatusMessage("Pré-visualização concluída.");
+  } catch (error) {
+    setStatusMessage("Falha ao ler o Excel. Verifique o arquivo.");
+  }
+};
+
+const mergeEquipamento = (existing, incoming) => {
+  const merged = { ...existing };
+  Object.entries(incoming).forEach(([key, value]) => {
+    if (value !== "" && value !== null && value !== undefined) {
+      merged[key] = value;
+    }
+  });
+  return merged;
+};
+
+const handleImportXlsx = async () => {
+  if (!xlsxState || !xlsxState.validRows.length) {
+    setStatusMessage("Pré-visualize o Excel antes de importar.");
+    return;
+  }
+  const mode = document.querySelector("input[name='importXlsxMode']:checked")?.value || "merge";
+  if (mode === "replace") {
+    const confirmed = window.confirm("Substituir todos os dados atuais?");
+    if (!confirmed) return;
+    await clearEquipamentos();
+  }
+
+  const existingMap = new Map(equipamentos.map((item) => [item.id, item]));
+  const payload = xlsxState.validRows.map((item) => {
+    if (mode === "merge" && existingMap.has(item.id)) {
+      return mergeEquipamento(existingMap.get(item.id), item);
+    }
+    return item;
+  });
+
+  await bulkSaveEquipamentos(payload);
+  await loadEquipamentos();
+  setStatusMessage("Excel importado com sucesso.");
+  importXlsxFile.value = "";
+  xlsxState = null;
+  renderXlsxPreview(null);
+};
+
+const formatDateTime = (date) => {
+  const locale = new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short"
+  });
+  return locale.format(date);
+};
+
+const buildAuditSummary = () => {
+  const summary = {
+    total: equipamentos.length,
+    ativos: 0,
+    aVencer: 0,
+    vencidos: 0,
+    cautela: 0,
+    calibracao: 0,
+    manutencao: 0
+  };
+
+  equipamentos.forEach((equipamento) => {
+    const status = computeStatus(equipamento);
+    const vencimento = getVencimento(equipamento);
+    const days = daysUntil(vencimento);
+    if (status === "VENCIDO") summary.vencidos += 1;
+    if (status === "EM_CAUTELA") summary.cautela += 1;
+    if (status === "EM_CALIBRACAO") summary.calibracao += 1;
+    if (status === "MANUTENCAO") summary.manutencao += 1;
+    if (status === "ATIVO") summary.ativos += 1;
+    if (days !== null && days >= 0 && days <= DUE_SOON_DAYS) summary.aVencer += 1;
+  });
+
+  return summary;
+};
+
+const sortForAudit = (items) => {
+  const sorted = [...items];
+  sorted.sort((a, b) => {
+    const aStatus = computeStatus(a);
+    const bStatus = computeStatus(b);
+    const aVencimento = getVencimento(a);
+    const bVencimento = getVencimento(b);
+    const aDays = daysUntil(aVencimento);
+    const bDays = daysUntil(bVencimento);
+    const aGroup = aStatus === "VENCIDO" ? 0 : (aDays !== null && aDays <= DUE_SOON_DAYS ? 1 : 2);
+    const bGroup = bStatus === "VENCIDO" ? 0 : (bDays !== null && bDays <= DUE_SOON_DAYS ? 1 : 2);
+    if (aGroup !== bGroup) return aGroup - bGroup;
+    const aValue = aDays === null ? Number.POSITIVE_INFINITY : aDays;
+    const bValue = bDays === null ? Number.POSITIVE_INFINITY : bDays;
+    if (aValue !== bValue) return aValue - bValue;
+    return a.id.localeCompare(b.id);
+  });
+  return sorted;
+};
+
+const handleGenerateAuditPdf = () => {
+  if (!window.jspdf?.jsPDF) {
+    setStatusMessage("Biblioteca jsPDF não carregada.");
+    return;
+  }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+  const totalPagesLabel = "{total_pages_count_string}";
+  const createdAt = new Date();
+  const appVersion = document.querySelector("meta[name='app-version']")?.content || "";
+
+  doc.setFontSize(16);
+  doc.text("RELATÓRIO DE AUDITORIA - MEDLUX CONTROL", 40, 50);
+  doc.setFontSize(11);
+  doc.text(`Gerado em: ${formatDateTime(createdAt)}`, 40, 70);
+  if (appVersion) {
+    doc.text(`Versão: ${appVersion}`, 40, 88);
+  }
+
+  const summary = buildAuditSummary();
+  const summaryLines = [
+    `Total: ${summary.total}`,
+    `ATIVO: ${summary.ativos}`,
+    `A VENCER (<=${DUE_SOON_DAYS} dias): ${summary.aVencer}`,
+    `VENCIDO: ${summary.vencidos}`,
+    `EM CAUTELA: ${summary.cautela}`,
+    `EM CALIBRAÇÃO: ${summary.calibracao}`,
+    `MANUTENÇÃO: ${summary.manutencao}`
+  ];
+  let summaryY = appVersion ? 110 : 98;
+  summaryLines.forEach((line, index) => {
+    doc.text(line, 40 + (index % 2) * 260, summaryY + Math.floor(index / 2) * 18);
+  });
+
+  const tableItems = sortForAudit(equipamentos);
+  const bodyRows = tableItems.map((equipamento) => {
+    const vencimento = getVencimento(equipamento);
+    const days = daysUntil(vencimento);
+    const status = computeStatus(equipamento);
+    return [
+      equipamento.id,
+      equipamento.tipo,
+      equipamento.modelo || "-",
+      equipamento.numeroSerie || "-",
+      equipamento.fabricante || "-",
+      equipamento.responsavelAtual || "-",
+      formatDate(equipamento.dataCalibracao),
+      formatDate(vencimento),
+      days === null ? "-" : String(days),
+      STATUS_LABELS[status] || status,
+      equipamento.certificado || "-"
+    ];
+  });
+
+  doc.autoTable({
+    startY: summaryY + 50,
+    head: [[
+      "Identificação",
+      "Tipo",
+      "Modelo",
+      "Nº Série",
+      "Fabricante",
+      "Responsável",
+      "Últ. calibração",
+      "Vencimento",
+      "Dias p/ vencer",
+      "Status final",
+      "Certificado"
+    ]],
+    body: bodyRows,
+    styles: { fontSize: 8, cellPadding: 4 },
+    headStyles: { fillColor: [30, 38, 76] },
+    didDrawPage: (data) => {
+      const pageNumber = doc.internal.getNumberOfPages();
+      doc.setFontSize(9);
+      doc.text(
+        `Página ${pageNumber} de ${totalPagesLabel}`,
+        data.settings.margin.left,
+        doc.internal.pageSize.getHeight() - 20
+      );
+      doc.text(
+        formatDateTime(createdAt),
+        doc.internal.pageSize.getWidth() - data.settings.margin.right - 120,
+        doc.internal.pageSize.getHeight() - 20
+      );
+    }
+  });
+
+  if (typeof doc.putTotalPages === "function") {
+    doc.putTotalPages(totalPagesLabel);
+  }
+
+  doc.save(`medlux-auditoria-${createdAt.toISOString().slice(0, 10)}.pdf`);
+  setStatusMessage("PDF de auditoria gerado.");
+};
 
 const handleImportCSV = async () => {
   if (!importCsvFile.files.length) {
@@ -994,6 +1450,9 @@ let equipamentos = [];
 let currentPage = 1;
 let editingId = null;
 let sortState = { key: "id", direction: "asc" };
+let xlsxState = null;
+
+importXlsx.disabled = true;
 
 form.addEventListener("submit", handleFormSubmit);
 closeModal.addEventListener("click", closeModalHandler);
@@ -1077,6 +1536,10 @@ importBackup.addEventListener("click", handleImportJSON);
 importCsv.addEventListener("click", handleImportCSV);
 importBulk.addEventListener("click", handleImportBulk);
 resetData.addEventListener("click", handleReset);
+previewXlsx.addEventListener("click", handlePreviewXlsx);
+importXlsx.addEventListener("click", handleImportXlsx);
+importXlsxFile.addEventListener("change", handlePreviewXlsx);
+generateAuditPdf.addEventListener("click", handleGenerateAuditPdf);
 
 window.addEventListener("online", updateOnlineStatus);
 window.addEventListener("offline", updateOnlineStatus);

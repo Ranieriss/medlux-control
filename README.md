@@ -8,6 +8,7 @@ Sistema de gerenciamento de equipamentos MEDLUX (controle, calibração, cautela
    - `https://ranieriss.github.io/medlux-control/front-end/index.html`
 2. Clique em **MEDLUX Control** para abrir o módulo principal.
 3. O módulo funciona offline-first e salva os registros no navegador via IndexedDB.
+   - As bibliotecas de Excel/PDF são carregadas via CDN na primeira execução e ficam cacheadas em seguida.
 
 ## Dashboard
 
@@ -18,9 +19,19 @@ Sistema de gerenciamento de equipamentos MEDLUX (controle, calibração, cautela
 
 - **Exportar:** na aba **Auditoria & Backup**, clique em **Exportar JSON** para baixar um arquivo com versão + timestamp.
 - **Importar JSON:** selecione um arquivo JSON e escolha **Mesclar** (merge por ID) ou **Substituir tudo**.
+- **Importar Excel (.xlsx):**
+  - Na aba **Auditoria & Backup**, selecione um arquivo `.xlsx` e clique em **Pré-visualizar Excel**.
+  - O sistema mostra quantas linhas válidas existem, um preview com as primeiras 5 linhas e avisos de datas inválidas.
+  - Em seguida, escolha **Mesclar** (atualiza campos existentes) ou **Substituir tudo** e clique em **Importar Excel (.xlsx)**.
+  - Colunas aceitas (tolerante a variações): Identificação, Função/Tipo, 2º Modelo, Nº de série, Data de aquisição, Data de calibração, Fabricante, Local, Nº certificado.
 - **Importação em lote (colar):** cole conteúdo do Excel (TSV) ou CSV com cabeçalhos padrão na área indicada.
 - **Importar CSV:** use um CSV simples com cabeçalhos similares ao padrão da planilha (exemplo em `front-end/medlux-control/seed.csv`).
 - **Resetar dados locais:** remove todo o conteúdo salvo no IndexedDB.
+
+## Auditoria em PDF
+
+- Na aba **Auditoria & Backup**, clique em **Gerar PDF de Auditoria**.
+- O PDF inclui cabeçalho, resumo de status e tabela completa multi-página ordenada por vencimento.
 
 ## Regras de status (ordem de prioridade)
 
