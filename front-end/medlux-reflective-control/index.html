@@ -43,8 +43,40 @@
                 <input id="medicaoTipo" name="tipo_medicao" placeholder="RL, Qd..." required />
               </div>
               <div class="field">
-                <label for="medicaoQtd">Quantidade de leituras *</label>
-                <input id="medicaoQtd" name="quantidade_leituras" type="number" min="1" max="50" value="10" required />
+                <label for="medicaoObra">Obra *</label>
+                <input id="medicaoObra" name="obra_id" placeholder="OBRA-001" required />
+              </div>
+              <div class="field">
+                <label for="medicaoRelatorio">ID do relatório</label>
+                <input id="medicaoRelatorio" name="relatorio_id" placeholder="REL-2024-001" />
+              </div>
+              <div class="field">
+                <label for="medicaoRodovia">Rodovia</label>
+                <input id="medicaoRodovia" name="rodovia" placeholder="BR-116" />
+              </div>
+              <div class="field">
+                <label for="medicaoKm">KM</label>
+                <input id="medicaoKm" name="km" />
+              </div>
+              <div class="field">
+                <label for="medicaoCidade">Cidade/UF</label>
+                <input id="medicaoCidade" name="cidadeUF" placeholder="São Paulo-SP" />
+              </div>
+              <div class="field">
+                <label for="medicaoEndereco">Endereço/Localidade</label>
+                <input id="medicaoEndereco" name="enderecoTexto" placeholder="Pista Norte, acesso km 120" />
+              </div>
+              <div class="field">
+                <label for="medicaoSentido">Sentido</label>
+                <input id="medicaoSentido" name="sentido" />
+              </div>
+              <div class="field">
+                <label for="medicaoFaixa">Faixa</label>
+                <input id="medicaoFaixa" name="faixa" />
+              </div>
+              <div class="field">
+                <label for="medicaoClima">Condição climática</label>
+                <input id="medicaoClima" name="clima" placeholder="Céu limpo" />
               </div>
               <div class="field">
                 <label for="medicaoMedia">Média</label>
@@ -52,7 +84,52 @@
               </div>
               <div class="field field-full">
                 <label>Leituras *</label>
+                <div class="reading-toolbar">
+                  <button class="btn secondary small" id="addLeitura" type="button">+ Leitura</button>
+                  <button class="btn secondary small" id="applyLeituraList" type="button">Aplicar lista colada</button>
+                </div>
+                <textarea id="leiturasPaste" rows="2" placeholder="Cole valores separados por ; ou linha"></textarea>
                 <div class="reading-list" id="leiturasList"></div>
+              </div>
+              <div class="field field-full">
+                <label>GPS (automático ou manual)</label>
+                <div class="gps-actions">
+                  <button class="btn secondary" id="captureGps" type="button">Capturar GPS automaticamente</button>
+                  <span class="muted" id="gpsStatus">Sem captura.</span>
+                </div>
+                <div class="gps-grid">
+                  <div class="field">
+                    <label for="gpsLat">Latitude</label>
+                    <input id="gpsLat" name="gps_lat" type="number" step="0.000001" />
+                  </div>
+                  <div class="field">
+                    <label for="gpsLng">Longitude</label>
+                    <input id="gpsLng" name="gps_lng" type="number" step="0.000001" />
+                  </div>
+                  <div class="field">
+                    <label for="gpsAcc">Precisão (m)</label>
+                    <input id="gpsAcc" name="gps_accuracy" type="number" step="0.1" />
+                  </div>
+                  <div class="field">
+                    <label for="gpsSource">Origem</label>
+                    <input id="gpsSource" name="gps_source" readonly />
+                  </div>
+                </div>
+              </div>
+              <div class="field field-full">
+                <label>Fotos</label>
+                <div class="photo-grid">
+                  <div class="photo-field">
+                    <label for="fotoMedicao">Adicionar foto da medição</label>
+                    <input id="fotoMedicao" name="foto_medicao" type="file" accept="image/*" capture="environment" multiple />
+                    <div class="muted" id="fotoMedicaoInfo">Nenhuma foto selecionada.</div>
+                  </div>
+                  <div class="photo-field">
+                    <label for="fotoLocal">Adicionar foto do local</label>
+                    <input id="fotoLocal" name="foto_local" type="file" accept="image/*" capture="environment" multiple />
+                    <div class="muted" id="fotoLocalInfo">Nenhuma foto selecionada.</div>
+                  </div>
+                </div>
               </div>
               <div class="field field-full">
                 <label for="medicaoObs">Observações</label>
@@ -74,6 +151,7 @@
               <table class="table" aria-label="Tabela de medições">
                 <thead>
                   <tr>
+                    <th>Obra</th>
                     <th>Equipamento</th>
                     <th>Tipo</th>
                     <th>Média</th>
