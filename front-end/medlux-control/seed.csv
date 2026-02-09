@@ -1,5 +1,4 @@
-Identificação,Função,Nº de série,Data de aquisição,Data de calibração,Local,2º Modelo
-RH01,Horizontal,HX-8321,12/01/2022,15/02/2024,Laboratório,MLX-H15
-RV02,Vertical,VX-2210,05/08/2021,01/11/2023,Equipe Norte,MLX-V1
-RT01,Tachas,TX-901,20/03/2020,20/05/2023,Leonardo,MLX-MT
-RH04,Horizontal,HX-4433,11/11/2022,10/01/2024,Laboratório Central,MLX-H15
+Identificação,Função,Geometria,Modelo,Nº de série,Data de aquisição,Calibrado,Nº Certificado,Fabricante,Usuário responsável,Localidade,Data entrega usuário,Status
+MLX-H15-001,Horizontal,15m,MLX-H15,H15001,12/01/2023,Sim,CERT-2023-01,Medlux,ADMIN,São Paulo-SP,12/01/2023,Obra
+MLX-V10-002,Vertical,,MLX-V10,V10002,05/08/2022,Não,,Medlux,,Curitiba-PR,,Stand-by
+MLX-T02-003,Tachas,,MLX-T02,T02003,20/03/2021,Sim,CERT-2021-09,Medlux,ADMIN,Belo Horizonte-MG,21/03/2021,Lab Tintas

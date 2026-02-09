@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="app-version" content="1.0.0" />
+  <title>MEDLUX Reflective Control</title>
+  <link rel="stylesheet" href="../medlux-control/styles.css" />
+  <script type="module" src="./app.js" defer></script>
+</head>
+<body>
+  <main class="wrap">
+    <section class="card">
+      <header>
+        <div class="brand">
+          <h1><span class="dot"></span>MEDLUX Reflective Control</h1>
+          <p>Registro de medições de retrorrefletância para equipamentos vinculados.</p>
+        </div>
+        <div class="badge" id="syncStatus">Offline pronto • IndexedDB</div>
+      </header>
+
+      <div class="content">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Medições</h2>
+              <p>Selecione um equipamento vinculado para registrar uma medição.</p>
+            </div>
+            <a class="back" href="../index.html">Voltar para a home</a>
+          </div>
+
+          <form id="medicaoForm" class="card-form">
+            <div class="form-grid">
+              <div class="field">
+                <label for="medicaoEquip">Equipamento *</label>
+                <select id="medicaoEquip" name="equip_id" required></select>
+              </div>
+              <div class="field">
+                <label for="medicaoTipo">Tipo de medição *</label>
+                <input id="medicaoTipo" name="tipo_medicao" placeholder="RL, Qd..." required />
+              </div>
+              <div class="field">
+                <label for="medicaoValor">Valor *</label>
+                <input id="medicaoValor" name="valor" type="number" step="0.01" required />
+              </div>
+              <div class="field">
+                <label for="medicaoObs">Observações</label>
+                <input id="medicaoObs" name="observacoes" />
+              </div>
+            </div>
+            <div class="modal-actions">
+              <span class="muted" id="medicaoHint">Campos com * são obrigatórios.</span>
+              <div class="action-buttons">
+                <button class="btn" type="submit">Registrar medição</button>
+              </div>
+            </div>
+          </form>
+
+          <div class="subpanel">
+            <h3>Medições recentes</h3>
+            <p class="muted">Histórico do operador logado.</p>
+            <div class="table-wrapper">
+              <table class="table" aria-label="Tabela de medições">
+                <thead>
+                  <tr>
+                    <th>Equipamento</th>
+                    <th>Tipo</th>
+                    <th>Valor</th>
+                    <th>Data/Hora</th>
+                  </tr>
+                </thead>
+                <tbody id="medicoesBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <footer class="footer">
+        <span id="statusMessage">Sem pendências.</span>
+        <span>•</span>
+        <span>Base path GitHub Pages: /medlux-control/</span>
+      </footer>
+    </section>
+  </main>
+
+  <div class="modal" id="loginModal" aria-hidden="true" role="dialog" aria-labelledby="loginTitle">
+    <div class="modal-card">
+      <header class="modal-head">
+        <div>
+          <h2 id="loginTitle">Login local</h2>
+          <p class="muted">Somente operadores vinculados podem registrar medições.</p>
+        </div>
+      </header>
+      <form id="loginForm" class="modal-body">
+        <div class="form-grid">
+          <div class="field">
+            <label for="loginId">ID *</label>
+            <input id="loginId" name="user_id" required />
+          </div>
+          <div class="field">
+            <label for="loginPin">PIN *</label>
+            <input id="loginPin" name="pin" type="password" inputmode="numeric" required />
+          </div>
+        </div>
+        <div class="modal-actions">
+          <span class="muted" id="loginHint">Use suas credenciais locais.</span>
+          <div class="action-buttons">
+            <button class="btn" type="submit">Entrar</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+</body>
+</html>
