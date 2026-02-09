@@ -463,23 +463,27 @@ const getMedicoesByUser = async (userId) => {
   return items.filter((item) => item.user_id === userId);
 };
 
+const dedupeAuditoria = (items = []) => {
+  const map = new Map();
+  items.forEach((item) => {
+    const key = item.auditoria_id || item.id || crypto.randomUUID();
+    if (!map.has(key)) map.set(key, item);
+  });
+  return Array.from(map.values());
+};
+
 const getAllAuditoria = async () => {
   const auditoria = await getAllFromStore(STORE_AUDITORIA).catch(() => []);
   const auditLog = await getAllFromStore(STORE_AUDIT_LOG).catch(() => []);
-  return [...(auditoria || []), ...(auditLog || [])];
+  return dedupeAuditoria([...(auditLog || []), ...(auditoria || [])]);
 };
 const saveAuditoria = async (entry) => {
   const db = await openDB();
-  const stores = [STORE_AUDITORIA, STORE_AUDIT_LOG].filter((name) => db.objectStoreNames.contains(name));
-  if (!stores.length) return null;
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction(stores, "readwrite");
-    stores.forEach((storeName) => {
-      transaction.objectStore(storeName).put(entry);
-    });
-    transaction.oncomplete = () => resolve(entry);
-    transaction.onerror = () => reject(transaction.error);
-    transaction.onabort = () => reject(transaction.error);
+  const primaryStore = db.objectStoreNames.contains(STORE_AUDIT_LOG) ? STORE_AUDIT_LOG : STORE_AUDITORIA;
+  if (!primaryStore) return null;
+  return runTransaction([primaryStore], "readwrite", (transaction) => {
+    transaction.objectStore(primaryStore).put(entry);
+    return entry;
   });
 };
 
@@ -506,7 +510,8 @@ const exportSnapshot = async () => {
     vinculos,
     medicoes,
     obras,
-    auditoria
+    auditoria,
+    audit_log: auditoria
   };
 };
 
@@ -519,16 +524,15 @@ const importSnapshot = async (payload) => runTransaction(
     const vincStore = transaction.objectStore(STORE_VINCULOS);
     const medStore = transaction.objectStore(STORE_MEDICOES);
     const obraStore = transaction.objectStore(STORE_OBRAS);
-    const auditStore = transaction.objectStore(STORE_AUDITORIA);
-    const auditLogStore = transaction.objectStore(STORE_AUDIT_LOG);
+    const hasAuditLog = transaction.objectStoreNames.contains(STORE_AUDIT_LOG);
+    const auditStore = transaction.objectStore(hasAuditLog ? STORE_AUDIT_LOG : STORE_AUDITORIA);
     (payload.equipamentos || []).forEach((item) => equipStore.put(prepareEquipamentoRecord(item)));
     (payload.users || payload.usuarios || []).forEach((item) => userStore.put(prepareUserRecord(item)));
     (payload.vinculos || []).forEach((item) => vincStore.put(prepareVinculoRecord(item)));
     (payload.medicoes || []).forEach((item) => medStore.put(prepareMedicaoRecord(item)));
     (payload.obras || []).forEach((item) => obraStore.put(prepareObraRecord(item)));
-    (payload.auditoria || payload.audit_log || []).forEach((item) => {
+    (payload.audit_log || payload.auditoria || []).forEach((item) => {
       auditStore.put(item);
-      auditLogStore.put(item);
     });
   }
 );

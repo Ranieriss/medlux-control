@@ -20,7 +20,7 @@ import {
   clearAllStores,
   saveAuditoria
 } from "./db.js";
-import { ensureDefaultAdmin, authenticate, updatePin, createUserWithPin, logout, requireAuth } from "../shared/auth.js";
+import { ensureDefaultAdmin, authenticate, updatePin, createUserWithPin, logout, requireAuth, getSession } from "../shared/auth.js";
 
 const tabs = document.querySelectorAll(".tab");
 const panels = document.querySelectorAll("[data-panel]");
@@ -239,7 +239,7 @@ let currentPage = 1;
 
 const ensureLogin = async () => {
   await ensureDefaultAdmin();
-  const session = requireAuth({
+  const authorized = requireAuth({
     allowRoles: ["ADMIN"],
     onMissing: () => openModal(loginModal),
     onUnauthorized: () => {
@@ -247,8 +247,8 @@ const ensureLogin = async () => {
       window.location.href = "../medlux-reflective-control/index.html";
     }
   });
-  if (!session) return null;
-  activeSession = session;
+  if (!authorized) return null;
+  activeSession = getSession();
   return activeSession;
 };
 
@@ -908,7 +908,7 @@ const handleSeed = async () => {
   await createUserWithPin({
     id: "OP001",
     nome: "Operador Exemplo",
-    role: "USER",
+    role: "OPERADOR",
     status: "ATIVO",
     pin: "4321"
   });
@@ -1297,11 +1297,17 @@ const calculateMedia = (medicao) => {
   }
   const tipo = String(medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao || "").trim().toUpperCase();
   if (tipo === "HORIZONTAL") {
-    if (leituras.length < 3) return null;
+    if (leituras.length < 10) return null;
     const sorted = [...leituras].sort((a, b) => a - b);
-    const trimmed = sorted.length >= 3 ? sorted.slice(1, sorted.length - 1) : sorted;
+    const trimmed = sorted.slice(1, sorted.length - 1);
     if (!trimmed.length) return null;
     return trimmed.reduce((acc, item) => acc + item, 0) / trimmed.length;
+  }
+  if (tipo === "PLACA") {
+    if (leituras.length < 5) return null;
+  }
+  if (tipo === "LEGENDA") {
+    if (leituras.length < 3) return null;
   }
   return leituras.reduce((acc, item) => acc + item, 0) / leituras.length;
 };
