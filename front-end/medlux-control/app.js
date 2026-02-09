@@ -3,16 +3,19 @@ import {
   saveEquipamento,
   deleteEquipamento,
   clearEquipamentos,
-  bulkSaveEquipamentos
+  bulkSaveEquipamentos,
+  exportEquipamentos,
+  importEquipamentos
 } from "./db.js";
 import { seedEquipamentos } from "./seed.js";
 
 const VALIDITY_DAYS = 365;
+const DUE_SOON_DAYS = 30;
 
 const tabs = document.querySelectorAll(".tab");
 const panels = document.querySelectorAll("[data-panel]");
 const statusCards = document.getElementById("statusCards");
-const attentionList = document.getElementById("attentionList");
+const dueSoonList = document.getElementById("dueSoonList");
 const quickSearch = document.getElementById("quickSearch");
 const quickResults = document.getElementById("quickResults");
 const clearSearch = document.getElementById("clearSearch");
@@ -29,12 +32,15 @@ const pageInfo = document.getElementById("pageInfo");
 const newEquipamento = document.getElementById("newEquipamento");
 const seedButton = document.getElementById("seedEquipamentos");
 const exportBackup = document.getElementById("exportBackup");
+const exportCsv = document.getElementById("exportCsv");
 const importFile = document.getElementById("importFile");
 const importBackup = document.getElementById("importBackup");
 const importCsvFile = document.getElementById("importCsvFile");
 const importCsv = document.getElementById("importCsv");
 const importFeedback = document.getElementById("importFeedback");
 const resetData = document.getElementById("resetData");
+const bulkPaste = document.getElementById("bulkPaste");
+const importBulk = document.getElementById("importBulk");
 const statusMessage = document.getElementById("statusMessage");
 const syncStatus = document.getElementById("syncStatus");
 const sortButtons = document.querySelectorAll("[data-sort]");
@@ -56,10 +62,8 @@ const formFields = {
   dataAquisicao: document.getElementById("equipAquisicao"),
   dataCalibracao: document.getElementById("equipCalibracao"),
   dataVencimento: document.getElementById("equipVencimento"),
-  certificado: document.getElementById("equipCertificado"),
-  fabricante: document.getElementById("equipFabricante"),
   responsavelAtual: document.getElementById("equipResponsavel"),
-  situacaoManual: document.getElementById("equipSituacao"),
+  status: document.getElementById("equipStatus"),
   observacoes: document.getElementById("equipObs")
 };
 
@@ -93,16 +97,17 @@ const normalizeTipo = (value) => {
   return "";
 };
 
-const normalizeSituacaoManual = (value) => {
+const normalizeStatus = (value) => {
   const raw = normalizeText(value).toUpperCase();
   const map = {
-    "EM CALIBRAÇÃO": "EM_CALIBRACAO",
+    "EM CAUTELA": "EM_CAUTELA",
     "EM CALIBRACAO": "EM_CALIBRACAO",
-    "MANUTENÇÃO": "MANUTENCAO",
-    "MANUTENCAO": "MANUTENCAO"
+    "EM CALIBRAÇÃO": "EM_CALIBRACAO",
+    "MANUTENCAO": "MANUTENCAO",
+    "MANUTENÇÃO": "MANUTENCAO"
   };
-  if (raw === "EM_CALIBRACAO" || raw === "MANUTENCAO") return raw;
-  if (map[raw]) return map[raw];
+  const normalized = map[raw] || raw;
+  if (STATUS_LABELS[normalized]) return normalized;
   return "ATIVO";
 };
 
@@ -161,28 +166,23 @@ const daysUntil = (dateString) => {
   return Math.ceil(diff / (1000 * 60 * 60 * 24));
 };
 
-const isLaboratorio = (value) => {
-  const normalized = normalizeText(value)
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
-  return normalized.startsWith("laboratorio");
-};
-
 const computeStatus = (equipamento) => {
-  if (equipamento.situacaoManual === "EM_CALIBRACAO") return "EM_CALIBRACAO";
-  if (equipamento.situacaoManual === "MANUTENCAO") return "MANUTENCAO";
-  const vencimento = equipamento.dataCalibracao
-    ? addDays(equipamento.dataCalibracao, VALIDITY_DAYS)
-    : equipamento.dataVencimento;
+  const vencimento = equipamento.dataVencimento || addDays(equipamento.dataCalibracao, VALIDITY_DAYS);
   if (vencimento) {
     const days = daysUntil(vencimento);
     if (days !== null && days < 0) return "VENCIDO";
   }
-  if (equipamento.responsavelAtual && !isLaboratorio(equipamento.responsavelAtual)) {
-    return "EM_CAUTELA";
-  }
-  return "ATIVO";
+  return normalizeStatus(equipamento.status || "ATIVO");
+};
+
+const getVencimento = (equipamento) => (
+  equipamento.dataVencimento || addDays(equipamento.dataCalibracao, VALIDITY_DAYS)
+);
+
+const computeVencimento = (dataCalibracao, fallback) => {
+  if (dataCalibracao) return addDays(dataCalibracao, VALIDITY_DAYS);
+  if (!fallback) return "";
+  return parseDateString(fallback).value;
 };
 
 const normalizeEquipamento = (data) => {
@@ -190,7 +190,7 @@ const normalizeEquipamento = (data) => {
   const tipo = normalizeTipo(data.tipo);
   const dataCalibracaoRaw = data.dataCalibracao || data.dataUltimaCalibracao || "";
   const dataCalibracao = dataCalibracaoRaw ? parseDateString(dataCalibracaoRaw).value : "";
-  const dataVencimento = dataCalibracao ? addDays(dataCalibracao, VALIDITY_DAYS) : "";
+  const dataVencimento = computeVencimento(dataCalibracao, data.dataVencimento || data.dataVencimentoCalibracao);
   return {
     id,
     tipo,
@@ -199,14 +199,12 @@ const normalizeEquipamento = (data) => {
     dataAquisicao: data.dataAquisicao ? parseDateString(data.dataAquisicao).value : "",
     dataCalibracao,
     dataVencimento,
-    certificado: data.certificado ? normalizeText(data.certificado) : "",
-    fabricante: data.fabricante ? normalizeText(data.fabricante) : "",
+    status: normalizeStatus(data.status),
     responsavelAtual: data.responsavelAtual
       ? normalizeText(data.responsavelAtual)
       : data.local
         ? normalizeText(data.local)
         : "",
-    situacaoManual: normalizeSituacaoManual(data.situacaoManual),
     observacoes: data.observacoes ? normalizeText(data.observacoes) : ""
   };
 };
@@ -270,39 +268,31 @@ const renderStatusCards = () => {
   });
 };
 
-const renderAttentionList = () => {
-  attentionList.textContent = "";
-  const attention = equipamentos
+const renderDueSoonList = () => {
+  dueSoonList.textContent = "";
+  const dueSoon = equipamentos
     .map((equipamento) => {
-      const status = computeStatus(equipamento);
-      const vencimento = equipamento.dataVencimento || addDays(equipamento.dataCalibracao, VALIDITY_DAYS);
+      const vencimento = getVencimento(equipamento);
       return {
         equipamento,
-        status,
         days: daysUntil(vencimento)
       };
     })
-    .filter((item) => item.status === "VENCIDO" || item.status === "EM_CAUTELA")
-    .sort((a, b) => {
-      const aValue = a.days === null ? Number.POSITIVE_INFINITY : a.days;
-      const bValue = b.days === null ? Number.POSITIVE_INFINITY : b.days;
-      return aValue - bValue;
-    })
+    .filter((item) => item.days !== null && item.days >= 0 && item.days <= DUE_SOON_DAYS)
+    .sort((a, b) => a.days - b.days)
     .slice(0, 8);
 
-  if (attention.length === 0) {
+  if (dueSoon.length === 0) {
     const empty = document.createElement("li");
-    empty.textContent = "Nenhum equipamento em atenção no momento.";
-    attentionList.appendChild(empty);
+    empty.textContent = "Nenhum equipamento vencendo nos próximos 30 dias.";
+    dueSoonList.appendChild(empty);
     return;
   }
 
-  attention.forEach(({ equipamento, status, days }) => {
+  dueSoon.forEach(({ equipamento, days }) => {
     const item = document.createElement("li");
-    const label = STATUS_LABELS[status] || status;
-    const daysLabel = days === null ? "sem vencimento" : `${days} dia(s)`;
-    item.textContent = `${equipamento.id} • ${equipamento.modelo || "Sem modelo"} • ${label} • ${daysLabel}`;
-    attentionList.appendChild(item);
+    item.textContent = `${equipamento.id} • ${equipamento.modelo || "Sem modelo"} • vence em ${days} dia(s)`;
+    dueSoonList.appendChild(item);
   });
 };
 
@@ -388,7 +378,8 @@ const renderTable = () => {
   pageItems.forEach((equipamento) => {
     const row = document.createElement("tr");
     const statusValue = computeStatus(equipamento);
-    const days = daysUntil(equipamento.dataVencimento);
+    const vencimento = getVencimento(equipamento);
+    const days = daysUntil(vencimento);
 
     const cells = [
       equipamento.id,
@@ -397,7 +388,7 @@ const renderTable = () => {
       equipamento.numeroSerie,
       equipamento.responsavelAtual || "-",
       formatDate(equipamento.dataCalibracao),
-      formatDate(equipamento.dataVencimento),
+      formatDate(vencimento),
       days === null ? "-" : String(days),
       statusValue
     ];
@@ -429,6 +420,12 @@ const renderTable = () => {
     editButton.textContent = "Editar";
     editButton.addEventListener("click", () => openEditModal(equipamento.id));
 
+    const duplicateButton = document.createElement("button");
+    duplicateButton.className = "btn secondary";
+    duplicateButton.type = "button";
+    duplicateButton.textContent = "Duplicar";
+    duplicateButton.addEventListener("click", () => handleDuplicate(equipamento.id));
+
     const deleteButton = document.createElement("button");
     deleteButton.className = "btn danger";
     deleteButton.type = "button";
@@ -437,7 +434,7 @@ const renderTable = () => {
 
     const actions = document.createElement("div");
     actions.className = "toolbar";
-    actions.append(editButton, deleteButton);
+    actions.append(editButton, duplicateButton, deleteButton);
     actionCell.appendChild(actions);
     row.appendChild(actionCell);
 
@@ -451,13 +448,14 @@ const renderTable = () => {
 
 const refreshUI = () => {
   renderStatusCards();
-  renderAttentionList();
+  renderDueSoonList();
   renderQuickResults();
   renderTable();
 };
 
 const loadEquipamentos = async () => {
-  equipamentos = await getAllEquipamentos();
+  const items = await getAllEquipamentos();
+  equipamentos = items.map((item) => normalizeEquipamento(item));
   refreshUI();
 };
 
@@ -495,10 +493,8 @@ const openEditModal = (id) => {
   formFields.dataAquisicao.value = equipamento.dataAquisicao || "";
   formFields.dataCalibracao.value = equipamento.dataCalibracao || "";
   formFields.dataVencimento.value = equipamento.dataVencimento || "";
-  formFields.certificado.value = equipamento.certificado || "";
-  formFields.fabricante.value = equipamento.fabricante || "";
   formFields.responsavelAtual.value = equipamento.responsavelAtual || "";
-  formFields.situacaoManual.value = equipamento.situacaoManual || "ATIVO";
+  formFields.status.value = normalizeStatus(equipamento.status || "ATIVO");
   formFields.observacoes.value = equipamento.observacoes || "";
   formHint.textContent = "Atualize os campos e pressione salvar.";
   deleteModal.classList.remove("hidden");
@@ -519,6 +515,24 @@ const handleDelete = async (id) => {
   await loadEquipamentos();
   setStatusMessage(`Equipamento ${id} removido.`);
   return true;
+};
+
+const handleDuplicate = async (id) => {
+  const equipamento = equipamentos.find((item) => item.id === id);
+  if (!equipamento) return;
+  const newId = normalizeId(window.prompt("Novo ID para a cópia:", ""));
+  if (!newId) return;
+  if (equipamentos.some((item) => item.id === newId)) {
+    setStatusMessage("ID já existe, escolha outro.");
+    return;
+  }
+  const duplicated = {
+    ...equipamento,
+    id: newId
+  };
+  await saveEquipamento(duplicated);
+  await loadEquipamentos();
+  setStatusMessage(`Equipamento ${newId} duplicado.`);
 };
 
 const handleModalDelete = async () => {
@@ -559,7 +573,7 @@ const handleFormSubmit = async (event) => {
     tipo: normalizeTipo(data.tipo),
     dataCalibracao,
     dataVencimento: dataCalibracao ? addDays(dataCalibracao, VALIDITY_DAYS) : "",
-    situacaoManual: normalizeSituacaoManual(data.situacaoManual)
+    status: normalizeStatus(data.status)
   });
 
   await saveEquipamento(equipamento);
@@ -656,17 +670,25 @@ const handleImportJSON = async () => {
     await clearEquipamentos();
   }
 
-  await bulkSaveEquipamentos(normalized);
+  await importEquipamentos(normalized);
   await loadEquipamentos();
   setStatusMessage("Backup importado com sucesso.");
   importFile.value = "";
   buildImportFeedback([]);
 };
 
-const parseCSV = (text) => {
+const detectDelimiter = (line) => {
+  if (line.includes("\t")) return "\t";
+  const semicolons = (line.match(/;/g) || []).length;
+  const commas = (line.match(/,/g) || []).length;
+  return semicolons > commas ? ";" : ",";
+};
+
+const parseDelimited = (text) => {
   const lines = text.split(/\r?\n/).filter((line) => line.trim());
-  if (!lines.length) return [];
-  const delimiter = (lines[0].match(/;/g) || []).length > (lines[0].match(/,/g) || []).length ? ";" : ",";
+  if (!lines.length) return { headers: [], rows: [] };
+  const delimiter = detectDelimiter(lines[0]);
+
   const parseLine = (line) => {
     const result = [];
     let current = "";
@@ -692,34 +714,52 @@ const parseCSV = (text) => {
   };
 
   const headers = parseLine(lines[0]);
+  const rows = lines.slice(1).map(parseLine);
+  return { headers, rows, delimiter };
+};
+
+const mapRowsToEntries = (headers, rows) => {
   const headerMap = headers.map((header) => normalizeHeader(header));
+  const hasHeader = headerMap.some((header) => header.includes("identificacao") || header.includes("funcao"));
+  const defaultHeaders = [
+    "identificacao",
+    "funcao",
+    "numerodeserie",
+    "datadeaquisicao",
+    "datadecalibracao",
+    "local",
+    "2modelo"
+  ];
+
+  const effectiveHeaders = hasHeader ? headerMap : defaultHeaders;
+  const effectiveRows = hasHeader ? rows : [headers, ...rows];
+
   const fieldMap = {
     identificacao: "id",
     id: "id",
-    identificacaodoprint: "id",
+    funcao: "tipo",
     tipo: "tipo",
-    modelo: "modelo",
-    "2modelo": "modelo",
-    segundomodelo: "modelo",
+    funcaoequipamento: "tipo",
     numerodeserie: "numeroSerie",
     ndeserie: "numeroSerie",
     nserie: "numeroSerie",
     numeroserie: "numeroSerie",
-    dataaquisicao: "dataAquisicao",
     datadeaquisicao: "dataAquisicao",
-    dataaquisicaoequipamento: "dataAquisicao",
-    datacalibracao: "dataCalibracao",
+    dataaquisicao: "dataAquisicao",
     datadecalibracao: "dataCalibracao",
+    datacalibracao: "dataCalibracao",
     ultimacalibracao: "dataCalibracao",
     local: "responsavelAtual",
-    responsavel: "responsavelAtual"
+    responsavel: "responsavelAtual",
+    "2modelo": "modelo",
+    segundomodelo: "modelo",
+    modelo: "modelo"
   };
 
-  return lines.slice(1).map((line) => {
-    const values = parseLine(line);
+  return effectiveRows.map((values) => {
     const entry = {};
     values.forEach((value, index) => {
-      const headerKey = headerMap[index];
+      const headerKey = effectiveHeaders[index];
       const field = fieldMap[headerKey];
       if (!field) return;
       entry[field] = value;
@@ -728,20 +768,8 @@ const parseCSV = (text) => {
   });
 };
 
-const handleImportCSV = async () => {
-  if (!importCsvFile.files.length) {
-    setStatusMessage("Selecione um arquivo CSV para importar.");
-    return;
-  }
-  const text = await importCsvFile.files[0].text();
-  const rows = parseCSV(text);
-  if (!rows.length) {
-    setStatusMessage("CSV vazio ou inválido.");
-    return;
-  }
-
-  const errors = [];
-  const normalized = rows.map((row, index) => {
+const normalizeImportRows = (rows, errors) => rows
+  .map((row, index) => {
     const item = {
       id: normalizeId(row.id),
       tipo: normalizeTipo(row.tipo),
@@ -749,7 +777,8 @@ const handleImportCSV = async () => {
       numeroSerie: normalizeText(row.numeroSerie),
       dataAquisicao: row.dataAquisicao,
       dataCalibracao: row.dataCalibracao,
-      responsavelAtual: normalizeText(row.responsavelAtual)
+      responsavelAtual: normalizeText(row.responsavelAtual),
+      status: normalizeStatus(row.status)
     };
 
     const aq = row.dataAquisicao ? parseDateString(row.dataAquisicao) : { value: "", error: "" };
@@ -765,7 +794,24 @@ const handleImportCSV = async () => {
 
     if (!validateImportItem(normalizedItem, index, errors)) return null;
     return normalizedItem;
-  }).filter(Boolean);
+  })
+  .filter(Boolean);
+
+const handleImportCSV = async () => {
+  if (!importCsvFile.files.length) {
+    setStatusMessage("Selecione um arquivo CSV para importar.");
+    return;
+  }
+  const text = await importCsvFile.files[0].text();
+  const { headers, rows } = parseDelimited(text);
+  if (!rows.length && !headers.length) {
+    setStatusMessage("CSV vazio ou inválido.");
+    return;
+  }
+
+  const errors = [];
+  const entries = mapRowsToEntries(headers, rows);
+  const normalized = normalizeImportRows(entries, errors);
 
   if (errors.length) {
     buildImportFeedback(errors);
@@ -780,11 +826,38 @@ const handleImportCSV = async () => {
   buildImportFeedback([]);
 };
 
-const handleExport = () => {
-  const payload = {
-    generatedAt: new Date().toISOString(),
-    equipamentos
-  };
+const handleImportBulk = async () => {
+  const text = bulkPaste.value.trim();
+  if (!text) {
+    setStatusMessage("Cole uma tabela (CSV ou TSV) para importar.");
+    return;
+  }
+
+  const { headers, rows } = parseDelimited(text);
+  if (!rows.length && !headers.length) {
+    setStatusMessage("Texto vazio ou inválido.");
+    return;
+  }
+
+  const errors = [];
+  const entries = mapRowsToEntries(headers, rows);
+  const normalized = normalizeImportRows(entries, errors);
+
+  if (errors.length) {
+    buildImportFeedback(errors);
+    setStatusMessage("Importação cancelada. Revise os erros listados.");
+    return;
+  }
+
+  await bulkSaveEquipamentos(normalized);
+  await loadEquipamentos();
+  setStatusMessage("Importação em lote concluída.");
+  bulkPaste.value = "";
+  buildImportFeedback([]);
+};
+
+const handleExport = async () => {
+  const payload = await exportEquipamentos();
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -795,6 +868,60 @@ const handleExport = () => {
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
   setStatusMessage("Backup exportado.");
+};
+
+const handleExportCsv = () => {
+  const items = applySort(getFilteredEquipamentos());
+  const header = [
+    "Identificação",
+    "Tipo",
+    "2º Modelo",
+    "Nº de série",
+    "Data de aquisição",
+    "Data de calibração",
+    "Vencimento calibração",
+    "Dias para vencimento",
+    "Status",
+    "Responsável",
+    "Observações"
+  ];
+
+  const rows = items.map((equipamento) => {
+    const vencimento = getVencimento(equipamento);
+    const days = daysUntil(vencimento);
+    const values = [
+      equipamento.id,
+      equipamento.tipo,
+      equipamento.modelo,
+      equipamento.numeroSerie,
+      formatDate(equipamento.dataAquisicao),
+      formatDate(equipamento.dataCalibracao),
+      formatDate(vencimento),
+      days === null ? "" : String(days),
+      computeStatus(equipamento),
+      equipamento.responsavelAtual,
+      equipamento.observacoes
+    ];
+    return values.map((value) => {
+      const raw = String(value || "");
+      if (raw.includes("\"") || raw.includes(",") || raw.includes("\n")) {
+        return `"${raw.replace(/\"/g, '""')}"`;
+      }
+      return raw;
+    }).join(",");
+  });
+
+  const content = [header.join(","), ...rows].join("\n");
+  const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `medlux-equipamentos-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+  setStatusMessage("CSV exportado com sucesso.");
 };
 
 const handleReset = async () => {
@@ -945,8 +1072,10 @@ sortButtons.forEach((button) => {
 
 seedButton.addEventListener("click", handleSeed);
 exportBackup.addEventListener("click", handleExport);
+exportCsv.addEventListener("click", handleExportCsv);
 importBackup.addEventListener("click", handleImportJSON);
 importCsv.addEventListener("click", handleImportCSV);
+importBulk.addEventListener("click", handleImportBulk);
 resetData.addEventListener("click", handleReset);
 
 window.addEventListener("online", updateOnlineStatus);

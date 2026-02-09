@@ -1,6 +1,5 @@
-Identificação,Tipo,2º Modelo,Nº de série,Data aquisição,Data calibração,Local
-RH01,HORIZONTAL,MLX-H15,HX-8321,12/01/2022,15/02/2024,Laboratório
-RV02,VERTICAL,MLX-V1,VX-2210,05/08/2021,01/11/2023,Equipe Norte
-RT01,TACHAS,MLX-MT,TX-901,20/03/2020,20/05/2023,Leonardo
-RH04,HORIZONTAL,MLX-H15,HX-4433,11/11/2022,10/01/2024,Laboratório Central
-RV05,VERTICAL,MLX-V2,VX-3002,18/06/2021,02/03/2024,Sandra
+Identificação,Função,Nº de série,Data de aquisição,Data de calibração,Local,2º Modelo
+RH01,Horizontal,HX-8321,12/01/2022,15/02/2024,Laboratório,MLX-H15
+RV02,Vertical,VX-2210,05/08/2021,01/11/2023,Equipe Norte,MLX-V1
+RT01,Tachas,TX-901,20/03/2020,20/05/2023,Leonardo,MLX-MT
+RH04,Horizontal,HX-4433,11/11/2022,10/01/2024,Laboratório Central,MLX-H15

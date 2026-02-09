@@ -62,9 +62,9 @@
 
           <div class="panel-split">
             <div class="subpanel">
-              <h3>Atenção</h3>
-              <p class="muted">Vencidos e em cautela, ordenados pelo vencimento mais próximo.</p>
-              <ul class="list" id="attentionList"></ul>
+              <h3>Vencendo em até 30 dias</h3>
+              <p class="muted">Equipamentos que exigem ação preventiva imediata.</p>
+              <ul class="list" id="dueSoonList"></ul>
             </div>
             <div class="subpanel">
               <h3>Busca rápida</h3>
@@ -87,6 +87,7 @@
             <div class="toolbar">
               <button class="btn" id="newEquipamento" type="button">Novo equipamento</button>
               <button class="btn secondary" id="seedEquipamentos" type="button">Carregar dados de exemplo</button>
+              <button class="btn secondary" id="exportCsv" type="button">Exportar CSV da tabela</button>
             </div>
           </div>
 
@@ -177,11 +178,19 @@
               <button class="btn secondary" id="importBackup" type="button">Importar JSON</button>
             </div>
             <div class="subpanel">
+              <h3>Importação em lote</h3>
+              <p class="muted">Cole aqui dados do Excel (TSV) ou CSV com os cabeçalhos padrão.</p>
+              <textarea id="bulkPaste" rows="7" placeholder="Identificação | Função | Nº de série | Data de aquisição | Data de calibração | Local | 2º Modelo"></textarea>
+              <div class="toolbar">
+                <button class="btn secondary" id="importBulk" type="button">Importar texto colado</button>
+                <a class="download-link" href="./seed.csv" download>Baixar CSV de exemplo</a>
+              </div>
+            </div>
+            <div class="subpanel">
               <h3>Importar CSV</h3>
               <p class="muted">Aceita cabeçalhos semelhantes ao padrão da planilha.</p>
               <input type="file" id="importCsvFile" accept="text/csv" />
               <button class="btn secondary" id="importCsv" type="button">Importar CSV</button>
-              <a class="download-link" href="./seed.csv" download>Baixar CSV de exemplo</a>
             </div>
             <div class="subpanel">
               <h3>Resetar dados locais</h3>
@@ -248,23 +257,17 @@
             <input id="equipVencimento" name="dataVencimento" type="date" readonly />
           </div>
           <div class="field">
-            <label for="equipCertificado">Certificado</label>
-            <input id="equipCertificado" name="certificado" />
-          </div>
-          <div class="field">
-            <label for="equipFabricante">Fabricante</label>
-            <input id="equipFabricante" name="fabricante" />
-          </div>
-          <div class="field">
             <label for="equipResponsavel">Responsável atual</label>
             <input id="equipResponsavel" name="responsavelAtual" />
           </div>
           <div class="field">
-            <label for="equipSituacao">Situação manual</label>
-            <select id="equipSituacao" name="situacaoManual">
+            <label for="equipStatus">Status</label>
+            <select id="equipStatus" name="status">
               <option value="ATIVO">ATIVO</option>
+              <option value="EM_CAUTELA">EM CAUTELA</option>
               <option value="EM_CALIBRACAO">EM CALIBRAÇÃO</option>
               <option value="MANUTENCAO">MANUTENÇÃO</option>
+              <option value="VENCIDO">VENCIDO</option>
             </select>
           </div>
           <div class="field field-full">

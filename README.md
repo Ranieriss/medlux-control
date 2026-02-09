@@ -11,23 +11,26 @@ Sistema de gerenciamento de equipamentos MEDLUX (controle, calibração, cautela
 
 ## Dashboard
 
-- Os status são calculados automaticamente com base na situação manual, calibração e responsável atual.
-- A lista **Atenção** destaca equipamentos **Vencidos** e **Em cautela**.
+- Os status respeitam o valor salvo, mas vencimentos de calibração vencidos viram **VENCIDO** automaticamente.
+- A lista **Vencendo em até 30 dias** ajuda a priorizar calibrações.
 
 ## Backup / Importação
 
-- **Exportar:** na aba **Auditoria & Backup**, clique em **Exportar JSON** para baixar um arquivo com todos os equipamentos.
+- **Exportar:** na aba **Auditoria & Backup**, clique em **Exportar JSON** para baixar um arquivo com versão + timestamp.
 - **Importar JSON:** selecione um arquivo JSON e escolha **Mesclar** (merge por ID) ou **Substituir tudo**.
+- **Importação em lote (colar):** cole conteúdo do Excel (TSV) ou CSV com cabeçalhos padrão na área indicada.
 - **Importar CSV:** use um CSV simples com cabeçalhos similares ao padrão da planilha (exemplo em `front-end/medlux-control/seed.csv`).
 - **Resetar dados locais:** remove todo o conteúdo salvo no IndexedDB.
 
 ## Regras de status (ordem de prioridade)
 
-1. Situação manual = **EM CALIBRAÇÃO** → Status calculado = **EM CALIBRAÇÃO**.
-2. Situação manual = **MANUTENÇÃO** → Status calculado = **MANUTENÇÃO**.
-3. Se a última calibração venceu (365 dias) → **VENCIDO**.
-4. Se há responsável atual diferente de “Laboratório” → **EM CAUTELA**.
-5. Caso contrário → **ATIVO**.
+1. Se a calibração venceu (365 dias) → **VENCIDO**.
+2. Caso contrário → mantém o status salvo no cadastro (editável manualmente).
+
+## Exportação CSV (tabela)
+
+- Na aba **Equipamentos**, use **Exportar CSV da tabela** para baixar apenas os itens filtrados/ordenados.
+  - Campos: Identificação, Tipo, 2º Modelo, Nº de série, Datas, Dias para vencimento, Status, Responsável, Observações.
 
 ## Instalar como PWA
 

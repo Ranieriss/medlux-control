@@ -6,10 +6,8 @@ const seedEquipamentos = () => ([
     numeroSerie: "HX-8321",
     dataAquisicao: "2022-01-12",
     dataCalibracao: "2024-02-15",
-    certificado: "CAL-2024-0215",
-    fabricante: "Medlux Instruments",
+    status: "ATIVO",
     responsavelAtual: "Equipe Norte",
-    situacaoManual: "ATIVO",
     observacoes: "Em operação padrão na frota rodoviária."
   },
   {
@@ -19,10 +17,8 @@ const seedEquipamentos = () => ([
     numeroSerie: "VX-2210",
     dataAquisicao: "2021-08-05",
     dataCalibracao: "2023-11-01",
-    certificado: "CAL-2023-1101",
-    fabricante: "Medlux Instruments",
+    status: "EM_CAUTELA",
     responsavelAtual: "Leonardo",
-    situacaoManual: "ATIVO",
     observacoes: "Separado para contrato de sinalização vertical."
   },
   {
@@ -32,10 +28,8 @@ const seedEquipamentos = () => ([
     numeroSerie: "TX-901",
     dataAquisicao: "2020-03-20",
     dataCalibracao: "2023-05-20",
-    certificado: "CAL-2023-0520",
-    fabricante: "Medlux Instruments",
+    status: "MANUTENCAO",
     responsavelAtual: "Cesar",
-    situacaoManual: "MANUTENCAO",
     observacoes: "Aguardando reparo no sensor óptico."
   },
   {
@@ -45,10 +39,8 @@ const seedEquipamentos = () => ([
     numeroSerie: "HX-4433",
     dataAquisicao: "2022-11-11",
     dataCalibracao: "2024-01-10",
-    certificado: "CAL-2024-0110",
-    fabricante: "Medlux Instruments",
+    status: "EM_CALIBRACAO",
     responsavelAtual: "Laboratório Central",
-    situacaoManual: "EM_CALIBRACAO",
     observacoes: "Em verificação de alinhamento interno."
   },
   {
@@ -58,10 +50,8 @@ const seedEquipamentos = () => ([
     numeroSerie: "VX-3002",
     dataAquisicao: "2021-06-18",
     dataCalibracao: "2024-03-02",
-    certificado: "CAL-2024-0302",
-    fabricante: "Medlux Instruments",
+    status: "ATIVO",
     responsavelAtual: "Sandra",
-    situacaoManual: "ATIVO",
     observacoes: "Uso regular em medições de placas."
   }
 ]);
