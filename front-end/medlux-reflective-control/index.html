@@ -56,6 +56,16 @@
                 </select>
               </div>
               <div class="field">
+                <label for="medicaoClasseTipo">Classe/Tipo</label>
+                <select id="medicaoClasseTipo" name="classe_tipo">
+                  <option value="">Selecione</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="medicaoDataAplicacao">Data de aplicação</label>
+                <input id="medicaoDataAplicacao" name="data_aplicacao" type="date" />
+              </div>
+              <div class="field">
                 <label for="medicaoObra">Obra *</label>
                 <input id="medicaoObra" name="obra_id" placeholder="OBRA-001" list="obraList" required />
                 <datalist id="obraList"></datalist>
@@ -65,7 +75,7 @@
                 <input id="medicaoRelatorio" name="identificadorRelatorio" placeholder="REL-2024-001" />
               </div>
               <div class="field">
-                <label for="medicaoMarcacao">Tipo de marcação</label>
+                <label for="medicaoMarcacao" id="medicaoMarcacaoLabel">Elemento/Marcação</label>
                 <select id="medicaoMarcacao" name="tipoDeMarcacao">
                   <option value="">Selecione</option>
                   <option value="BORDO_DIREITO">Bordo direito</option>
@@ -111,7 +121,11 @@
                 <input id="medicaoEstacao" name="estacao" placeholder="Est. 1" />
               </div>
               <div class="field">
-                <label for="medicaoLetra">Letra (legenda)</label>
+                <label for="medicaoLegendaTexto">Texto da legenda</label>
+                <input id="medicaoLegendaTexto" name="legenda_texto" placeholder="PARE" />
+              </div>
+              <div class="field">
+                <label for="medicaoLetra">Letra (compatibilidade)</label>
                 <input id="medicaoLetra" name="letra" placeholder="P, A, R, E..." />
               </div>
               <div class="field">
@@ -137,6 +151,11 @@
               <div class="field">
                 <label for="medicaoMedia">Média</label>
                 <input id="medicaoMedia" name="media" type="number" step="0.01" readonly />
+              </div>
+              <div class="field field-full" id="legendaPorLetraField" style="display:none">
+                <label for="legendaPorLetra">Estrutura por letra (LETRA: v1,v2,v3)</label>
+                <textarea id="legendaPorLetra" rows="4" placeholder="P:120,122,121
+A:118,117,119"></textarea>
               </div>
               <div class="field field-full">
                 <label>Leituras *</label>

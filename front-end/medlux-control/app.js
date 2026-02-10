@@ -28,6 +28,7 @@ import { AUDIT_ACTIONS, buildDiff, logAudit } from "../shared/audit.js";
 import { validateUser, validateEquipamento, validateVinculo } from "../shared/validation.js";
 import { initGlobalErrorHandling, logError } from "../shared/errors.js";
 import { getAppVersion, sanitizeText } from "../shared/utils.js";
+import { calculateMediaDetails, buildConformidadeResumo } from "../shared/conformidade.js";
 
 // normalizarTexto precisa ficar no topo para evitar TDZ na avaliação do módulo.
 const normalizarTexto = (value) => String(value || "").trim().replace(/\s+/g, " ");
@@ -1482,26 +1483,14 @@ const formatLocal = (medicao) => {
 };
 
 const calculateMedia = (medicao) => {
-  const leituras = (medicao.leituras || []).map((value) => Number(value)).filter((value) => Number.isFinite(value));
-  if (!leituras.length) {
-    const fallback = Number(medicao.valor);
-    return Number.isFinite(fallback) ? fallback : null;
-  }
-  const tipo = String(medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao || "").trim().toUpperCase();
-  if (tipo === "HORIZONTAL") {
-    if (leituras.length < 10) return null;
-    const sorted = [...leituras].sort((a, b) => a - b);
-    const trimmed = sorted.slice(1, sorted.length - 1);
-    if (!trimmed.length) return null;
-    return trimmed.reduce((acc, item) => acc + item, 0) / trimmed.length;
-  }
-  if (tipo === "PLACA") {
-    if (leituras.length < 5) return null;
-  }
-  if (tipo === "LEGENDA") {
-    if (leituras.length < 3) return null;
-  }
-  return leituras.reduce((acc, item) => acc + item, 0) / leituras.length;
+  const detail = calculateMediaDetails(
+    medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao,
+    medicao.leituras || [],
+    medicao.legenda_por_letra || null
+  );
+  if (detail.media !== null) return detail.media;
+  const fallback = Number(medicao.media_final ?? medicao.media ?? medicao.valor);
+  return Number.isFinite(fallback) ? fallback : null;
 };
 
 const formatMedia = (medicao) => {
@@ -1567,33 +1556,38 @@ const buildGlobalPdf = async () => {
   doc.autoTable({
     head: [["Equipamento", "Usuário", "Início", "Fim", "Termo"]],
     body: vinculoRows,
-    startY: cursorY + 10,
+    startY: cursorY + 18,
     styles: { fontSize: 8 }
   });
 
   cursorY = doc.lastAutoTable.finalY + 20;
   doc.setFontSize(12);
   doc.text(toSafeText("Histórico de medições"), 40, cursorY);
-  const medicaoRows = medicoes.map((medicao) => {
+  const resumoConformidade = buildConformidadeResumo(medicoes);
+  doc.setFontSize(10);
+  doc.text(toSafeText(`Resumo: C=${resumoConformidade.totalConformes} NC=${resumoConformidade.totalNaoConformes} NA=${resumoConformidade.totalNaoAvaliado} • %=${resumoConformidade.pct.toFixed(2)}%`), 40, cursorY + 4);
+  const medicaoRows = medicoes.map((medicao, idx) => {
     const leituras = medicao.leituras || [];
     const quantidade = leituras.length || (medicao.valor ? 1 : 0);
-    const anexos = (medicao.fotos || []).length ? "Anexo" : "-";
     return [
-      toSafeText(medicao.id || medicao.medicao_id || "-"),
+      idx + 1,
       toSafeText(medicao.dataHora || medicao.data_hora || "-"),
-      toSafeText(medicao.user_id || "-"),
-      toSafeText(medicao.equipamento_id || medicao.equip_id),
       toSafeText(medicao.obra_id || "-"),
       toSafeText(medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao),
-      toSafeText(formatMedia(medicao)),
+      toSafeText(medicao.classe_tipo || "-"),
+      toSafeText(medicao.elemento_via || medicao.tipoDeMarcacao || "-"),
+      toSafeText(medicao.periodo || "-"),
       quantidade,
-      toSafeText(formatLocal(medicao)),
-      toSafeText(formatGps(medicao.gps)),
-      toSafeText(anexos)
+      toSafeText(formatMedia(medicao)),
+      toSafeText(medicao.criterio_minimo ?? "-"),
+      toSafeText(medicao.status_conformidade || "NÃO AVALIADO"),
+      toSafeText(medicao.user_id || "-"),
+      toSafeText(medicao.cidadeUF || "-"),
+      toSafeText(`${medicao.rodovia || "-"}/${medicao.km || "-"}`)
     ];
   });
   doc.autoTable({
-    head: [["ID", "Data/Hora", "Usuário", "Equip.", "Obra", "Tipo/Subtipo", "Média", "N Leituras", "Local", "GPS", "Anexos"]],
+    head: [["Nº", "Data/Hora", "Obra", "Subtipo", "Classe/Tipo", "Elemento", "Período", "Qtd", "Média", "Mínimo", "Status", "Operador", "Cidade/UF", "Rodovia/KM"]],
     body: medicaoRows,
     startY: cursorY + 10,
     styles: { fontSize: 8 }

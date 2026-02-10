@@ -80,10 +80,11 @@ const validateMedicao = (data = {}) => {
       addError(errors, "linha", "Linha e estação obrigatórias.");
     }
   }
-  if (subtipo === "VERTICAL" && leituras.length !== 5) addError(errors, "leituras", "Vertical exige 5 leituras.");
+  if (subtipo === "VERTICAL" && leituras.length < 1) addError(errors, "leituras", "Vertical exige leituras válidas.");
+  if (subtipo === "TACHAS" && leituras.length < 1) addError(errors, "leituras", "Tachas exige leituras válidas.");
   if (subtipo === "LEGENDA") {
-    if (leituras.length !== 3) addError(errors, "leituras", "Legenda exige 3 leituras.");
-    if (!String(data.letra || "").trim()) addError(errors, "letra", "Letra obrigatória.");
+    const textoLegenda = String(data.legenda_texto || "").trim();
+    if (!textoLegenda) addError(errors, "legenda_texto", "Texto da legenda obrigatório.");
   }
   if (subtipo === "PLACA") {
     if (leituras.length !== 5) addError(errors, "leituras", "Placa exige 5 leituras.");

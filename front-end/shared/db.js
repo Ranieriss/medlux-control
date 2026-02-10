@@ -1,5 +1,5 @@
 const DB_NAME = "medlux_suite_db";
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 const EXPORT_VERSION = 1;
 
 const STORE_EQUIPAMENTOS = "equipamentos";
@@ -12,6 +12,7 @@ const STORE_ANEXOS = "anexos";
 const STORE_AUDITORIA = "auditoria";
 const STORE_AUDIT_LOG = "audit_log";
 const STORE_ERRORS_LOG = "errors_log";
+const STORE_CRITERIOS = "criterios";
 
 const nowIso = () => new Date().toISOString();
 const toNumber = (value) => {
@@ -163,6 +164,7 @@ const normalizeMedicaoRecord = (record = {}) => {
         source: record.gps_source || record.gpsSource || ""
       };
   const fotos = Array.isArray(record.fotos) ? record.fotos : [];
+  const legenda_por_letra = Array.isArray(record.legenda_por_letra) ? record.legenda_por_letra : [];
   return {
     id,
     uuid: resolveUuid(record) || id,
@@ -193,6 +195,21 @@ const normalizeMedicaoRecord = (record = {}) => {
     posicao: record.posicao || "",
     clima: record.clima || "",
     observacoes: record.observacoes || "",
+    data_aplicacao: record.data_aplicacao || "",
+    periodo: record.periodo || "",
+    classe_tipo: record.classe_tipo || "",
+    elemento_via: record.elemento_via || record.tipoDeMarcacao || record.tipo_marcacao || "",
+    legenda_texto: record.legenda_texto || "",
+    legenda_por_letra,
+    legenda_estrutura_informada: record.legenda_estrutura_informada !== false,
+    criterio_id: record.criterio_id || "",
+    criterio_minimo: toNumber(record.criterio_minimo),
+    criterio_fonte: record.criterio_fonte || "",
+    criterio_fallback_level: toNumber(record.criterio_fallback_level),
+    status_conformidade: record.status_conformidade || "NÃO AVALIADO",
+    motivo_conformidade: record.motivo_conformidade || "",
+    discarded_min: toNumber(record.discarded_min),
+    discarded_max: toNumber(record.discarded_max),
     gps,
     fotos,
     created_at,
@@ -259,6 +276,20 @@ const prepareMedicaoRecord = (record = {}) => {
     created_at: normalized.created_at
   };
 };
+
+const normalizeCriterioRecord = (record = {}) => ({
+  id: record.id || crypto.randomUUID(),
+  obra: record.obra || "",
+  subtipo: record.subtipo || "",
+  periodo: record.periodo || null,
+  classe_tipo: record.classe_tipo || null,
+  elemento: record.elemento || null,
+  unidade: record.unidade || "",
+  minimo_exigido: toNumber(record.minimo_exigido),
+  fonte: record.fonte || "",
+  obs: record.obs || "",
+  updated_at: record.updated_at || nowIso()
+});
 
 const normalizeObraRecord = (record = {}) => {
   const id = record.id || record.idObra || record.obra_id || "";
@@ -411,6 +442,15 @@ const openDB = () => new Promise((resolve, reject) => {
       { name: "by_created_at", keyPath: "created_at", options: { unique: false } },
       { name: "by_module", keyPath: "module", options: { unique: false } },
       { name: "by_action", keyPath: "action", options: { unique: false } }
+    ]);
+
+    const criteriosStore = db.objectStoreNames.contains(STORE_CRITERIOS)
+      ? transaction.objectStore(STORE_CRITERIOS)
+      : db.createObjectStore(STORE_CRITERIOS, { keyPath: "id" });
+    ensureStoreIndexes(criteriosStore, [
+      { name: "by_obra", keyPath: "obra", options: { unique: false } },
+      { name: "by_subtipo", keyPath: "subtipo", options: { unique: false } },
+      { name: "by_updated_at", keyPath: "updated_at", options: { unique: false } }
     ]);
 
     if (db.objectStoreNames.contains(STORE_USUARIOS) && db.objectStoreNames.contains(STORE_USERS)) {
@@ -651,6 +691,10 @@ const getObraById = (id) => getByKey(STORE_OBRAS, id).then((item) => (item ? nor
 const saveObra = (obra) => putInStore(STORE_OBRAS, prepareObraRecord(obra));
 const deleteObra = (id) => deleteFromStore(STORE_OBRAS, id);
 
+const getAllCriterios = () => getAllFromStore(STORE_CRITERIOS).then((items) => (items || []).map(normalizeCriterioRecord));
+const saveCriterio = (criterio) => putInStore(STORE_CRITERIOS, normalizeCriterioRecord(criterio));
+const deleteCriterio = (id) => deleteFromStore(STORE_CRITERIOS, id);
+
 const saveErrorLog = (error) => putInStore(STORE_ERRORS_LOG, normalizeErrorRecord(error));
 const getAllErrors = () => getAllFromStore(STORE_ERRORS_LOG).then((items) => (items || []).map(normalizeErrorRecord));
 const getRecentErrors = async (limit = 30) => {
@@ -669,7 +713,8 @@ const getStoreCounts = async () => {
     STORE_ANEXOS,
     STORE_AUDIT_LOG,
     STORE_ERRORS_LOG,
-    STORE_AUDITORIA
+    STORE_AUDITORIA,
+    STORE_CRITERIOS
   ].filter((name) => db.objectStoreNames.contains(name));
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(stores, "readonly");
@@ -687,14 +732,15 @@ const getStoreCounts = async () => {
 };
 
 const exportSnapshot = async ({ appVersion = "" } = {}) => {
-  const [equipamentos, usuarios, vinculos, medicoes, auditoria] = await Promise.all([
+  const [equipamentos, usuarios, vinculos, medicoes, auditoria, obras, criterios] = await Promise.all([
     getAllEquipamentos(),
     getAllUsers(),
     getAllVinculos(),
     getAllMedicoes(),
-    getAllAuditoria()
+    getAllAuditoria(),
+    getAllObras(),
+    getAllCriterios()
   ]);
-  const obras = await getAllObras();
   return {
     export_version: EXPORT_VERSION,
     schema_version: DB_VERSION,
@@ -706,6 +752,7 @@ const exportSnapshot = async ({ appVersion = "" } = {}) => {
     vinculos,
     medicoes,
     obras,
+    criterios,
     audit_log: auditoria
   };
 };
@@ -719,6 +766,7 @@ const normalizeImportPayload = (payload = {}) => {
     vinculos: payload.vinculos || [],
     medicoes: payload.medicoes || [],
     obras: payload.obras || [],
+    criterios: payload.criterios || [],
     audit_log: payload.audit_log || payload.auditoria || []
   };
 };
@@ -731,14 +779,16 @@ const buildImportPreview = async (payload) => {
     vinculos,
     medicoes,
     obras,
-    auditoria
+    auditoria,
+    criterios
   ] = await Promise.all([
     getAllEquipamentos(),
     getAllUsers(),
     getAllVinculos(),
     getAllMedicoes(),
     getAllObras(),
-    getAllAuditoria()
+    getAllAuditoria(),
+    getAllCriterios()
   ]);
   const countById = (existing, incoming, resolver) => {
     const existingMap = new Map(existing.map((item) => [resolver(item), item]));
@@ -761,6 +811,7 @@ const buildImportPreview = async (payload) => {
     vinculos: countById(vinculos, normalized.vinculos, (item) => item.id || item.vinculo_id),
     medicoes: countById(medicoes, normalized.medicoes, (item) => item.id || item.medicao_id),
     obras: countById(obras, normalized.obras, (item) => item.id || item.idObra),
+    criterios: countById(criterios, normalized.criterios, (item) => item.id),
     audit_log: countById(auditoria, normalized.audit_log, (item) => item.auditoria_id || item.audit_id)
   };
 };
@@ -771,7 +822,7 @@ const importSnapshot = async (payload) => {
     throw new Error("Versão do schema não suportada.");
   }
   return runTransaction(
-    [STORE_EQUIPAMENTOS, STORE_USERS, STORE_VINCULOS, STORE_MEDICOES, STORE_OBRAS, STORE_AUDIT_LOG, STORE_AUDITORIA],
+    [STORE_EQUIPAMENTOS, STORE_USERS, STORE_VINCULOS, STORE_MEDICOES, STORE_OBRAS, STORE_CRITERIOS, STORE_AUDIT_LOG, STORE_AUDITORIA],
     "readwrite",
     (transaction) => {
       const equipStore = transaction.objectStore(STORE_EQUIPAMENTOS);
@@ -779,6 +830,7 @@ const importSnapshot = async (payload) => {
       const vincStore = transaction.objectStore(STORE_VINCULOS);
       const medStore = transaction.objectStore(STORE_MEDICOES);
       const obraStore = transaction.objectStore(STORE_OBRAS);
+      const criterioStore = transaction.objectStore(STORE_CRITERIOS);
       const auditStore = transaction.objectStore(
         transaction.objectStoreNames.contains(STORE_AUDIT_LOG) ? STORE_AUDIT_LOG : STORE_AUDITORIA
       );
@@ -787,6 +839,7 @@ const importSnapshot = async (payload) => {
       normalized.vinculos.forEach((item) => vincStore.put(prepareVinculoRecord(item)));
       normalized.medicoes.forEach((item) => medStore.put(prepareMedicaoRecord(item)));
       normalized.obras.forEach((item) => obraStore.put(prepareObraRecord(item)));
+      normalized.criterios.forEach((item) => criterioStore.put(normalizeCriterioRecord(item)));
       uniqueAuditoria(normalized.audit_log.map(normalizeAuditRecord)).forEach((item) => {
         auditStore.put(item);
       });
@@ -796,7 +849,7 @@ const importSnapshot = async (payload) => {
 
 const clearAllStores = async () => {
   const db = await openDB();
-  const stores = [STORE_EQUIPAMENTOS, STORE_USERS, STORE_VINCULOS, STORE_MEDICOES, STORE_OBRAS, STORE_ANEXOS, STORE_AUDITORIA, STORE_AUDIT_LOG, STORE_ERRORS_LOG]
+  const stores = [STORE_EQUIPAMENTOS, STORE_USERS, STORE_VINCULOS, STORE_MEDICOES, STORE_OBRAS, STORE_ANEXOS, STORE_AUDITORIA, STORE_AUDIT_LOG, STORE_ERRORS_LOG, STORE_CRITERIOS]
     .filter((name) => db.objectStoreNames.contains(name));
   if (db.objectStoreNames.contains(STORE_USUARIOS)) stores.push(STORE_USUARIOS);
   return new Promise((resolve, reject) => {
@@ -845,6 +898,9 @@ export {
   getObraById,
   saveObra,
   deleteObra,
+  getAllCriterios,
+  saveCriterio,
+  deleteCriterio,
   saveErrorLog,
   getAllErrors,
   getRecentErrors,
