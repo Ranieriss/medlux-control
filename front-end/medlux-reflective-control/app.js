@@ -81,6 +81,7 @@ initGlobalErrorHandling("medlux-reflective-control");
 
 const normalizeText = (value) => String(value || "").trim().replace(/\s+/g, " ");
 const normalizeUserIdComparable = (value) => normalizeText(value).toUpperCase();
+const normalizeRole = (value) => normalizeText(value).toUpperCase();
 
 const MAX_PHOTOS_PER_MEDICAO = 6;
 const MAX_PHOTO_SIZE = 1.5 * 1024 * 1024;
@@ -114,7 +115,7 @@ const showFeedback = (message, type = "info") => {
   }
 };
 
-const isAdmin = () => activeSession?.role === "ADMIN";
+const isAdmin = () => normalizeRole(activeSession?.role) === "ADMIN";
 
 const isVinculoAtivo = (item) => item.status === "ATIVO" || item.ativo === true;
 
@@ -244,11 +245,17 @@ const renderMedicoes = () => {
   });
 };
 
+const getScopedMedicoes = async () => {
+  if (!activeSession?.id) return [];
+  if (isAdmin()) return getAllMedicoes();
+  return getMedicoesByUser(activeSession.id);
+};
+
 const loadData = async () => {
   [equipamentos, vinculos, medicoes, obras, criterios] = await Promise.all([
     getAllEquipamentos(),
     getAllVinculos(),
-    isAdmin() ? getAllMedicoes() : getMedicoesByUser(activeSession?.id),
+    getScopedMedicoes(),
     getAllObras(),
     getAllCriterios()
   ]);
@@ -743,6 +750,11 @@ const handleMedicaoSubmit = async (event) => {
     });
 
     await saveMedicao(medicao);
+
+    // Atualização imediata da tabela local após persistir no IndexedDB.
+    medicoes = [medicao, ...(medicoes || [])];
+    medicoes.sort((a, b) => new Date(b.created_at || b.dataHora || b.data_hora || 0) - new Date(a.created_at || a.dataHora || a.data_hora || 0));
+    renderMedicoes();
 
     await logAudit({
       action: AUDIT_ACTIONS.ENTITY_CREATED,

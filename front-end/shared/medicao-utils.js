@@ -39,9 +39,9 @@ const emptyLegendaStats = (textoLegenda = "", possuiEstrutura = false) => ({
 const computeLegendaStats = (medicaoInput = {}) => {
   const medicao = medicaoInput && typeof medicaoInput === "object" ? medicaoInput : {};
   const subtipo = safeUpper(medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao);
-  if (subtipo !== "HORIZONTAL" && subtipo !== "LEGENDA") return null;
+  if (subtipo !== "HORIZONTAL" && subtipo !== "LEGENDA") return emptyLegendaStats("", false);
   const isLegenda = safeUpper(medicao.tipoDeMarcacao || medicao.tipo_marcacao || medicao.elemento_via) === "LEGENDA" || subtipo === "LEGENDA";
-  if (!isLegenda) return null;
+  if (!isLegenda) return emptyLegendaStats(medicao.texto_legenda || medicao.textoLegenda || "", false);
 
   const legendaEstruturada = Array.isArray(medicao.legenda_por_letra)
     ? medicao.legenda_por_letra
@@ -94,7 +94,7 @@ const computeMeasurementStats = (medicaoInput = {}) => {
   const tipoDeMarcacao = safeUpper(medicao.tipoDeMarcacao || medicao.tipo_marcacao || medicao.elemento_via);
   const values = safeNumberArray(medicao.leituras);
   const quantidade = values.length || (toNum(medicao.valor) !== null ? 1 : 0);
-  const legenda = computeLegendaStats(medicao) || emptyLegendaStats("", false);
+  const legenda = computeLegendaStats(medicao);
   const buildStats = ({ media = null, minimo = null, maximo = null, discardedMin = null, discardedMax = null, regra = "Média simples", observacao = "" } = {}) => ({
     subtipo,
     media,
