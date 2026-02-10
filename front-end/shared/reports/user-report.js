@@ -1,148 +1,302 @@
-import { getAllMedicoes, getMedicoesByUser } from "../db.js";
+import {
+  getAllMedicoes,
+  getAllEquipamentos,
+  getAllObras,
+  getAllUsers,
+  getUserById
+} from "../db.js";
 
 const normalizeText = (value) => String(value || "").trim();
 const normalizeUpper = (value) => normalizeText(value).toUpperCase();
-const normalizeDateOnly = (value) => {
+
+const parseDayStart = (value) => {
   const raw = normalizeText(value);
-  if (!raw) return "";
+  if (!raw) return null;
+  const date = new Date(`${raw}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const parseDayEnd = (value) => {
+  const raw = normalizeText(value);
+  if (!raw) return null;
+  const date = new Date(`${raw}T23:59:59.999`);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const resolveTimestamp = (medicao = {}) => medicao.created_at || medicao.dataHora || medicao.data_hora || "";
+
+const resolveDate = (medicao) => {
+  const raw = resolveTimestamp(medicao);
+  if (!raw) return null;
   const date = new Date(raw);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toISOString().slice(0, 10);
+  return Number.isNaN(date.getTime()) ? null : date;
 };
 
-const toSafeText = (value) => String(value ?? "-").replace(/[\u{0080}-\u{FFFF}]/gu, (char) => {
-  const map = {
-    "Á": "A", "À": "A", "Ã": "A", "Â": "A", "Ä": "A",
-    "á": "a", "à": "a", "ã": "a", "â": "a", "ä": "a",
-    "É": "E", "È": "E", "Ê": "E", "Ë": "E",
-    "é": "e", "è": "e", "ê": "e", "ë": "e",
-    "Í": "I", "Ì": "I", "Î": "I", "Ï": "I",
-    "í": "i", "ì": "i", "î": "i", "ï": "i",
-    "Ó": "O", "Ò": "O", "Õ": "O", "Ô": "O", "Ö": "O",
-    "ó": "o", "ò": "o", "õ": "o", "ô": "o", "ö": "o",
-    "Ú": "U", "Ù": "U", "Û": "U", "Ü": "U",
-    "ú": "u", "ù": "u", "û": "u", "ü": "u",
-    "Ç": "C", "ç": "c", "Ñ": "N", "ñ": "n", "°": "o"
-  };
-  return map[char] || "?";
-});
-
-const resolveTimestamp = (medicao) => medicao.created_at || medicao.dataHora || medicao.data_hora || "";
-const resolveDateOnly = (medicao) => normalizeDateOnly(resolveTimestamp(medicao));
-const resolveSubtipo = (medicao) => normalizeUpper(medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao);
-
-const resolveLeiturasLabel = (medicao) => {
-  if (Array.isArray(medicao.leituras) && medicao.leituras.length) return medicao.leituras.join(", ");
-  if (medicao.quantidade !== undefined && medicao.quantidade !== null) return String(medicao.quantidade);
-  if (medicao.valor !== undefined && medicao.valor !== null && medicao.valor !== "") return String(medicao.valor);
-  return "-";
+const formatDateTime = (value) => {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString("pt-BR");
 };
 
-const buildSubtypeSummary = (medicoes) => {
-  const tracked = ["HORIZONTAL", "VERTICAL", "TACHAS", "PLACA", "LEGENDA"];
-  const summary = tracked.reduce((acc, type) => ({ ...acc, [type]: 0 }), {});
-  medicoes.forEach((medicao) => {
-    const subtipo = resolveSubtipo(medicao);
-    if (summary[subtipo] !== undefined) summary[subtipo] += 1;
+const formatDateOnly = (value) => {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleDateString("pt-BR");
+};
+
+const toFixedSafe = (value, digits = 2) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num.toFixed(digits) : "-";
+};
+
+const textSafe = (value) => normalizeText(value) || "-";
+
+let pdfLibPromise = null;
+
+const loadScript = (src) =>
+  new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[data-medlux-pdf-src="${src}"]`);
+    if (existing) {
+      if (existing.dataset.loaded === "true") {
+        resolve();
+        return;
+      }
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener("error", () => reject(new Error(`Falha ao carregar script: ${src}`)), { once: true });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = src;
+    script.defer = true;
+    script.dataset.medluxPdfSrc = src;
+    script.addEventListener("load", () => {
+      script.dataset.loaded = "true";
+      resolve();
+    });
+    script.addEventListener("error", () => reject(new Error(`Falha ao carregar script: ${src}`)));
+    document.head.appendChild(script);
   });
-  return summary;
+
+const ensurePdfLibReady = async () => {
+  if (window.jspdf?.jsPDF && typeof window.jspdf.jsPDF.prototype.autoTable === "function") return;
+
+  if (!pdfLibPromise) {
+    pdfLibPromise = (async () => {
+      await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js");
+      await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js");
+    })().catch((error) => {
+      pdfLibPromise = null;
+      throw error;
+    });
+  }
+
+  await pdfLibPromise;
+
+  if (!window.jspdf?.jsPDF || typeof window.jspdf.jsPDF.prototype.autoTable !== "function") {
+    throw new Error("Biblioteca de PDF não disponível no navegador.");
+  }
 };
 
-const filterMedicoes = ({ medicoes, userId, obraId, startDate, endDate }) => {
-  const userComparable = normalizeUpper(userId);
+const resolveConformidadeResumo = (medicoes = []) => {
+  const total = medicoes.length;
+  if (!total) return { conformes: 0, naoConformes: 0, naoAvaliadas: 0, pctConformes: 0, pctNaoConformes: 0, pctNaoAvaliadas: 0 };
+
+  let conformes = 0;
+  let naoConformes = 0;
+  let naoAvaliadas = 0;
+
+  medicoes.forEach((item) => {
+    const status = normalizeUpper(item.status_conformidade);
+    if (status === "CONFORME") conformes += 1;
+    else if (status === "NÃO CONFORME" || status === "NAO CONFORME") naoConformes += 1;
+    else naoAvaliadas += 1;
+  });
+
+  return {
+    conformes,
+    naoConformes,
+    naoAvaliadas,
+    pctConformes: (conformes / total) * 100,
+    pctNaoConformes: (naoConformes / total) * 100,
+    pctNaoAvaliadas: (naoAvaliadas / total) * 100
+  };
+};
+
+const resolveCurrentUser = async (currentUser) => {
+  const sessionId = normalizeText(currentUser?.id || currentUser?.user_id);
+  if (!sessionId) throw new Error("Faça login para gerar o relatório individual.");
+
+  const userFromDb = (await getUserById(sessionId)) || null;
+  if (userFromDb) return userFromDb;
+
+  const users = await getAllUsers();
+  return users.find((item) => normalizeUpper(item.id || item.user_id) === normalizeUpper(sessionId)) || currentUser;
+};
+
+const filterMedicoes = ({ medicoes, obraId, startDate, endDate, userId, canSeeAll }) => {
   const obraComparable = normalizeUpper(obraId);
-  const startComparable = normalizeDateOnly(startDate);
-  const endComparable = normalizeDateOnly(endDate);
+  const userComparable = normalizeUpper(userId);
+  const start = parseDayStart(startDate);
+  const end = parseDayEnd(endDate);
 
-  return medicoes.filter((medicao) => {
-    const medicaoUser = normalizeUpper(medicao.user_id);
-    if (!medicaoUser || medicaoUser !== userComparable) return false;
+  if (startDate && !start) throw new Error("Data inicial inválida.");
+  if (endDate && !end) throw new Error("Data final inválida.");
+  if (start && end && end < start) throw new Error("Data final deve ser maior ou igual à data inicial.");
 
-    const medicaoObra = normalizeUpper(medicao.obra_id);
-    if (obraComparable && medicaoObra !== obraComparable) return false;
+  return (medicoes || []).filter((medicao) => {
+    if (!canSeeAll && normalizeUpper(medicao.user_id) !== userComparable) return false;
+    if (obraComparable && normalizeUpper(medicao.obra_id) !== obraComparable) return false;
 
-    const medicaoDate = resolveDateOnly(medicao);
-    if (!medicaoDate) return false;
-    if (startComparable && medicaoDate < startComparable) return false;
-    if (endComparable && medicaoDate > endComparable) return false;
-
+    const date = resolveDate(medicao);
+    if (!date) return false;
+    if (start && date < start) return false;
+    if (end && date > end) return false;
     return true;
   });
 };
 
-export async function generateUserReportPdf({ user, obraId = "", startDate = "", endDate = "" }) {
-  const userId = user?.id || user?.user_id || "";
-  if (!normalizeText(userId)) {
-    const error = new Error("Faça login para gerar o relatório individual.");
-    error.code = "AUTH_REQUIRED";
-    throw error;
-  }
-  if (!window.jspdf?.jsPDF) {
-    throw new Error("Biblioteca de PDF não disponível no navegador.");
-  }
+export async function generateUserPdfReport({ obraId, startDate, endDate, currentUser }) {
+  const normalizedObraId = normalizeUpper(obraId);
+  if (!normalizedObraId) throw new Error("Informe a obra para gerar o relatório individual.");
 
-  let medicoes = [];
-  try {
-    medicoes = await getMedicoesByUser(userId);
-  } catch {
-    medicoes = await getAllMedicoes();
-  }
+  await ensurePdfLibReady();
 
-  const filtered = filterMedicoes({ medicoes, userId, obraId, startDate, endDate });
-  if (!filtered.length) return { total: 0 };
+  const user = await resolveCurrentUser(currentUser);
+  const userId = normalizeText(user?.id || user?.user_id);
+  const canSeeAll = normalizeUpper(user?.role) === "ADMIN";
 
-  const subtypeSummary = buildSubtypeSummary(filtered);
+  const [medicoes, equipamentos, obras] = await Promise.all([getAllMedicoes(), getAllEquipamentos(), getAllObras()]);
+  const filtradas = filterMedicoes({
+    medicoes,
+    obraId: normalizedObraId,
+    startDate,
+    endDate,
+    userId,
+    canSeeAll
+  }).sort((a, b) => resolveDate(a) - resolveDate(b));
+
+  const obra = obras.find((item) => normalizeUpper(item.id || item.idObra) === normalizedObraId) || null;
+
+  const medias = filtradas.map((item) => Number(item.media_final ?? item.media)).filter((item) => Number.isFinite(item));
+  const mediaGeral = medias.length ? medias.reduce((acc, item) => acc + item, 0) / medias.length : null;
+  const conformidade = resolveConformidadeResumo(filtradas);
+
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
-  const now = new Date();
+  const generatedAt = new Date();
 
   doc.setFontSize(16);
-  doc.text(toSafeText("MEDLUX - Relatorio Individual"), 40, 38);
+  doc.text("MEDLUX - Relatorio Individual", 40, 36);
 
   doc.setFontSize(10);
-  doc.text(toSafeText(`Usuario: ${userId} ${user?.nome ? `- ${user.nome}` : ""}`), 40, 58);
-  doc.text(toSafeText(`Gerado em: ${now.toLocaleString("pt-BR")}`), 40, 72);
-  doc.text(toSafeText(`Filtros | Obra: ${obraId || "TODAS"} | Inicio: ${startDate || "-"} | Fim: ${endDate || "-"}`), 40, 86);
+  doc.text(`Operador: ${textSafe(userId)} - ${textSafe(user?.nome)}`, 40, 56);
+  doc.text(`Obra: ${normalizedObraId} - ${textSafe(obra?.nomeObra || obra?.nome)}`, 40, 70);
   doc.text(
-    toSafeText(
-      `Resumo | Total: ${filtered.length} | HORIZONTAL: ${subtypeSummary.HORIZONTAL} | VERTICAL: ${subtypeSummary.VERTICAL} | ` +
-      `TACHAS: ${subtypeSummary.TACHAS} | PLACA: ${subtypeSummary.PLACA} | LEGENDA: ${subtypeSummary.LEGENDA}`
-    ),
+    `Rodovia: ${textSafe(obra?.rodovia)} | Cidade/UF: ${textSafe(obra?.cidadeUF || obra?.cidade_uf)}`,
     40,
-    100
+    84
+  );
+  doc.text(`Periodo: ${formatDateOnly(parseDayStart(startDate))} a ${formatDateOnly(parseDayEnd(endDate))}`, 40, 98);
+  doc.text(`Gerado em: ${generatedAt.toLocaleString("pt-BR")}`, 40, 112);
+
+  if (!filtradas.length) {
+    doc.setFontSize(12);
+    doc.text("Nenhuma medicao encontrada no periodo informado.", 40, 148);
+  } else {
+    const rows = filtradas.map((medicao) => {
+      const equipamento = equipamentos.find((item) => item.id === (medicao.equipamento_id || medicao.equip_id));
+      return [
+        formatDateTime(resolveTimestamp(medicao)),
+        textSafe(medicao.equipamento_id || medicao.equip_id),
+        textSafe(medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao),
+        toFixedSafe(medicao.media_final ?? medicao.media),
+        textSafe(medicao.minimo ?? medicao.criterio_minimo),
+        textSafe(medicao.status_conformidade),
+        textSafe(equipamento?.modelo)
+      ];
+    });
+
+    doc.autoTable({
+      startY: 126,
+      head: [["Data/Hora", "Equipamento", "Subtipo", "Média", "Mínimo/Critério", "Status", "Modelo"]],
+      body: rows,
+      styles: { fontSize: 8, cellPadding: 2 }
+    });
+  }
+
+  const footerY = doc.internal.pageSize.getHeight() - 34;
+  doc.setFontSize(10);
+  doc.text(
+    `Resumo: ${filtradas.length} medicao(oes) | Media geral: ${toFixedSafe(mediaGeral)} | Conforme: ${conformidade.pctConformes.toFixed(1)}% | Nao conforme: ${conformidade.pctNaoConformes.toFixed(1)}% | Nao avaliada: ${conformidade.pctNaoAvaliadas.toFixed(1)}%`,
+    40,
+    footerY
   );
 
-  const bodyRows = filtered
-    .sort((a, b) => String(resolveTimestamp(b)).localeCompare(String(resolveTimestamp(a))))
-    .map((medicao) => [
-      toSafeText(resolveTimestamp(medicao) || "-"),
-      toSafeText(medicao.obra_id || "-"),
-      toSafeText(medicao.equipamento_id || medicao.equip_id || "-"),
-      toSafeText(resolveSubtipo(medicao) || "-"),
-      toSafeText(resolveLeiturasLabel(medicao)),
-      toSafeText(medicao.media ?? "-"),
-      toSafeText(medicao.media_final ?? "-"),
-      toSafeText(medicao.minimo ?? "-"),
-      toSafeText(medicao.status_conformidade || "-"),
-      toSafeText(medicao.rodovia || "-"),
-      toSafeText(medicao.km || "-"),
-      toSafeText(medicao.faixa || "-"),
-      toSafeText(medicao.sentido || "-"),
-      toSafeText(medicao.cidadeUF || medicao.cidade_uf || "-")
-    ]);
-
-  doc.autoTable({
-    head: [["Data/Hora", "Obra", "Equip.", "Subtipo", "Leituras", "Media", "Media final", "Minimo", "Status", "Rodovia", "KM", "Faixa", "Sentido", "Cidade/UF"]],
-    body: bodyRows,
-    startY: 112,
-    styles: { fontSize: 7, cellPadding: 2 }
-  });
-
-  const fileDate = now.toISOString().slice(0, 10);
-  doc.save(`relatorio-individual-${normalizeUpper(userId)}-${fileDate}.pdf`);
+  const fileDate = generatedAt.toISOString().slice(0, 10);
+  const fileName = `relatorio-individual-${normalizedObraId}-${normalizeUpper(userId)}-${fileDate}.pdf`;
+  doc.save(fileName);
 
   return {
-    total: filtered.length,
-    subtypeSummary
+    total: filtradas.length,
+    fileName,
+    userId,
+    obraId: normalizedObraId,
+    canSeeAll
+  };
+}
+
+export function initUserReportFeature({
+  basePath = "",
+  getCurrentUser,
+  onStatusMessage = () => {},
+  onError = async () => {},
+  onSuccess = async () => {}
+} = {}) {
+  void basePath;
+  const button = document.getElementById("generateUserPdf");
+  const obraInput = document.getElementById("userReportObra");
+  const startInput = document.getElementById("userReportStart");
+  const endInput = document.getElementById("userReportEnd");
+
+  if (!button || !obraInput || !startInput || !endInput) return () => {};
+
+  const handleClick = async () => {
+    const currentUser = typeof getCurrentUser === "function" ? getCurrentUser() : null;
+
+    try {
+      onStatusMessage("Gerando PDF individual...");
+      const result = await generateUserPdfReport({
+        obraId: obraInput.value,
+        startDate: startInput.value,
+        endDate: endInput.value,
+        currentUser
+      });
+
+      if (!result.total) {
+        onStatusMessage("PDF gerado sem medições (nenhuma medição encontrada no período).");
+      } else {
+        onStatusMessage("PDF individual gerado com sucesso.");
+      }
+
+      await onSuccess(result);
+    } catch (error) {
+      console.error("Falha ao gerar relatório individual", error);
+      onStatusMessage(error?.message || "Falha ao gerar PDF individual.");
+      await onError(error, {
+        obraId: obraInput.value,
+        startDate: startInput.value,
+        endDate: endInput.value,
+        currentUser
+      });
+    }
+  };
+
+  button.addEventListener("click", handleClick);
+
+  return () => {
+    button.removeEventListener("click", handleClick);
   };
 }
