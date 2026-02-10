@@ -5,7 +5,7 @@ import {
   getAllUsers,
   getUserById
 } from "../db.js";
-import { ensurePdfLib } from "./pdf-lib.js";
+import { getPdfLibReady } from "./pdf-lib.js";
 
 const normalizeText = (value) => String(value || "").trim();
 const normalizeUpper = (value) => normalizeText(value).toUpperCase();
@@ -117,7 +117,7 @@ export async function generateUserPdfReport({ obraId, startDate, endDate, curren
   if (startDate && !parseDayStart(startDate)) throw new Error("Data inicial inválida.");
   if (endDate && !parseDayEnd(endDate)) throw new Error("Data final inválida.");
 
-  await ensurePdfLib();
+  const pdfRuntime = await getPdfLibReady();
 
   const user = await resolveCurrentUser(currentUser);
   const userId = normalizeText(user?.id || user?.user_id);
@@ -145,13 +145,14 @@ export async function generateUserPdfReport({ obraId, startDate, endDate, curren
   const mediaGeral = medias.length ? medias.reduce((acc, item) => acc + item, 0) / medias.length : null;
   const conformidade = resolveConformidadeResumo(filtradas);
 
-  if (!window.jspdf || typeof window.jspdf.jsPDF !== "function") {
+  const jsPDF = pdfRuntime?.jsPDF;
+  if (typeof jsPDF !== "function") {
     throw new Error("Biblioteca de PDF indisponível.");
   }
 
-  const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
-  if (typeof doc.autoTable !== "function") {
+  const autoTable = doc.autoTable || pdfRuntime?.autoTable || window.autoTable;
+  if (typeof autoTable !== "function") {
     throw new Error("Biblioteca de PDF indisponível.");
   }
   const generatedAt = new Date();
@@ -184,7 +185,7 @@ export async function generateUserPdfReport({ obraId, startDate, endDate, curren
       ];
     });
 
-    doc.autoTable({
+    autoTable.call(doc, {
       startY: 126,
       head: [["Data/Hora", "Equipamento", "Subtipo", "Média", "Mínimo/Critério", "Status", "Modelo"]],
       body: rows,
@@ -261,7 +262,7 @@ export function initUserReportFeature({
       await onSuccess(result);
     } catch (error) {
       console.error("Falha ao gerar relatório individual", error);
-      onStatusMessage(error?.message || "Falha ao gerar PDF individual.");
+      onStatusMessage(`PDF indisponível: ${error?.message || "Falha ao gerar PDF individual."}`);
       await onError(error, {
         obraId: obraInput.value,
         startDate: startInput.value,
