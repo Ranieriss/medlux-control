@@ -64,7 +64,8 @@ const computeLegendaStats = (medicao = {}) => {
   };
 };
 
-const computeMeasurementStats = (medicao = {}) => {
+const computeMeasurementStats = (medicaoInput = {}) => {
+  const medicao = medicaoInput && typeof medicaoInput === "object" ? medicaoInput : {};
   const subtipo = safeUpper(medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao);
   const tipoDeMarcacao = safeUpper(medicao.tipoDeMarcacao || medicao.tipo_marcacao || medicao.elemento_via);
   const values = Array.isArray(medicao.leituras)
@@ -132,6 +133,13 @@ const computeMeasurementStats = (medicao = {}) => {
     regra: subtipo === "VERTICAL" ? "Vertical: média simples" : (subtipo === "TACHAS" ? "Tachas: média simples" : "Média simples")
   });
 };
+
+/*
+Casos esperados (sanity checks):
+- computeMeasurementStats(null) => { media: null, quantidade: 0, ... }
+- computeMeasurementStats({ subtipo: "LEGENDA", tipoDeMarcacao: "LEGENDA" }) => não lança erro e retorna media null
+- computeMeasurementStats({ leituras: [100, 120] }).media => 110
+*/
 
 const resolvePeriodoHorizontal = (medicao = {}, obra = null) => {
   const subtipo = safeUpper(medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao);
