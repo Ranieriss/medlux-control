@@ -5,9 +5,21 @@ const VERTICAL_CLASS_OPTIONS = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"
 const TACHAS_CLASS_OPTIONS = ["I", "II", "III", "IV"];
 
 const toNum = (value) => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string") {
+    const normalized = value.trim().replace(/,/g, ".");
+    if (!normalized) return null;
+    const parsedString = Number(normalized);
+    return Number.isFinite(parsedString) ? parsedString : null;
+  }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 };
+
+const safeNumberArray = (value) =>
+  Array.isArray(value)
+    ? value.map((item) => toNum(item)).filter((item) => item !== null)
+    : [];
 
 const safeUpper = (value) => String(value || "").trim().toUpperCase();
 
@@ -32,11 +44,16 @@ const computeLegendaStats = (medicaoInput = {}) => {
   if (!isLegenda) return null;
 
   if (Array.isArray(medicao.legenda_por_letra) && medicao.legenda_por_letra.length) {
-    const medias = medicao.legenda_por_letra.map((item) => ({
+    const medias = medicao.legenda_por_letra
+      .filter((item) => item && typeof item === "object")
+      .map((item) => ({
       letra: sanitizeText(item.letra || "?"),
-      leituras: Array.isArray(item.leituras) ? item.leituras.map((n) => toNum(n)).filter((n) => n !== null) : [],
+      leituras: safeNumberArray(item.leituras),
       media: toNum(item.media)
-    }));
+      }));
+
+    if (!medias.length) return emptyLegendaStats(medicao.texto_legenda || medicao.textoLegenda || "", true);
+
     return {
       possuiEstrutura: true,
       textoLegenda: medicao.texto_legenda || medicao.textoLegenda || "",
@@ -47,7 +64,7 @@ const computeLegendaStats = (medicaoInput = {}) => {
 
   const textoLegenda = String(medicao.texto_legenda || medicao.textoLegenda || "").trim();
   const chars = textoLegenda.replace(/\s+/g, "").split("").filter(Boolean);
-  const leituras = Array.isArray(medicao.leituras) ? medicao.leituras.map((n) => toNum(n)).filter((n) => n !== null) : [];
+  const leituras = safeNumberArray(medicao.leituras);
   if (!chars.length || leituras.length < chars.length * 3) {
     return emptyLegendaStats(textoLegenda, false);
   }
@@ -71,11 +88,9 @@ const computeMeasurementStats = (medicaoInput = {}) => {
   const medicao = medicaoInput && typeof medicaoInput === "object" ? medicaoInput : {};
   const subtipo = safeUpper(medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao);
   const tipoDeMarcacao = safeUpper(medicao.tipoDeMarcacao || medicao.tipo_marcacao || medicao.elemento_via);
-  const values = Array.isArray(medicao.leituras)
-    ? medicao.leituras.map((value) => toNum(value)).filter((value) => value !== null)
-    : [];
+  const values = safeNumberArray(medicao.leituras);
   const quantidade = values.length || (toNum(medicao.valor) !== null ? 1 : 0);
-  const legenda = computeLegendaStats(medicao);
+  const legenda = computeLegendaStats(medicao) || emptyLegendaStats("", false);
   const buildStats = ({ media = null, minimo = null, maximo = null, discardedMin = null, discardedMax = null, regra = "Média simples", observacao = "" } = {}) => ({
     subtipo,
     media,

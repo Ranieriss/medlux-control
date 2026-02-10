@@ -215,9 +215,10 @@ const fillClasseTipoOptions = () => {
 
 const renderMedicoes = () => {
   medicoesBody.textContent = "";
-  medicoes.slice(0, 20).forEach((medicao) => {
+  (medicoes || []).slice(0, 20).forEach((item) => {
+    const medicao = item && typeof item === "object" ? item : {};
     const row = document.createElement("tr");
-    const leituras = medicao.leituras || [];
+    const leituras = Array.isArray(medicao.leituras) ? medicao.leituras : [];
     const qtd = leituras.length || (medicao.valor ? 1 : 0);
 
     const dataHora = medicao.dataHora || medicao.data_hora;
@@ -228,8 +229,8 @@ const renderMedicoes = () => {
 
     [
       medicao.obra_id || "-",
-      medicao.equipamento_id || medicao.equip_id,
-      medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao,
+      medicao.equipamento_id || medicao.equip_id || "-",
+      medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao || "-",
       mediaLabel,
       qtd,
       dataLabel
@@ -639,12 +640,12 @@ const handleMedicaoSubmit = async (event) => {
     }
 
     const data = Object.fromEntries(new FormData(medicaoForm).entries());
-if (!data.equip_id) {
-  medicaoHint.textContent = "Selecione um equipamento para registrar a medição.";
-  return;
-}
+    if (!data.equip_id) {
+      showFeedback("Selecione um equipamento para registrar a medição.", "error");
+      return;
+    }
 
-const leituras = getLeituras().filter((item) => Number.isFinite(item));
+    const leituras = getLeituras().filter((item) => Number.isFinite(item));
 
     const subtipo = String(data.subtipo || "").toUpperCase();
 
@@ -753,6 +754,8 @@ const leituras = getLeituras().filter((item) => Number.isFinite(item));
     });
 
     await loadData();
+    renderEquipamentos();
+    renderObrasList();
     renderMedicoes();
 
     medicaoForm.reset();
@@ -834,6 +837,8 @@ const runAdminAutoTest = async () => {
 
     await saveMedicao(medicaoTeste);
     await loadData();
+    renderEquipamentos();
+    renderObrasList();
     renderMedicoes();
 
     const exists = medicoes.some((item) => item.id === medicaoTeste.id || item.medicao_id === medicaoTeste.id);

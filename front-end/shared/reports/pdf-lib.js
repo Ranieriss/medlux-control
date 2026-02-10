@@ -11,8 +11,17 @@ const PDF_LIB_ASSETS = {
 
 let pdfLibPromise = null;
 
-const hasJsPdf = () => Boolean(window.jspdf && typeof window.jspdf.jsPDF === "function");
-const hasAutoTablePlugin = () => Boolean(window.jspdf?.jsPDF?.API?.autoTable || window.jspdf?.jsPDF?.prototype?.autoTable || window.jsPDF?.API?.autoTable);
+const getJsPdfCtor = () => window.jspdf?.jsPDF || window.jsPDF || null;
+const hasJsPdf = () => typeof getJsPdfCtor() === "function";
+const hasAutoTablePlugin = () => {
+  const jsPdfCtor = getJsPdfCtor();
+  return Boolean(
+    jsPdfCtor?.API?.autoTable ||
+    jsPdfCtor?.prototype?.autoTable ||
+    window.jspdf?.autoTable ||
+    window.autoTable
+  );
+};
 
 const candidateSources = (asset) => {
   const pathName = window.location.pathname || "";
@@ -79,4 +88,12 @@ export async function ensurePdfLib() {
   if (!hasJsPdf() || !hasAutoTablePlugin()) {
     throw new Error("Biblioteca de PDF não disponível no navegador.");
   }
+}
+
+export async function getPdfLibReady() {
+  await ensurePdfLib();
+  return {
+    jsPDF: getJsPdfCtor(),
+    autoTable: window.autoTable || window.jspdf?.autoTable || null
+  };
 }
