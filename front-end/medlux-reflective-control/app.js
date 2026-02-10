@@ -18,7 +18,7 @@ import {
   evaluateMedicao,
   getMarcacaoConfig
 } from "../shared/medicao-utils.js";
-import { generateUserReportPdf } from "../shared/reports/user-report.js";
+import { initUserReportFeature } from "../shared/reports/user-report.js";
 
 const medicaoForm = document.getElementById("medicaoForm");
 const medicaoEquip = document.getElementById("medicaoEquip");
@@ -62,10 +62,6 @@ const fotoLocalInfo = document.getElementById("fotoLocalInfo");
 const clearFotoMedicao = document.getElementById("clearFotoMedicao");
 const clearFotoLocal = document.getElementById("clearFotoLocal");
 
-const generateUserPdf = document.getElementById("generateUserPdf");
-const userReportObra = document.getElementById("userReportObra");
-const userReportStart = document.getElementById("userReportStart");
-const userReportEnd = document.getElementById("userReportEnd");
 
 const loginModal = document.getElementById("loginModal");
 const loginForm = document.getElementById("loginForm");
@@ -708,44 +704,6 @@ const handleMedicaoSubmit = async (event) => {
   setStatusMessage("Medição registrada com sucesso.");
 };
 
-const buildUserPdf = async () => {
-  const user = activeSession || getSession();
-  if (!user) {
-    setStatusMessage("Faça login para gerar o relatório individual.");
-    return;
-  }
-
-  const obraId = normalizeText(userReportObra.value).toUpperCase();
-  const startDate = userReportStart.value || "";
-  const endDate = userReportEnd.value || "";
-
-  try {
-    const result = await generateUserReportPdf({ user, obraId, startDate, endDate });
-    if (!result.total) {
-      setStatusMessage("Nenhuma medição encontrada para os filtros informados.");
-      return;
-    }
-
-    setStatusMessage("PDF gerado com sucesso.");
-    await logAudit({
-      action: AUDIT_ACTIONS.PDF_GENERATED,
-      entity_type: "relatorios",
-      entity_id: user.id,
-      actor_user_id: user.id,
-      summary: "PDF individual gerado."
-    });
-  } catch (error) {
-    setStatusMessage(error?.message || "Falha ao gerar PDF individual.");
-    await logError({
-      module: "medlux-reflective-control",
-      action: "GENERATE_USER_PDF",
-      message: error?.message || "Falha ao gerar PDF individual.",
-      stack: error?.stack,
-      context: { user_id: user?.id || null, obraId, startDate, endDate }
-    });
-  }
-};
-
 const initialize = async () => {
   await ensureDefaultAdmin();
 
@@ -832,13 +790,42 @@ logoutButton.addEventListener("click", () => {
   window.location.href = "../index.html";
 });
 
-generateUserPdf.addEventListener("click", buildUserPdf);
 
 window.addEventListener("online", () => {
   syncStatus.textContent = "Online • IndexedDB";
 });
 window.addEventListener("offline", () => {
   syncStatus.textContent = "Offline pronto • IndexedDB";
+});
+
+initUserReportFeature({
+  getCurrentUser: () => activeSession || getSession(),
+  onStatusMessage: setStatusMessage,
+  onSuccess: async (result) => {
+    const user = activeSession || getSession();
+    await logAudit({
+      action: AUDIT_ACTIONS.PDF_GENERATED,
+      entity_type: "relatorios",
+      entity_id: result?.obraId || user?.id || "",
+      actor_user_id: user?.id || null,
+      summary: "PDF individual gerado."
+    });
+  },
+  onError: async (error, context) => {
+    const user = activeSession || getSession();
+    await logError({
+      module: "medlux-reflective-control",
+      action: "GENERATE_USER_PDF",
+      message: error?.message || "Falha ao gerar PDF individual.",
+      stack: error?.stack,
+      context: {
+        user_id: user?.id || null,
+        obraId: context?.obraId || "",
+        startDate: context?.startDate || "",
+        endDate: context?.endDate || ""
+      }
+    });
+  }
 });
 
 initialize();
