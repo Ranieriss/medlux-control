@@ -1487,6 +1487,7 @@ const formatLocal = (medicao) => {
 
 const calculateMedia = (medicao) => computeMeasurementStats(medicao).media;
 
+
 const formatMedia = (medicao) => {
   const media = calculateMedia(medicao);
   return media === null ? "-" : media.toFixed(2);
@@ -1550,49 +1551,83 @@ const buildGlobalPdf = async () => {
   doc.autoTable({
     head: [["Equipamento", "Usuário", "Início", "Fim", "Termo"]],
     body: vinculoRows,
-    startY: cursorY + 10,
+    startY: cursorY + 18,
     styles: { fontSize: 8 }
   });
 
   cursorY = doc.lastAutoTable.finalY + 20;
   doc.setFontSize(12);
   doc.text(toSafeText("Histórico de medições"), 40, cursorY);
-  const avaliacoes = medicoes.map((medicao) => {
-    const equipamento = equipamentos.find((item) => item.id === (medicao.equipamento_id || medicao.equip_id)) || null;
-    const obra = obras.find((item) => (item.idObra || item.id) === medicao.obra_id) || null;
-    return evaluateMedicao({ medicao, criterios, obra, equipamento });
-  });
-  const resumoConformidade = buildConformidadeResumo(avaliacoes);
-  doc.setFontSize(10);
-  doc.text(toSafeText(`Resumo executivo: Total ${resumoConformidade.total} | Conformes ${resumoConformidade.conformes} | Não conformes ${resumoConformidade.naoConformes} | Não avaliadas ${resumoConformidade.naoAvaliadas} | % conformidade ${resumoConformidade.pctConformidade.toFixed(2)}%`), 40, cursorY + 14);
+const avaliacoes = medicoes.map((medicao) => {
+  const equipamento =
+    equipamentos.find((item) => item.id === (medicao.equipamento_id || medicao.equip_id)) || null;
+  const obra =
+    obras.find((item) => (item.idObra || item.id) === medicao.obra_id) || null;
 
-  const medicaoRows = medicoes.map((medicao, index) => {
-    const avaliacao = avaliacoes[index];
-    const quantidade = avaliacao.quantidadeLeituras || 0;
-    const subtipo = medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao;
-    return [
-      index + 1,
-      toSafeText(medicao.dataHora || medicao.data_hora || "-"),
-      toSafeText(subtipo),
-      toSafeText(medicao.tipoMedicao || medicao.tipo_medicao || "-"),
-      toSafeText(medicao.tipoDeMarcacao || "-"),
-      toSafeText(avaliacao.periodo || "-"),
-      quantidade,
-      toSafeText(avaliacao.media === null ? "-" : avaliacao.media.toFixed(2)),
-      toSafeText(avaliacao.minimo === null ? "-" : avaliacao.minimo),
-      toSafeText(avaliacao.status),
-      toSafeText(medicao.user_id || "-"),
-      toSafeText(medicao.obra_id || "-"),
-      toSafeText(`${medicao.rodovia || "-"} / ${medicao.km || "-"}`),
-      toSafeText(medicao.cidadeUF || "-")
-    ];
-  });
-  doc.autoTable({
-    head: [["Nº", "Data/Hora", "Subtipo", "Classe/Tipo", "Elemento/Marcação", "Período", "Qtd", "MÉDIA", "Mínimo", "Status", "Operador", "Obra", "Rodovia/KM", "Cidade/UF"]],
-    body: medicaoRows,
-    startY: cursorY + 24,
-    styles: { fontSize: 7 }
-  });
+  return evaluateMedicao({ medicao, criterios, obra, equipamento });
+});
+
+const resumoConformidade = buildConformidadeResumo(avaliacoes);
+
+doc.setFontSize(10);
+doc.text(
+  toSafeText(
+    `Resumo executivo: Total ${resumoConformidade.total} | ` +
+    `Conformes ${resumoConformidade.conformes} | ` +
+    `Não conformes ${resumoConformidade.naoConformes} | ` +
+    `Não avaliadas ${resumoConformidade.naoAvaliadas} | ` +
+    `% conformidade ${resumoConformidade.pctConformidade.toFixed(2)}%`
+  ),
+  40,
+  cursorY + 14
+);
+
+const medicaoRows = medicoes.map((medicao, index) => {
+  const avaliacao = avaliacoes[index];
+  const quantidade = avaliacao.quantidadeLeituras || 0;
+  const subtipo = medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao;
+
+  return [
+    index + 1,
+    toSafeText(medicao.dataHora || medicao.data_hora || "-"),
+    toSafeText(subtipo),
+    toSafeText(medicao.tipoMedicao || medicao.tipo_medicao || "-"),
+    toSafeText(medicao.tipoDeMarcacao || "-"),
+    toSafeText(avaliacao.periodo || "-"),
+    quantidade,
+    toSafeText(avaliacao.media === null ? "-" : avaliacao.media.toFixed(2)),
+    toSafeText(avaliacao.minimo === null ? "-" : avaliacao.minimo),
+    toSafeText(avaliacao.status),
+    toSafeText(medicao.user_id || "-"),
+    toSafeText(medicao.obra_id || "-"),
+    toSafeText(`${medicao.rodovia || "-"} / ${medicao.km || "-"}`),
+    toSafeText(medicao.cidadeUF || "-")
+  ];
+});
+
+doc.autoTable({
+  head: [[
+    "Nº",
+    "Data/Hora",
+    "Subtipo",
+    "Classe/Tipo",
+    "Elemento/Marcação",
+    "Período",
+    "Qtd",
+    "MÉDIA",
+    "Mínimo",
+    "Status",
+    "Operador",
+    "Obra",
+    "Rodovia/KM",
+    "Cidade/UF"
+  ]],
+  body: medicaoRows,
+  startY: cursorY + 24,
+  styles: { fontSize: 7 }
+});
+
+ 
 
   let anexosY = doc.lastAutoTable.finalY + 20;
   const anexos = medicoes.flatMap((medicao) => medicao.fotos || []);
