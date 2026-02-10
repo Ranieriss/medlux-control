@@ -114,7 +114,6 @@ const filterMedicoes = ({ medicoes, obraId, startDate, endDate, userId, canSeeAl
 
 export async function generateUserPdfReport({ obraId, startDate, endDate, currentUser }) {
   const normalizedObraId = normalizeUpper(obraId);
-  if (!normalizedObraId) throw new Error("Informe a obra para gerar o relatório individual.");
   if (startDate && !parseDayStart(startDate)) throw new Error("Data inicial inválida.");
   if (endDate && !parseDayEnd(endDate)) throw new Error("Data final inválida.");
 
@@ -134,7 +133,9 @@ export async function generateUserPdfReport({ obraId, startDate, endDate, curren
     canSeeAll
   }).sort((a, b) => resolveDate(a) - resolveDate(b));
 
-  const obra = obras.find((item) => normalizeUpper(item.id || item.idObra) === normalizedObraId) || null;
+  const obra = normalizedObraId
+    ? obras.find((item) => normalizeUpper(item.id || item.idObra) === normalizedObraId) || null
+    : null;
 
   if (!filtradas.length) {
     throw new Error("Nenhuma medição encontrada para os filtros informados.");
@@ -145,13 +146,13 @@ export async function generateUserPdfReport({ obraId, startDate, endDate, curren
   const conformidade = resolveConformidadeResumo(filtradas);
 
   if (!window.jspdf || typeof window.jspdf.jsPDF !== "function") {
-    throw new Error("Biblioteca de PDF não disponível no navegador. Recarregue a página e tente novamente.");
+    throw new Error("Biblioteca de PDF indisponível.");
   }
 
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
   if (typeof doc.autoTable !== "function") {
-    throw new Error("Biblioteca de PDF carregada parcialmente: plugin AutoTable indisponível.");
+    throw new Error("Biblioteca de PDF indisponível.");
   }
   const generatedAt = new Date();
 
@@ -160,7 +161,7 @@ export async function generateUserPdfReport({ obraId, startDate, endDate, curren
 
   doc.setFontSize(10);
   doc.text(`Operador: ${canSeeAll ? "ADMIN (visão abrangente)" : `${textSafe(userId)} - ${textSafe(user?.nome)}`}`, 40, 56);
-  doc.text(`Obra: ${normalizedObraId} - ${textSafe(obra?.nomeObra || obra?.nome)}`, 40, 70);
+  doc.text(`Obra: ${normalizedObraId || "TODAS"} - ${textSafe(obra?.nomeObra || obra?.nome || "Visão consolidada")}`, 40, 70);
   doc.text(
     `Rodovia: ${textSafe(obra?.rodovia)} | Cidade/UF: ${textSafe(obra?.cidadeUF || obra?.cidade_uf)}`,
     40,
@@ -187,8 +188,8 @@ export async function generateUserPdfReport({ obraId, startDate, endDate, curren
       startY: 126,
       head: [["Data/Hora", "Equipamento", "Subtipo", "Média", "Mínimo/Critério", "Status", "Modelo"]],
       body: rows,
-      styles: { fontSize: 8, cellPadding: 3, overflow: "linebreak" },
-      headStyles: { halign: "center", valign: "middle", overflow: "visible" },
+      styles: { fontSize: 8, cellPadding: 3, overflow: "ellipsize", lineWidth: 0.1 },
+      headStyles: { halign: "center", valign: "middle", overflow: "ellipsize" },
       columnStyles: {
         0: { cellWidth: 82 },
         1: { cellWidth: 62 },
@@ -210,7 +211,7 @@ export async function generateUserPdfReport({ obraId, startDate, endDate, curren
   );
 
   const fileDate = generatedAt.toISOString().slice(0, 10);
-  const fileName = `relatorio-individual-${normalizedObraId}-${normalizeUpper(userId)}-${fileDate}.pdf`;
+  const fileName = `relatorio-individual-${normalizedObraId || "TODAS"}-${normalizeUpper(userId)}-${fileDate}.pdf`;
 
   // Correção crítica para GitHub Pages/PWA: tenta abrir o PDF em nova aba e mantém fallback de download.
   const blobUrl = doc.output("bloburl");
