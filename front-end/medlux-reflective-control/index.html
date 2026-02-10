@@ -40,10 +40,12 @@
                 <label for="medicaoEquip">Equipamento *</label>
                 <select id="medicaoEquip" name="equip_id" required></select>
               </div>
+
               <div class="field">
                 <label for="medicaoTipo">Tipo de medição *</label>
                 <input id="medicaoTipo" name="tipo_medicao" placeholder="RL, Qd..." required />
               </div>
+
               <div class="field">
                 <label for="medicaoSubtipo">Subtipo *</label>
                 <select id="medicaoSubtipo" name="subtipo" required>
@@ -55,27 +57,32 @@
                   <option value="PLACA">Placa</option>
                 </select>
               </div>
+
               <div class="field">
                 <label for="medicaoClasseTipo">Classe/Tipo</label>
                 <select id="medicaoClasseTipo" name="classe_tipo">
                   <option value="">Selecione</option>
                 </select>
               </div>
+
               <div class="field">
                 <label for="medicaoDataAplicacao">Data de aplicação</label>
                 <input id="medicaoDataAplicacao" name="data_aplicacao" type="date" />
               </div>
+
               <div class="field">
                 <label for="medicaoObra">Obra *</label>
                 <input id="medicaoObra" name="obra_id" placeholder="OBRA-001" list="obraList" required />
                 <datalist id="obraList"></datalist>
               </div>
+
               <div class="field">
                 <label for="medicaoRelatorio">Identificador do relatório</label>
                 <input id="medicaoRelatorio" name="identificadorRelatorio" placeholder="REL-2024-001" />
               </div>
+
               <div class="field">
-                <label for="medicaoMarcacao" id="medicaoMarcacaoLabel">Elemento/Marcação</label>
+                <label for="medicaoMarcacao">Elemento da via</label>
                 <select id="medicaoMarcacao" name="tipoDeMarcacao">
                   <option value="">Selecione</option>
                   <option value="BORDO_DIREITO">Bordo direito</option>
@@ -88,50 +95,62 @@
                   <option value="LEGENDA">Legenda</option>
                 </select>
               </div>
+
+              <div class="field">
+                <label for="medicaoLegendaTexto">Texto da legenda</label>
+                <input id="medicaoLegendaTexto" name="texto_legenda" placeholder="Ex.: PARE" />
+              </div>
+
               <div class="field">
                 <label for="medicaoRodovia">Rodovia</label>
                 <input id="medicaoRodovia" name="rodovia" placeholder="BR-116" />
               </div>
+
               <div class="field">
                 <label for="medicaoKm">KM</label>
                 <input id="medicaoKm" name="km" />
               </div>
+
               <div class="field">
                 <label for="medicaoCidade">Cidade/UF</label>
                 <input id="medicaoCidade" name="cidadeUF" placeholder="São Paulo-SP" />
               </div>
+
               <div class="field">
                 <label for="medicaoEndereco">Endereço/Localidade</label>
                 <input id="medicaoEndereco" name="enderecoTexto" placeholder="Pista Norte, acesso km 120" />
               </div>
+
               <div class="field">
                 <label for="medicaoSentido">Sentido</label>
                 <input id="medicaoSentido" name="sentido" />
               </div>
+
               <div class="field">
                 <label for="medicaoFaixa">Faixa</label>
                 <input id="medicaoFaixa" name="faixa" />
               </div>
+
               <div class="field">
                 <label for="medicaoLinha">Linha</label>
                 <input id="medicaoLinha" name="linha" placeholder="Bordo/Eixo" />
               </div>
+
               <div class="field">
                 <label for="medicaoEstacao">Estação</label>
                 <input id="medicaoEstacao" name="estacao" placeholder="Est. 1" />
               </div>
-              <div class="field">
-                <label for="medicaoLegendaTexto">Texto da legenda</label>
-                <input id="medicaoLegendaTexto" name="legenda_texto" placeholder="PARE" />
-              </div>
+
               <div class="field">
                 <label for="medicaoLetra">Letra (compatibilidade)</label>
                 <input id="medicaoLetra" name="letra" placeholder="P, A, R, E..." />
               </div>
+
               <div class="field">
                 <label for="medicaoCor">Cor (placa)</label>
                 <input id="medicaoCor" name="cor" placeholder="Branco, Vermelho..." />
               </div>
+
               <div class="field">
                 <label for="medicaoAngulo">Ângulo (placa)</label>
                 <select id="medicaoAngulo" name="angulo">
@@ -140,23 +159,28 @@
                   <option value="90">90°</option>
                 </select>
               </div>
+
               <div class="field">
                 <label for="medicaoPosicao">Posição (placa)</label>
                 <input id="medicaoPosicao" name="posicao" placeholder="Centro, topo..." />
               </div>
+
               <div class="field">
                 <label for="medicaoClima">Condição climática</label>
                 <input id="medicaoClima" name="clima" placeholder="Céu limpo" />
               </div>
+
               <div class="field">
                 <label for="medicaoMedia">Média</label>
                 <input id="medicaoMedia" name="media" type="number" step="0.01" readonly />
               </div>
+
               <div class="field field-full" id="legendaPorLetraField" style="display:none">
                 <label for="legendaPorLetra">Estrutura por letra (LETRA: v1,v2,v3)</label>
                 <textarea id="legendaPorLetra" rows="4" placeholder="P:120,122,121
 A:118,117,119"></textarea>
               </div>
+
               <div class="field field-full">
                 <label>Leituras *</label>
                 <div class="reading-toolbar">
@@ -166,6 +190,7 @@ A:118,117,119"></textarea>
                 <textarea id="leiturasPaste" rows="2" placeholder="Cole valores separados por ; ou linha"></textarea>
                 <div class="reading-list" id="leiturasList"></div>
               </div>
+
               <div class="field field-full">
                 <label>GPS (automático ou manual)</label>
                 <div class="gps-actions">
@@ -195,6 +220,7 @@ A:118,117,119"></textarea>
                   </div>
                 </div>
               </div>
+
               <div class="field field-full">
                 <label>Fotos</label>
                 <div class="photo-grid">
@@ -212,11 +238,13 @@ A:118,117,119"></textarea>
                   </div>
                 </div>
               </div>
+
               <div class="field field-full">
                 <label for="medicaoObs">Observações</label>
                 <input id="medicaoObs" name="observacoes" />
               </div>
             </div>
+
             <div class="modal-actions">
               <span class="muted" id="medicaoHint">Campos com * são obrigatórios.</span>
               <div class="action-buttons">

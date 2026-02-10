@@ -75,7 +75,12 @@ const validateMedicao = (data = {}) => {
     addError(errors, "leituras", "Leituras inválidas.");
   }
   if (subtipo === "HORIZONTAL") {
-    if (leituras.length !== 10) addError(errors, "leituras", "Horizontal exige 10 leituras.");
+    const tipoMarcacao = String(data.tipoDeMarcacao || "").trim().toUpperCase();
+    if (tipoMarcacao === "LEGENDA") {
+      const textoLegenda = String(data.texto_legenda || "").trim();
+      if (!textoLegenda) addError(errors, "texto_legenda", "Texto da legenda obrigatório.");
+      if (leituras.length < 3) addError(errors, "leituras", "Legenda exige pelo menos 3 leituras.");
+    } else if (leituras.length < 10) addError(errors, "leituras", "Horizontal exige no mínimo 10 leituras por segmento.");
     if (!String(data.linha || "").trim() || !String(data.estacao || "").trim()) {
       addError(errors, "linha", "Linha e estação obrigatórias.");
     }
@@ -83,8 +88,13 @@ const validateMedicao = (data = {}) => {
   if (subtipo === "VERTICAL" && leituras.length < 1) addError(errors, "leituras", "Vertical exige leituras válidas.");
   if (subtipo === "TACHAS" && leituras.length < 1) addError(errors, "leituras", "Tachas exige leituras válidas.");
   if (subtipo === "LEGENDA") {
-    const textoLegenda = String(data.legenda_texto || "").trim();
-    if (!textoLegenda) addError(errors, "legenda_texto", "Texto da legenda obrigatório.");
+if (subtipo === "LEGENDA") {
+  const textoLegenda = String(data.legenda_texto || data.texto_legenda || "").trim();
+  if (!textoLegenda) addError(errors, "legenda_texto", "Texto da legenda obrigatório.");
+
+  if (leituras.length < 3) addError(errors, "leituras", "Legenda exige pelo menos 3 leituras.");
+}
+
   }
   if (subtipo === "PLACA") {
     if (leituras.length !== 5) addError(errors, "leituras", "Placa exige 5 leituras.");

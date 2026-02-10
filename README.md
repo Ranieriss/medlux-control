@@ -51,6 +51,16 @@ Sistema offline-first para gestão de equipamentos MEDLUX, usuários, vínculos 
 - ADMIN pode registrar medições para qualquer equipamento e visualizar todas.
   - Se não houver login ativo, o app solicita o login local antes de liberar o formulário.
 
+
+## Regras de conformidade (PDF e relatórios)
+
+- O valor principal exibido em PDF/exportações é sempre a **MÉDIA** calculada.
+- **Horizontal**: descarta maior e menor leitura e calcula a média das restantes (mantendo `raw_readings`, `discarded_min`, `discarded_max`).
+- **Vertical**: média simples; tipo de película dinâmico **I–X**.
+- **Tachas**: média simples; tipo de lente refletiva dinâmico **I–IV** (NBR ABNT 14636).
+- **% de conformidade** = `conformes / (conformes + não conformes) * 100`; medições **NÃO AVALIADAS** ficam fora do denominador e aparecem separadamente.
+- **LEGENDA**: estrutura recomendada de **3 leituras por letra**, com tabela de média por letra e média final da legenda.
+
 ## Relatórios em PDF
 
 - **MEDLUX Control (ADMIN)**:
