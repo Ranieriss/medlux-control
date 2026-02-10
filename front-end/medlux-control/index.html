@@ -292,6 +292,26 @@
               <button class="btn" id="generateObraPdf" type="button">Gerar PDF por Obra</button>
             </div>
             <div class="subpanel">
+              <h3>Relatório individual</h3>
+              <p class="muted">Gera PDF apenas das medições do operador logado.</p>
+              <div class="form-grid">
+                <div class="field">
+                  <label for="userReportObra">Obra</label>
+                  <input id="userReportObra" placeholder="OBRA-001" />
+                </div>
+                <div class="field">
+                  <label for="userReportStart">Data início</label>
+                  <input id="userReportStart" type="date" />
+                </div>
+                <div class="field">
+                  <label for="userReportEnd">Data fim</label>
+                  <input id="userReportEnd" type="date" />
+                </div>
+              </div>
+              <button class="btn" id="generateUserPdf" type="button">Gerar PDF individual</button>
+            </div>
+
+            <div class="subpanel">
               <h3>Exportar backup</h3>
               <p class="muted">Gera um arquivo JSON com todos os dados locais.</p>
               <button class="btn" id="exportBackup" type="button">Exportar JSON</button>

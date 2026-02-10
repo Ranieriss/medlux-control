@@ -734,8 +734,9 @@ const getMedicoesByEquip = async (equipId) => {
 };
 
 const getMedicoesByUser = async (userId) => {
+  const normalizedUserId = normalizeId(userId);
   const items = await getAllMedicoes();
-  return items.filter((item) => item.user_id === userId);
+  return items.filter((item) => normalizeId(item.user_id) === normalizedUserId);
 };
 
 // ===========================
