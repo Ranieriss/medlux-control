@@ -83,11 +83,33 @@ const resolveCurrentUser = async (currentUser) => {
   const sessionId = normalizeText(currentUser?.id || currentUser?.user_id);
   if (!sessionId) throw new Error("Faça login para gerar o relatório individual.");
 
+  const fallbackUser = {
+    ...(currentUser || {}),
+    id: sessionId,
+    user_id: sessionId,
+    role: normalizeUpper(currentUser?.role)
+  };
+
   const userFromDb = (await getUserById(sessionId)) || null;
-  if (userFromDb) return userFromDb;
+  if (userFromDb) {
+    return {
+      ...userFromDb,
+      ...fallbackUser,
+      role: normalizeUpper(fallbackUser.role || userFromDb.role)
+    };
+  }
 
   const users = await getAllUsers();
-  return users.find((item) => normalizeUpper(item.id || item.user_id) === normalizeUpper(sessionId)) || currentUser;
+  const found = users.find((item) => normalizeUpper(item.id || item.user_id) === normalizeUpper(sessionId)) || null;
+  if (found) {
+    return {
+      ...found,
+      ...fallbackUser,
+      role: normalizeUpper(fallbackUser.role || found.role)
+    };
+  }
+
+  return fallbackUser;
 };
 
 const filterMedicoes = ({ medicoes, obraId, startDate, endDate, userId, canSeeAll }) => {
