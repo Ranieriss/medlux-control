@@ -55,11 +55,16 @@ const textSafe = (value) => normalizeText(value) || "-";
 
 let pdfLibPromise = null;
 
+const PDF_LIB_URLS = {
+  jspdf: "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",
+  autoTable: "https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"
+};
+
 const loadScript = (src) =>
   new Promise((resolve, reject) => {
-    const existing = document.querySelector(`script[data-medlux-pdf-src="${src}"]`);
+    const existing = document.querySelector(`script[data-medlux-pdf-src="${src}"]`) || document.querySelector(`script[src="${src}"]`);
     if (existing) {
-      if (existing.dataset.loaded === "true") {
+      if (existing.dataset.loaded === "true" || (src === PDF_LIB_URLS.jspdf && hasJsPdf()) || (src === PDF_LIB_URLS.autoTable && hasAutoTablePlugin())) {
         resolve();
         return;
       }
@@ -80,13 +85,19 @@ const loadScript = (src) =>
     document.head.appendChild(script);
   });
 
+const hasJsPdf = () => Boolean(window.jspdf && typeof window.jspdf.jsPDF === "function");
+
+const hasAutoTablePlugin = () => Boolean(window.jspdf?.jsPDF?.prototype?.autoTable || window.jsPDF?.API?.autoTable);
+
 const ensurePdfLibReady = async () => {
-  if (window.jspdf?.jsPDF && typeof window.jspdf.jsPDF.prototype.autoTable === "function") return;
+  if (hasJsPdf()) {
+    return;
+  }
 
   if (!pdfLibPromise) {
     pdfLibPromise = (async () => {
-      await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js");
-      await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js");
+      await loadScript(PDF_LIB_URLS.jspdf);
+      await loadScript(PDF_LIB_URLS.autoTable);
     })().catch((error) => {
       pdfLibPromise = null;
       throw error;
@@ -95,11 +106,10 @@ const ensurePdfLibReady = async () => {
 
   await pdfLibPromise;
 
-  if (!window.jspdf?.jsPDF || typeof window.jspdf.jsPDF.prototype.autoTable !== "function") {
-    throw new Error("Biblioteca de PDF não disponível no navegador.");
+  if (!hasJsPdf()) {
+    throw new Error("Biblioteca de PDF não disponível no navegador. Verifique conexão com a internet ou bloqueio de CDN.");
   }
 };
-
 const resolveConformidadeResumo = (medicoes = []) => {
   const total = medicoes.length;
   if (!total) return { conformes: 0, naoConformes: 0, naoAvaliadas: 0, pctConformes: 0, pctNaoConformes: 0, pctNaoAvaliadas: 0 };
@@ -186,6 +196,12 @@ export async function generateUserPdfReport({ obraId, startDate, endDate, curren
 
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+  if (typeof doc.autoTable !== "function") {
+    await loadScript(PDF_LIB_URLS.autoTable);
+  }
+  if (typeof doc.autoTable !== "function") {
+    throw new Error("Biblioteca de PDF carregada parcialmente: plugin AutoTable indisponível.");
+  }
   const generatedAt = new Date();
 
   doc.setFontSize(16);

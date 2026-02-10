@@ -35,6 +35,63 @@ const resolveMedicaoDate = (medicao) => parseDate(medicao?.created_at || medicao
 
 const resolveUserId = (loggedUser) => normalizeText(loggedUser?.id || loggedUser?.user_id);
 
+
+let pdfLibPromise = null;
+
+const PDF_LIB_URLS = {
+  jspdf: "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",
+  autoTable: "https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"
+};
+
+const hasJsPdf = () => Boolean(window.jspdf && typeof window.jspdf.jsPDF === "function");
+
+const hasAutoTablePlugin = () => Boolean(window.jspdf?.jsPDF?.prototype?.autoTable || window.jsPDF?.API?.autoTable);
+
+const loadScript = (src) =>
+  new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[data-medlux-pdf-src="${src}"]`) || document.querySelector(`script[src="${src}"]`);
+    if (existing) {
+      if (existing.dataset.loaded === "true" || (src === PDF_LIB_URLS.jspdf && hasJsPdf()) || (src === PDF_LIB_URLS.autoTable && hasAutoTablePlugin())) {
+        resolve();
+        return;
+      }
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener("error", () => reject(new Error(`Falha ao carregar script: ${src}`)), { once: true });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = src;
+    script.defer = true;
+    script.dataset.medluxPdfSrc = src;
+    script.addEventListener("load", () => {
+      script.dataset.loaded = "true";
+      resolve();
+    });
+    script.addEventListener("error", () => reject(new Error(`Falha ao carregar script: ${src}`)));
+    document.head.appendChild(script);
+  });
+
+const ensurePdfLibReady = async () => {
+  if (hasJsPdf()) return;
+
+  if (!pdfLibPromise) {
+    pdfLibPromise = (async () => {
+      await loadScript(PDF_LIB_URLS.jspdf);
+      await loadScript(PDF_LIB_URLS.autoTable);
+    })().catch((error) => {
+      pdfLibPromise = null;
+      throw error;
+    });
+  }
+
+  await pdfLibPromise;
+
+  if (!hasJsPdf()) {
+    throw new Error("Biblioteca de PDF não disponível no navegador. Verifique conexão com a internet ou bloqueio de CDN.");
+  }
+};
+
 const resolvePeriodo = ({ startDate, endDate }) => {
   const start = parseDate(startDate);
   const end = parseDate(endDate);
@@ -51,10 +108,16 @@ const resolvePeriodo = ({ startDate, endDate }) => {
 };
 
 const buildPdfBlob = async ({ loggedUser, obra, obraId, periodo, medicoes }) => {
-  if (!window.jspdf?.jsPDF) throw new Error("Biblioteca de PDF não está disponível no navegador.");
+  await ensurePdfLibReady();
 
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+  if (typeof doc.autoTable !== "function") {
+    await loadScript(PDF_LIB_URLS.autoTable);
+  }
+  if (typeof doc.autoTable !== "function") {
+    throw new Error("Biblioteca de PDF carregada parcialmente: plugin AutoTable indisponível.");
+  }
   const generatedAt = new Date();
 
   doc.setFontSize(16);

@@ -276,7 +276,8 @@ const updateMedia = () => {
     legenda_por_letra: legendaEstrutura
   });
 
-  medicaoMedia.value = stats.media === null ? "" : stats.media.toFixed(2);
+  const mediaValue = Number(stats?.media);
+  medicaoMedia.value = Number.isFinite(mediaValue) ? mediaValue.toFixed(2) : "";
 };
 
 const toggleField = (input, show) => {
