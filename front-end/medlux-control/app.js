@@ -30,7 +30,7 @@ import { validateUser, validateEquipamento, validateVinculo } from "../shared/va
 import { initGlobalErrorHandling, logError } from "../shared/errors.js";
 import { getAppVersion, sanitizeText } from "../shared/utils.js";
 import { computeMeasurementStats, evaluateMedicao, buildConformidadeResumo, computeLegendaStats } from "../shared/medicao-utils.js";
-import { generateUserReportPdf } from "../shared/reports/user-report.js";
+import { generateUserIndividualPdf } from "./reports/user-report.js";
 
 // normalizarTexto precisa ficar no topo para evitar TDZ na avaliação do módulo.
 const normalizarTexto = (value) => String(value || "").trim().replace(/\s+/g, " ");
@@ -72,6 +72,7 @@ const generateGlobalPdf = document.getElementById("generateGlobalPdf");
 const generateObraPdf = document.getElementById("generateObraPdf");
 const generateUserPdf = document.getElementById("generateUserPdf");
 const userReportObra = document.getElementById("userReportObra");
+const obraList = document.getElementById("obraList");
 const userReportStart = document.getElementById("userReportStart");
 const userReportEnd = document.getElementById("userReportEnd");
 const obraFilter = document.getElementById("obraFilter");
@@ -596,6 +597,18 @@ const refreshSelectOptions = () => {
     option.textContent = `${userId} • ${user.nome}`;
     vinculoUser.appendChild(option);
   });
+
+  if (obraList) {
+    obraList.textContent = "";
+    obras.forEach((obra) => {
+      const option = document.createElement("option");
+      const obraId = (obra.idObra || obra.id || "").toString().trim().toUpperCase();
+      if (!obraId) return;
+      option.value = obraId;
+      option.label = `${obraId} • ${obra.nomeObra || obra.nome || ""}`;
+      obraList.appendChild(option);
+    });
+  }
 };
 
 const handleDelete = async (id) => {
@@ -1887,12 +1900,12 @@ const buildUserPdf = async () => {
   const endDate = userReportEnd?.value || "";
 
   try {
-    const result = await generateUserReportPdf({ user, obraId, startDate, endDate });
+    const result = await generateUserIndividualPdf({ obraId, startDate, endDate, loggedUser: user });
     if (!result.total) {
       setStatusMessage("Nenhuma medição encontrada para os filtros informados.");
       return;
     }
-    setStatusMessage("PDF gerado com sucesso.");
+    setStatusMessage(result.swappedPeriod ? "PDF gerado com sucesso (período ajustado automaticamente)." : "PDF gerado com sucesso.");
     await logAudit({
       action: AUDIT_ACTIONS.PDF_GENERATED,
       entity_type: "relatorios",
