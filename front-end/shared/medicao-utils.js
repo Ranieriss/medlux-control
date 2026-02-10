@@ -43,13 +43,17 @@ const computeLegendaStats = (medicaoInput = {}) => {
   const isLegenda = safeUpper(medicao.tipoDeMarcacao || medicao.tipo_marcacao || medicao.elemento_via) === "LEGENDA" || subtipo === "LEGENDA";
   if (!isLegenda) return null;
 
-  if (Array.isArray(medicao.legenda_por_letra) && medicao.legenda_por_letra.length) {
-    const medias = medicao.legenda_por_letra
+  const legendaEstruturada = Array.isArray(medicao.legenda_por_letra)
+    ? medicao.legenda_por_letra
+    : [];
+
+  if (legendaEstruturada.length) {
+    const medias = legendaEstruturada
       .filter((item) => item && typeof item === "object")
       .map((item) => ({
       letra: sanitizeText(item.letra || "?"),
       leituras: safeNumberArray(item.leituras),
-      media: toNum(item.media)
+      media: toNum(item.media) ?? average(item.leituras)
       }));
 
     if (!medias.length) return emptyLegendaStats(medicao.texto_legenda || medicao.textoLegenda || "", true);
