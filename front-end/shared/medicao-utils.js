@@ -66,62 +66,71 @@ const computeLegendaStats = (medicao = {}) => {
 
 const computeMeasurementStats = (medicao = {}) => {
   const subtipo = safeUpper(medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao);
+  const tipoDeMarcacao = safeUpper(medicao.tipoDeMarcacao || medicao.tipo_marcacao || medicao.elemento_via);
   const values = Array.isArray(medicao.leituras)
     ? medicao.leituras.map((value) => toNum(value)).filter((value) => value !== null)
     : [];
   const quantidade = values.length || (toNum(medicao.valor) !== null ? 1 : 0);
   const legenda = computeLegendaStats(medicao);
-  if (legenda?.mediaFinal !== null) {
-    return {
-      subtipo,
-      media: legenda.mediaFinal,
-      quantidadeLeituras: quantidade,
-      rawReadings: values,
-      discardedMin: null,
-      discardedMax: null,
-      regra: legenda.possuiEstrutura
+  const buildStats = ({ media = null, minimo = null, maximo = null, discardedMin = null, discardedMax = null, regra = "Média simples" } = {}) => ({
+    subtipo,
+    media,
+    minimo,
+    maximo,
+    quantidade,
+    quantidadeLeituras: quantidade,
+    rawReadings: values,
+    discardedMin,
+    discardedMax,
+    regra
+  });
+
+  const isLegenda = subtipo === "LEGENDA" || tipoDeMarcacao === "LEGENDA";
+  const legendaMedia = toNum(legenda?.mediaFinal);
+
+  if (isLegenda && legendaMedia !== null) {
+    return buildStats({
+      media: legendaMedia,
+      regra: legenda?.possuiEstrutura
         ? "Legenda: média por letra (3 leituras por letra) + média final"
         : "Legenda: estrutura por letra não informada; média simples"
-    };
+    });
   }
+
+  if (isLegenda) {
+    if (values.length) {
+      return buildStats({ media: average(values), regra: "Legenda: fallback para média simples das leituras" });
+    }
+    return buildStats({ media: null, regra: "Legenda sem leituras válidas" });
+  }
+
   if (!values.length) {
-    return {
-      subtipo,
+    return buildStats({
       media: toNum(medicao.media) ?? toNum(medicao.valor),
-      quantidadeLeituras: quantidade,
-      rawReadings: values,
       discardedMin: toNum(medicao.discarded_min),
       discardedMax: toNum(medicao.discarded_max),
       regra: "Sem leituras válidas"
-    };
+    });
   }
   if (subtipo === "HORIZONTAL") {
     if (values.length < 10) {
-      return { subtipo, media: null, quantidadeLeituras: quantidade, rawReadings: values, discardedMin: null, discardedMax: null, regra: "Horizontal exige no mínimo 10 leituras" };
+      return buildStats({ media: null, regra: "Horizontal exige no mínimo 10 leituras" });
     }
     const sorted = [...values].sort((a, b) => a - b);
     const discardedMin = sorted[0];
     const discardedMax = sorted[sorted.length - 1];
     const trimmed = sorted.slice(1, sorted.length - 1);
-    return {
-      subtipo,
+    return buildStats({
       media: average(trimmed),
-      quantidadeLeituras: quantidade,
-      rawReadings: values,
       discardedMin,
       discardedMax,
       regra: "Horizontal: descarta maior e menor e calcula média das restantes"
-    };
+    });
   }
-  return {
-    subtipo,
+  return buildStats({
     media: average(values),
-    quantidadeLeituras: quantidade,
-    rawReadings: values,
-    discardedMin: null,
-    discardedMax: null,
     regra: subtipo === "VERTICAL" ? "Vertical: média simples" : (subtipo === "TACHAS" ? "Tachas: média simples" : "Média simples")
-  };
+  });
 };
 
 const resolvePeriodoHorizontal = (medicao = {}, obra = null) => {
