@@ -41,9 +41,19 @@ const loadScript = (src) =>
   new Promise((resolve, reject) => {
     const existing = document.querySelector(`script[data-medlux-pdf-src="${src}"]`) || document.querySelector(`script[src="${src}"]`);
     if (existing) {
-      if (existing.dataset.loaded === "true") return resolve();
+      if (existing.dataset.loaded === "true" || existing.readyState === "complete" || existing.readyState === "loaded") {
+        existing.dataset.loaded = "true";
+        return resolve();
+      }
       existing.addEventListener("load", () => resolve(), { once: true });
       existing.addEventListener("error", () => reject(new Error(`Falha ao carregar script: ${src}`)), { once: true });
+
+      // Script já pode ter sido carregado antes do bind dos eventos.
+      setTimeout(() => {
+        if (existing.dataset.loaded === "true") return;
+        existing.dataset.loaded = "true";
+        resolve();
+      }, 0);
       return;
     }
     const script = document.createElement("script");

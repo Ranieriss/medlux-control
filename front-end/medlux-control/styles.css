@@ -457,6 +457,7 @@ input:focus, select:focus, textarea:focus{
 
 .recent-medicoes-wrapper{
   overflow-x:auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .recent-medicoes-table{
@@ -467,6 +468,11 @@ input:focus, select:focus, textarea:focus{
 .recent-medicoes-table th,
 .recent-medicoes-table td{
   white-space: nowrap;
+}
+
+.recent-medicoes-table thead th{
+  white-space: nowrap;
+  word-break: keep-all;
 }
 
 .recent-medicoes-table th{
