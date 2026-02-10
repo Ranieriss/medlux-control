@@ -1839,7 +1839,13 @@ const buildObraPdf = async () => {
           toSafeText(letra.media === null ? "-" : letra.media.toFixed(2))
         ]);
       });
-      rows.push([toSafeText(medicao.id || medicao.medicao_id), "Média final", "-", toSafeText(detalhe.mediaFinal === null ? "-" : detalhe.mediaFinal.toFixed(2))]);
+      const mediaLegenda = Number(detalhe?.mediaFinal);
+      rows.push([
+        toSafeText(medicao.id || medicao.medicao_id),
+        "Média final",
+        "-",
+        toSafeText(Number.isFinite(mediaLegenda) ? mediaLegenda.toFixed(2) : "-")
+      ]);
     });
     doc.setFontSize(12);
     doc.text(toSafeText("Média por letra (LEGENDA)"), 40, cursorY);

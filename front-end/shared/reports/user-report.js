@@ -115,6 +115,8 @@ const filterMedicoes = ({ medicoes, obraId, startDate, endDate, userId, canSeeAl
 export async function generateUserPdfReport({ obraId, startDate, endDate, currentUser }) {
   const normalizedObraId = normalizeUpper(obraId);
   if (!normalizedObraId) throw new Error("Informe a obra para gerar o relatório individual.");
+  if (startDate && !parseDayStart(startDate)) throw new Error("Data inicial inválida.");
+  if (endDate && !parseDayEnd(endDate)) throw new Error("Data final inválida.");
 
   await ensurePdfLib();
 
@@ -142,6 +144,10 @@ export async function generateUserPdfReport({ obraId, startDate, endDate, curren
   const mediaGeral = medias.length ? medias.reduce((acc, item) => acc + item, 0) / medias.length : null;
   const conformidade = resolveConformidadeResumo(filtradas);
 
+  if (!window.jspdf || typeof window.jspdf.jsPDF !== "function") {
+    throw new Error("Biblioteca de PDF não disponível no navegador. Recarregue a página e tente novamente.");
+  }
+
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
   if (typeof doc.autoTable !== "function") {
@@ -153,7 +159,7 @@ export async function generateUserPdfReport({ obraId, startDate, endDate, curren
   doc.text("MEDLUX - Relatorio Individual", 40, 36);
 
   doc.setFontSize(10);
-  doc.text(`Operador: ${textSafe(userId)} - ${textSafe(user?.nome)}`, 40, 56);
+  doc.text(`Operador: ${canSeeAll ? "ADMIN (visão abrangente)" : `${textSafe(userId)} - ${textSafe(user?.nome)}`}`, 40, 56);
   doc.text(`Obra: ${normalizedObraId} - ${textSafe(obra?.nomeObra || obra?.nome)}`, 40, 70);
   doc.text(
     `Rodovia: ${textSafe(obra?.rodovia)} | Cidade/UF: ${textSafe(obra?.cidadeUF || obra?.cidade_uf)}`,
@@ -205,7 +211,13 @@ export async function generateUserPdfReport({ obraId, startDate, endDate, curren
 
   const fileDate = generatedAt.toISOString().slice(0, 10);
   const fileName = `relatorio-individual-${normalizedObraId}-${normalizeUpper(userId)}-${fileDate}.pdf`;
-  doc.save(fileName);
+
+  // Correção crítica para GitHub Pages/PWA: tenta abrir o PDF em nova aba e mantém fallback de download.
+  const blobUrl = doc.output("bloburl");
+  const popup = window.open(blobUrl, "_blank", "noopener,noreferrer");
+  if (!popup) {
+    doc.save(fileName);
+  }
 
   return {
     total: filtradas.length,
