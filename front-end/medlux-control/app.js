@@ -30,6 +30,7 @@ import { validateUser, validateEquipamento, validateVinculo } from "../shared/va
 import { initGlobalErrorHandling, logError } from "../shared/errors.js";
 import { getAppVersion, sanitizeText } from "../shared/utils.js";
 import { computeMeasurementStats, evaluateMedicao, buildConformidadeResumo, computeLegendaStats } from "../shared/medicao-utils.js";
+import { generateUserReportPdf } from "../shared/reports/user-report.js";
 
 // normalizarTexto precisa ficar no topo para evitar TDZ na avaliação do módulo.
 const normalizarTexto = (value) => String(value || "").trim().replace(/\s+/g, " ");
@@ -69,6 +70,10 @@ const bulkPaste = document.getElementById("bulkPaste");
 const importBulk = document.getElementById("importBulk");
 const generateGlobalPdf = document.getElementById("generateGlobalPdf");
 const generateObraPdf = document.getElementById("generateObraPdf");
+const generateUserPdf = document.getElementById("generateUserPdf");
+const userReportObra = document.getElementById("userReportObra");
+const userReportStart = document.getElementById("userReportStart");
+const userReportEnd = document.getElementById("userReportEnd");
 const obraFilter = document.getElementById("obraFilter");
 const relatorioFilter = document.getElementById("relatorioFilter");
 const responsavelTecnico = document.getElementById("responsavelTecnico");
@@ -1869,6 +1874,44 @@ const buildObraPdf = async () => {
   });
 };
 
+
+const buildUserPdf = async () => {
+  const user = activeSession || getSession();
+  if (!user) {
+    setStatusMessage("Faça login para gerar o relatório individual.");
+    return;
+  }
+
+  const obraId = (userReportObra?.value || "").trim().toUpperCase();
+  const startDate = userReportStart?.value || "";
+  const endDate = userReportEnd?.value || "";
+
+  try {
+    const result = await generateUserReportPdf({ user, obraId, startDate, endDate });
+    if (!result.total) {
+      setStatusMessage("Nenhuma medição encontrada para os filtros informados.");
+      return;
+    }
+    setStatusMessage("PDF gerado com sucesso.");
+    await logAudit({
+      action: AUDIT_ACTIONS.PDF_GENERATED,
+      entity_type: "relatorios",
+      entity_id: user.id || user.user_id || "",
+      actor_user_id: user.id || user.user_id || null,
+      summary: "PDF individual gerado."
+    });
+  } catch (error) {
+    setStatusMessage(error?.message || "Falha ao gerar PDF individual.");
+    await logError({
+      module: "medlux-control",
+      action: "GENERATE_USER_PDF",
+      message: error?.message || "Falha ao gerar PDF individual.",
+      stack: error?.stack,
+      context: { user_id: user?.id || user?.user_id || null, obraId, startDate, endDate }
+    });
+  }
+};
+
 const renderAll = () => {
   renderDashboard();
   renderEquipamentos();
@@ -2039,6 +2082,7 @@ resetData.addEventListener("click", handleReset);
 
 generateGlobalPdf.addEventListener("click", buildGlobalPdf);
 generateObraPdf.addEventListener("click", buildObraPdf);
+if (generateUserPdf) generateUserPdf.addEventListener("click", buildUserPdf);
 if (diagnosticoExport) {
   diagnosticoExport.addEventListener("click", async () => {
     const payload = {

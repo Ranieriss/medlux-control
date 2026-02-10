@@ -12,14 +12,13 @@ import { ensureDefaultAdmin, authenticate, logout, requireAuth, getSession } fro
 import { AUDIT_ACTIONS, buildDiff, logAudit } from "../shared/audit.js";
 import { validateMedicao } from "../shared/validation.js";
 import { initGlobalErrorHandling, logError } from "../shared/errors.js";
-import { sanitizeText } from "../shared/utils.js";
 
 import {
   computeMeasurementStats,
   evaluateMedicao,
-  buildConformidadeResumo,
   getMarcacaoConfig
 } from "../shared/medicao-utils.js";
+import { generateUserReportPdf } from "../shared/reports/user-report.js";
 
 const medicaoForm = document.getElementById("medicaoForm");
 const medicaoEquip = document.getElementById("medicaoEquip");
@@ -710,137 +709,41 @@ const handleMedicaoSubmit = async (event) => {
 };
 
 const buildUserPdf = async () => {
-  if (!activeSession) return;
-
-  const obraValue = normalizeText(userReportObra.value).toUpperCase();
-  const startDate = userReportStart.value ? new Date(`${userReportStart.value}T00:00:00`) : null;
-  const endDate = userReportEnd.value ? new Date(`${userReportEnd.value}T23:59:59`) : null;
-
-  const filtered = medicoes.filter((medicao) => {
-    const matchUser = normalizeUserIdComparable(medicao.user_id) === normalizeUserIdComparable(activeSession.id);
-    const matchObra = obraValue ? (medicao.obra_id || "").toUpperCase() === obraValue : true;
-    const medicaoDate = new Date(medicao.dataHora || medicao.data_hora);
-    const matchStart = startDate ? medicaoDate >= startDate : true;
-    const matchEnd = endDate ? medicaoDate <= endDate : true;
-    return matchUser && matchObra && matchStart && matchEnd;
-  });
-
-  if (!filtered.length) {
-    setStatusMessage("Nenhuma medição encontrada para o relatório individual.");
+  const user = activeSession || getSession();
+  if (!user) {
+    setStatusMessage("Faça login para gerar o relatório individual.");
     return;
   }
 
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
-  const now = new Date();
+  const obraId = normalizeText(userReportObra.value).toUpperCase();
+  const startDate = userReportStart.value || "";
+  const endDate = userReportEnd.value || "";
 
-  doc.setFontSize(16);
-  doc.text(toSafeText("Relatório Individual MEDLUX"), 40, 40);
-
-  doc.setFontSize(10);
-  doc.text(toSafeText(`Operador: ${activeSession.nome} (${activeSession.id})`), 40, 58);
-  doc.text(toSafeText(`Gerado em: ${now.toLocaleString("pt-BR")}`), 40, 72);
-  doc.text(toSafeText(`Obra: ${obraValue || "Todas"}`), 40, 86);
-  doc.text(toSafeText(`Período: ${userReportStart.value || "-"} → ${userReportEnd.value || "-"}`), 40, 100);
-
-  const avaliacoes = filtered.map((medicao) => {
-    const equip = equipamentos.find((item) => item.id === (medicao.equipamento_id || medicao.equip_id)) || null;
-    const obra = obras.find((item) => (item.idObra || item.id) === medicao.obra_id) || null;
-    return evaluateMedicao({ medicao, criterios, obra, equipamento: equip });
-  });
-
-  const resumo = buildConformidadeResumo(avaliacoes);
-
-  doc.text(
-    toSafeText(
-      `Resumo: Total ${resumo.total} | Conformes ${resumo.conformes} | ` +
-        `Não conformes ${resumo.naoConformes} | Não avaliadas ${resumo.naoAvaliadas} | ` +
-        `% conformidade ${resumo.pctConformidade.toFixed(2)}%`
-    ),
-    40,
-    114
-  );
-
-  const rows = filtered.map((medicao, index) => {
-    const av = avaliacoes[index];
-    return [
-      toSafeText(medicao.id || medicao.medicao_id),
-      toSafeText(medicao.obra_id || "-"),
-      toSafeText(medicao.equipamento_id || medicao.equip_id),
-      toSafeText(medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao),
-      toSafeText(av.periodo || "-"),
-      toSafeText(av.media === null ? "-" : av.media.toFixed(2)),
-      toSafeText(av.minimo === null ? "-" : av.minimo),
-      toSafeText(av.status),
-      toSafeText(av.motivo || "-"),
-      toSafeText(formatLocal(medicao)),
-      toSafeText(formatGps(medicao.gps)),
-      toSafeText(medicao.dataHora || medicao.data_hora)
-    ];
-  });
-
-  doc.autoTable({
-    head: [[
-      "ID",
-      "Obra",
-      "Equip.",
-      "Subtipo",
-      "Período",
-      "MÉDIA",
-      "Mínimo",
-      "Status",
-      "Motivo",
-      "Local",
-      "GPS",
-      "Data/Hora"
-    ]],
-    body: rows,
-    startY: 124,
-    styles: { fontSize: 7 }
-  });
-
-  const fotos = filtered.flatMap((medicao) => medicao.fotos || []);
-  if (fotos.length) {
-    let cursorY = (doc.lastAutoTable?.finalY || 124) + 20;
-    doc.setFontSize(12);
-    doc.text(toSafeText("Anexos (miniaturas)"), 40, cursorY);
-    cursorY += 10;
-
-    const thumbSize = 90;
-    let x = 40;
-    let y = cursorY + 10;
-
-    for (const foto of fotos.slice(0, 8)) {
-      try {
-        const dataUrl = await blobToDataUrl(foto.blob);
-        const format = dataUrl.includes("image/png") ? "PNG" : "JPEG";
-        doc.addImage(dataUrl, format, x, y, thumbSize, thumbSize);
-
-        x += thumbSize + 10;
-        if (x + thumbSize > 560) {
-          x = 40;
-          y += thumbSize + 16;
-        }
-        if (y + thumbSize > 760) {
-          doc.addPage();
-          x = 40;
-          y = 60;
-        }
-      } catch {
-        // ignora miniaturas que falharem
-      }
+  try {
+    const result = await generateUserReportPdf({ user, obraId, startDate, endDate });
+    if (!result.total) {
+      setStatusMessage("Nenhuma medição encontrada para os filtros informados.");
+      return;
     }
+
+    setStatusMessage("PDF gerado com sucesso.");
+    await logAudit({
+      action: AUDIT_ACTIONS.PDF_GENERATED,
+      entity_type: "relatorios",
+      entity_id: user.id,
+      actor_user_id: user.id,
+      summary: "PDF individual gerado."
+    });
+  } catch (error) {
+    setStatusMessage(error?.message || "Falha ao gerar PDF individual.");
+    await logError({
+      module: "medlux-reflective-control",
+      action: "GENERATE_USER_PDF",
+      message: error?.message || "Falha ao gerar PDF individual.",
+      stack: error?.stack,
+      context: { user_id: user?.id || null, obraId, startDate, endDate }
+    });
   }
-
-  doc.save(`relatorio-individual-${activeSession.id}-${now.toISOString().slice(0, 10)}.pdf`);
-
-  await logAudit({
-    action: AUDIT_ACTIONS.PDF_GENERATED,
-    entity_type: "relatorios",
-    entity_id: activeSession.id,
-    actor_user_id: activeSession.id,
-    summary: "PDF individual gerado."
-  });
 };
 
 const initialize = async () => {
