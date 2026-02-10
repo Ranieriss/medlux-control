@@ -16,9 +16,10 @@ import { initGlobalErrorHandling, logError } from "../shared/errors.js";
 import {
   computeMeasurementStats,
   evaluateMedicao,
-  getMarcacaoConfig
+  getMarcacaoConfig,
+  buildConformidadeResumo
 } from "../shared/medicao-utils.js";
-import { initUserReportFeature } from "../shared/reports/user-report.js";
+import { initUserReportFeature, generateUserPdfReport } from "../shared/reports/user-report.js";
 
 const medicaoForm = document.getElementById("medicaoForm");
 const medicaoEquip = document.getElementById("medicaoEquip");
@@ -66,6 +67,8 @@ const clearFotoLocal = document.getElementById("clearFotoLocal");
 const loginModal = document.getElementById("loginModal");
 const loginForm = document.getElementById("loginForm");
 const loginHint = document.getElementById("loginHint");
+const autoTestButton = document.getElementById("runAutoTest");
+const autoTestHint = document.getElementById("autoTestHint");
 
 let activeSession = null;
 let equipamentos = [];
@@ -98,6 +101,11 @@ const setStatusMessage = (message) => {
   statusMessage.textContent = message;
 };
 
+const bindEvent = (element, eventName, handler) => {
+  if (!element) return;
+  element.addEventListener(eventName, handler);
+};
+
 const showFeedback = (message, type = "info") => {
   medicaoHint.textContent = message;
   setStatusMessage(message);
@@ -110,6 +118,23 @@ const isAdmin = () => activeSession?.role === "ADMIN";
 
 const isVinculoAtivo = (item) => item.status === "ATIVO" || item.ativo === true;
 
+
+const normalizeEquipId = (item = {}) => normalizeText(item.equipamento_id || item.equip_id || item.id);
+
+const getVisibleEquipamentos = (session, allVinculos = [], allEquipamentos = []) => {
+  if (!session) return [];
+  if (String(session.role || "").toUpperCase() === "ADMIN") return allEquipamentos;
+
+  const equipPermitidos = new Set(
+    allVinculos
+      .filter((item) => isVinculoAtivo(item) && normalizeUserIdComparable(item.user_id) === normalizeUserIdComparable(session.id))
+      .map((item) => normalizeEquipId(item))
+      .filter(Boolean)
+  );
+
+  return allEquipamentos.filter((item) => equipPermitidos.has(normalizeEquipId(item)));
+};
+
 const renderEquipamentos = () => {
   medicaoEquip.textContent = "";
   const option = document.createElement("option");
@@ -117,17 +142,13 @@ const renderEquipamentos = () => {
   option.textContent = "Selecione";
   medicaoEquip.appendChild(option);
 
-  const disponiveis = isAdmin()
-    ? equipamentos
-    : vinculos
-        .filter((item) => isVinculoAtivo(item) && normalizeUserIdComparable(item.user_id) === normalizeUserIdComparable(activeSession?.id))
-        .map((vinculoItem) => equipamentos.find((item) => item.id === (vinculoItem.equipamento_id || vinculoItem.equip_id)))
-        .filter(Boolean);
+  const disponiveis = getVisibleEquipamentos(activeSession, vinculos, equipamentos);
 
   disponiveis.forEach((equipamento) => {
+    const equipId = normalizeEquipId(equipamento);
     const opt = document.createElement("option");
-    opt.value = equipamento.id;
-    opt.textContent = `${equipamento.id} • ${equipamento?.modelo || "Sem modelo"}`;
+    opt.value = equipId;
+    opt.textContent = `${equipId} • ${equipamento?.modelo || "Sem modelo"}`;
     medicaoEquip.appendChild(opt);
   });
 };
@@ -220,6 +241,7 @@ const loadData = async () => {
     getAllObras(),
     getAllCriterios()
   ]);
+  medicoes.sort((a, b) => new Date(b.created_at || b.dataHora || b.data_hora || 0) - new Date(a.created_at || a.dataHora || a.data_hora || 0));
 };
 
 const addLeituraInput = (value = "") => {
@@ -518,6 +540,83 @@ const handleCaptureGps = () => {
   );
 };
 
+const buildMedicaoPayload = ({ data, leituras, subtipo, legendaEstrutura, stats, avaliacao, obra, equip, fotos }) => {
+  const now = new Date().toISOString();
+  const medicaoId = crypto.randomUUID();
+  const relatorioId = normalizeText(data.identificadorRelatorio || "").toUpperCase();
+
+  const gpsLatValue = Number(gpsLat?.value);
+  const gpsLngValue = Number(gpsLng?.value);
+  const gpsAccValue = Number(gpsAcc?.value);
+  const gps = {
+    lat: Number.isFinite(gpsLatValue) ? gpsLatValue : null,
+    lng: Number.isFinite(gpsLngValue) ? gpsLngValue : null,
+    accuracy: Number.isFinite(gpsAccValue) ? gpsAccValue : null,
+    source: gpsSource?.value || (Number.isFinite(gpsLatValue) && Number.isFinite(gpsLngValue) ? "MANUAL" : "")
+  };
+
+  return {
+    id: medicaoId,
+    medicao_id: medicaoId,
+    equipamento_id: data.equip_id,
+    equip_id: data.equip_id,
+    equipamento_nome: equip?.modelo || equip?.id || "",
+    user_id: activeSession.id,
+    user_nome: activeSession.nome || "",
+    obra_id: data.obra_id,
+    obra_nome: obra?.nomeObra || obra?.nome || "",
+    relatorio_id: relatorioId || "",
+    identificadorRelatorio: relatorioId || "",
+    dataHora: now,
+    data_hora: now,
+    tipoMedicao: data.tipo_medicao,
+    tipo_medicao: data.tipo_medicao,
+    subtipo,
+    leituras,
+    media: stats.media ?? null,
+    media_final: stats.media ?? null,
+    minFinal: stats.minFinal ?? null,
+    maxFinal: stats.maxFinal ?? null,
+    raw_readings: stats.rawReadings || leituras,
+    discarded_min: stats.discardedMin ?? null,
+    discarded_max: stats.discardedMax ?? null,
+    regra_calculo: stats.regra || "",
+    periodo: avaliacao.periodo || "",
+    minimo: avaliacao.minimo ?? null,
+    status_conformidade: avaliacao.status || "NÃO AVALIADO",
+    motivo_conformidade: avaliacao.motivo || "",
+    criterio_id: avaliacao.criterio_id || "",
+    criterio_minimo: avaliacao.minimo ?? null,
+    criterio_fonte: avaliacao.criterio_fonte || "",
+    criterio_fallback_level: avaliacao.criterio_fallback_level ?? null,
+    classe_tipo: toTrimmedValue(data.classe_tipo),
+    elemento_via: data.tipoDeMarcacao || data.tipo_marcacao || "",
+    unidade: toTrimmedValue(data.unidade),
+    enderecoTexto: toTrimmedValue(data.enderecoTexto),
+    cidadeUF: toTrimmedValue(data.cidadeUF),
+    rodovia: toTrimmedValue(data.rodovia),
+    km: toTrimmedValue(data.km),
+    sentido: toTrimmedValue(data.sentido),
+    faixa: toTrimmedValue(data.faixa),
+    tipoDeMarcacao: toTrimmedValue(data.tipoDeMarcacao),
+    texto_legenda: toTrimmedValue(data.texto_legenda),
+    legenda_por_letra: legendaEstrutura,
+    data_aplicacao: toTrimmedValue(data.data_aplicacao),
+    linha: toTrimmedValue(data.linha),
+    estacao: toTrimmedValue(data.estacao),
+    letra: toTrimmedValue(data.letra),
+    cor: toTrimmedValue(data.cor),
+    angulo: toTrimmedValue(data.angulo),
+    posicao: toTrimmedValue(data.posicao),
+    clima: toTrimmedValue(data.clima),
+    observacoes: toTrimmedValue(data.observacoes),
+    gps,
+    dataHoraGPS: data.dataHoraGPS || "",
+    fotos,
+    created_at: now
+  };
+};
+
 const handleMedicaoSubmit = async (event) => {
   event.preventDefault();
 
@@ -562,7 +661,7 @@ const handleMedicaoSubmit = async (event) => {
       const vinculoAtivo = vinculos.find(
         (item) =>
           isVinculoAtivo(item) &&
-          (item.equipamento_id || item.equip_id) === data.equip_id &&
+          normalizeEquipId(item) === normalizeText(data.equip_id) &&
           normalizeUserIdComparable(item.user_id) === normalizeUserIdComparable(activeSession.id)
       );
       if (!vinculoAtivo) {
@@ -572,8 +671,9 @@ const handleMedicaoSubmit = async (event) => {
     }
 
     const obraId = normalizeText(data.obra_id).toUpperCase();
-    const equip = equipamentos.find((item) => item.id === data.equip_id) || null;
-    const obra = obras.find((item) => (item.idObra || item.id) === obraId) || null;
+    data.obra_id = obraId;
+    const equip = equipamentos.find((item) => normalizeEquipId(item) === data.equip_id) || null;
+    const obra = obras.find((item) => normalizeText(item.idObra || item.id).toUpperCase() === obraId) || null;
 
     const stats = computeMeasurementStats({
       subtipo,
@@ -611,106 +711,30 @@ const handleMedicaoSubmit = async (event) => {
       return;
     }
 
-    const now = new Date().toISOString();
-    const medicaoId = crypto.randomUUID();
-    const relatorioId = normalizeText(data.identificadorRelatorio || "").toUpperCase();
-
-    const gpsLatValue = Number(gpsLat.value);
-    const gpsLngValue = Number(gpsLng.value);
-    const gpsAccValue = Number(gpsAcc.value);
-    const gps = {
-      lat: Number.isFinite(gpsLatValue) ? gpsLatValue : null,
-      lng: Number.isFinite(gpsLngValue) ? gpsLngValue : null,
-      accuracy: Number.isFinite(gpsAccValue) ? gpsAccValue : null,
-      source: gpsSource.value || (Number.isFinite(gpsLatValue) && Number.isFinite(gpsLngValue) ? "MANUAL" : "")
-    };
-
-    // Correção crítica: persistimos todos os campos relevantes para histórico/PDF
-    // evitando objetos incompletos que geravam relatório vazio.
-    const medicao = {
-      id: medicaoId,
-      medicao_id: medicaoId,
-
-      equipamento_id: data.equip_id,
-      equip_id: data.equip_id,
-      equipamento_nome: equip?.modelo || equip?.id || "",
-      user_id: activeSession.id,
-      user_nome: activeSession.nome || "",
-
-      obra_id: obraId,
-      obra_nome: obra?.nomeObra || obra?.nome || "",
-      relatorio_id: relatorioId || "",
-      identificadorRelatorio: relatorioId || "",
-
-      dataHora: now,
-      data_hora: now,
-
-      tipoMedicao: data.tipo_medicao,
-      tipo_medicao: data.tipo_medicao,
-      subtipo,
-
+    const medicao = buildMedicaoPayload({
+      data,
       leituras,
-      media: stats.media ?? "",
-      media_final: stats.media ?? "",
-      minFinal: stats.minFinal ?? null,
-      maxFinal: stats.maxFinal ?? null,
-      raw_readings: stats.rawReadings || leituras,
-      discarded_min: stats.discardedMin ?? null,
-      discarded_max: stats.discardedMax ?? null,
-      regra_calculo: stats.regra || "",
-
-      periodo: avaliacao.periodo || "",
-      minimo: avaliacao.minimo ?? null,
-      status_conformidade: avaliacao.status || "NÃO AVALIADO",
-      motivo_conformidade: avaliacao.motivo || "",
-      criterio_id: avaliacao.criterio_id || "",
-      criterio_minimo: avaliacao.minimo ?? null,
-      criterio_fonte: avaliacao.criterio_fonte || "",
-      criterio_fallback_level: avaliacao.criterio_fallback_level ?? null,
-
-      classe_tipo: toTrimmedValue(data.classe_tipo),
-      elemento_via: data.tipoDeMarcacao || data.tipo_marcacao || "",
-
-      unidade: toTrimmedValue(data.unidade),
-      enderecoTexto: toTrimmedValue(data.enderecoTexto),
-      cidadeUF: toTrimmedValue(data.cidadeUF),
-      rodovia: toTrimmedValue(data.rodovia),
-      km: toTrimmedValue(data.km),
-      sentido: toTrimmedValue(data.sentido),
-      faixa: toTrimmedValue(data.faixa),
-      tipoDeMarcacao: toTrimmedValue(data.tipoDeMarcacao),
-      texto_legenda: toTrimmedValue(data.texto_legenda),
-      legenda_por_letra: legendaEstrutura,
-
-      data_aplicacao: toTrimmedValue(data.data_aplicacao),
-      linha: toTrimmedValue(data.linha),
-      estacao: toTrimmedValue(data.estacao),
-      letra: toTrimmedValue(data.letra),
-      cor: toTrimmedValue(data.cor),
-      angulo: toTrimmedValue(data.angulo),
-      posicao: toTrimmedValue(data.posicao),
-      clima: toTrimmedValue(data.clima),
-      observacoes: toTrimmedValue(data.observacoes),
-
-      gps,
-      dataHoraGPS: data.dataHoraGPS || "",
-
-      fotos,
-      created_at: now
-    };
+      subtipo,
+      legendaEstrutura,
+      stats,
+      avaliacao,
+      obra,
+      equip,
+      fotos
+    });
 
     await saveMedicao(medicao);
 
     await logAudit({
       action: AUDIT_ACTIONS.ENTITY_CREATED,
       entity_type: "medicoes",
-      entity_id: medicaoId,
+      entity_id: medicao.id,
       actor_user_id: activeSession?.id || null,
       summary: `Medição registrada para equipamento ${data.equip_id}.`,
       diff: buildDiff(null, medicao, ["id", "equipamento_id", "user_id", "obra_id", "subtipo"])
     });
 
-    medicoes = isAdmin() ? await getAllMedicoes() : await getMedicoesByUser(activeSession.id);
+    await loadData();
     renderMedicoes();
 
     medicaoForm.reset();
@@ -740,6 +764,75 @@ const handleMedicaoSubmit = async (event) => {
       }
     });
     showFeedback(error?.message || "Falha ao registrar medição. Verifique os dados e tente novamente.", "error");
+  }
+};
+
+const runAdminAutoTest = async () => {
+  if (!isAdmin()) return;
+  if (!autoTestHint) return;
+  autoTestHint.textContent = "Executando auto-teste...";
+
+  try {
+    const visibleEquipamentos = getVisibleEquipamentos(activeSession, vinculos, equipamentos);
+    const equip = visibleEquipamentos[0];
+    const obra = obras[0];
+    if (!equip || !obra) throw new Error("Auto-teste requer ao menos 1 equipamento e 1 obra cadastrados.");
+
+    const leituras = [110, 120, 130, 140, 150, 160, 170, 180, 190, 200];
+    const stats = computeMeasurementStats({ subtipo: "HORIZONTAL", tipoDeMarcacao: "BORDO_DIREITO", leituras });
+    const avaliacao = evaluateMedicao({
+      medicao: {
+        equipamento_id: equip.id,
+        equip_id: equip.id,
+        obra_id: obra.idObra || obra.id,
+        tipo_medicao: "RL",
+        subtipo: "HORIZONTAL",
+        tipoDeMarcacao: "BORDO_DIREITO",
+        leituras
+      },
+      criterios,
+      obra,
+      equipamento: equip
+    });
+
+    const medicaoTeste = buildMedicaoPayload({
+      data: {
+        equip_id: equip.id,
+        obra_id: normalizeText(obra.idObra || obra.id).toUpperCase(),
+        tipo_medicao: "RL",
+        subtipo: "HORIZONTAL",
+        tipoDeMarcacao: "BORDO_DIREITO",
+        identificadorRelatorio: "AUTO-TEST"
+      },
+      leituras,
+      subtipo: "HORIZONTAL",
+      legendaEstrutura: [],
+      stats,
+      avaliacao,
+      obra,
+      equip,
+      fotos: []
+    });
+
+    await saveMedicao(medicaoTeste);
+    await loadData();
+    renderMedicoes();
+
+    const exists = medicoes.some((item) => item.id === medicaoTeste.id || item.medicao_id === medicaoTeste.id);
+    if (!exists) throw new Error("Medição de auto-teste foi salva, mas não apareceu no histórico.");
+
+    await generateUserPdfReport({
+      obraId: medicaoTeste.obra_id,
+      currentUser: activeSession
+    });
+
+    const resumo = buildConformidadeResumo(medicoes.slice(0, 10).map((item) => ({ status: item.status_conformidade || "NÃO AVALIADO" })));
+    autoTestHint.textContent = `OK: medição salva e histórico atualizado (${resumo.total} itens). Teste do PDF deve ser feito no botão acima.`;
+    setStatusMessage("Auto-teste concluído com sucesso.");
+  } catch (error) {
+    console.error("Falha no auto-teste", error);
+    autoTestHint.textContent = `ERRO: ${error?.message || "Falha inesperada"}`;
+    setStatusMessage("Auto-teste falhou. Veja detalhes no bloco de diagnóstico.");
   }
 };
 
@@ -777,20 +870,23 @@ const initialize = async () => {
   renderObrasList();
   renderMedicoes();
 
+  if (autoTestButton) autoTestButton.hidden = !isAdmin();
+  if (autoTestHint) autoTestHint.textContent = isAdmin() ? "Executa fluxo local de diagnóstico para campo." : "";
+
   syncStatus.textContent = navigator.onLine ? "Online • IndexedDB" : "Offline pronto • IndexedDB";
 };
 
-loginForm.addEventListener("submit", handleLogin);
-medicaoForm.addEventListener("submit", handleMedicaoSubmit);
+bindEvent(loginForm, "submit", handleLogin);
+bindEvent(medicaoForm, "submit", handleMedicaoSubmit);
 
-addLeituraButton.addEventListener("click", () => {
+bindEvent(addLeituraButton, "click", () => {
   if (leiturasList.querySelectorAll("input").length >= 50) return;
   addLeituraInput();
   updateMedia();
   medicaoHint.textContent = "Campos com * são obrigatórios.";
 });
 
-applyLeituraListButton.addEventListener("click", () => {
+bindEvent(applyLeituraListButton, "click", () => {
   const values = parseLeituraList(leiturasPaste.value || "");
   if (!values.length) {
     medicaoHint.textContent = "Nenhuma leitura válida na lista colada.";
@@ -800,35 +896,36 @@ applyLeituraListButton.addEventListener("click", () => {
   medicaoHint.textContent = "Campos com * são obrigatórios.";
 });
 
-gpsCaptureButton.addEventListener("click", handleCaptureGps);
+bindEvent(gpsCaptureButton, "click", handleCaptureGps);
 
-fotoMedicaoInput.addEventListener("change", () => updatePhotoInfo(fotoMedicaoInput, fotoMedicaoInfo));
-fotoLocalInput.addEventListener("change", () => updatePhotoInfo(fotoLocalInput, fotoLocalInfo));
+bindEvent(fotoMedicaoInput, "change", () => updatePhotoInfo(fotoMedicaoInput, fotoMedicaoInfo));
+bindEvent(fotoLocalInput, "change", () => updatePhotoInfo(fotoLocalInput, fotoLocalInfo));
 
-clearFotoMedicao.addEventListener("click", () => {
+bindEvent(clearFotoMedicao, "click", () => {
   fotoMedicaoInput.value = "";
   updatePhotoInfo(fotoMedicaoInput, fotoMedicaoInfo);
 });
 
-clearFotoLocal.addEventListener("click", () => {
+bindEvent(clearFotoLocal, "click", () => {
   fotoLocalInput.value = "";
   updatePhotoInfo(fotoLocalInput, fotoLocalInfo);
 });
 
 [gpsLat, gpsLng, gpsAcc, gpsDateTime].forEach((input) => {
-  input.addEventListener("input", () => {
+  bindEvent(input, "input", () => {
     if (!gpsSource.value) gpsSource.value = "MANUAL";
   });
 });
 
-medicaoSubtipo.addEventListener("change", updateSubtipoFields);
-if (legendaPorLetra) legendaPorLetra.addEventListener("input", updateMedia);
+bindEvent(medicaoSubtipo, "change", updateSubtipoFields);
+bindEvent(legendaPorLetra, "input", updateMedia);
 
-logoutButton.addEventListener("click", () => {
+bindEvent(logoutButton, "click", () => {
   logout();
   window.location.href = "../index.html";
 });
 
+bindEvent(autoTestButton, "click", runAdminAutoTest);
 
 window.addEventListener("online", () => {
   syncStatus.textContent = "Online • IndexedDB";

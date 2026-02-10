@@ -58,7 +58,7 @@ const loadFirstAvailable = async (sources, checker) => {
       // ignora e tenta o próximo fallback
     }
   }
-  throw new Error("Não foi possível carregar a biblioteca de PDF.");
+  throw new Error("Biblioteca de PDF indisponível.");
 };
 
 export async function ensurePdfLib() {

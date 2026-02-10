@@ -275,7 +275,7 @@ A:118,117,119"></textarea>
 
           <div class="subpanel">
             <h3>Relatório individual</h3>
-            <p class="muted">Gera PDF apenas das medições do operador logado.</p>
+            <p class="muted">OPERADOR: gera PDF das suas medições. ADMIN: pode gerar visão total (obra opcional) ou por filtro.</p>
             <div class="form-grid">
               <div class="field">
                 <label for="userReportObra">Obra</label>
@@ -290,7 +290,11 @@ A:118,117,119"></textarea>
                 <input id="userReportEnd" type="date" />
               </div>
             </div>
-            <button class="btn" id="generateUserPdf" type="button">Gerar PDF individual</button>
+            <div class="action-buttons">
+              <button class="btn" id="generateUserPdf" type="button">Gerar PDF individual</button>
+              <button class="btn secondary" id="runAutoTest" type="button" hidden>Auto-Teste (ADMIN)</button>
+            </div>
+            <p class="muted" id="autoTestHint"></p>
           </div>
         </section>
       </div>

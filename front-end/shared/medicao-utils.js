@@ -17,7 +17,15 @@ const average = (values = []) => {
   return valid.reduce((acc, val) => acc + val, 0) / valid.length;
 };
 
-const computeLegendaStats = (medicao = {}) => {
+const emptyLegendaStats = (textoLegenda = "", possuiEstrutura = false) => ({
+  possuiEstrutura,
+  textoLegenda,
+  letras: [],
+  mediaFinal: null
+});
+
+const computeLegendaStats = (medicaoInput = {}) => {
+  const medicao = medicaoInput && typeof medicaoInput === "object" ? medicaoInput : {};
   const subtipo = safeUpper(medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao);
   if (subtipo !== "HORIZONTAL" && subtipo !== "LEGENDA") return null;
   const isLegenda = safeUpper(medicao.tipoDeMarcacao || medicao.tipo_marcacao || medicao.elemento_via) === "LEGENDA" || subtipo === "LEGENDA";
@@ -41,12 +49,7 @@ const computeLegendaStats = (medicao = {}) => {
   const chars = textoLegenda.replace(/\s+/g, "").split("").filter(Boolean);
   const leituras = Array.isArray(medicao.leituras) ? medicao.leituras.map((n) => toNum(n)).filter((n) => n !== null) : [];
   if (!chars.length || leituras.length < chars.length * 3) {
-    return {
-      possuiEstrutura: false,
-      textoLegenda,
-      letras: [],
-      mediaFinal: average(leituras)
-    };
+    return emptyLegendaStats(textoLegenda, false);
   }
   const letras = chars.map((char, index) => {
     const slice = leituras.slice(index * 3, (index + 1) * 3);
@@ -210,21 +213,23 @@ const getMinCriterion = ({ criterios = [], subtipo = "", classe_tipo = "", eleme
 };
 
 const evaluateMedicao = ({ medicao = {}, criterios = [], obra = null, equipamento = null } = {}) => {
-  const stats = computeMeasurementStats(medicao);
+  const safeMedicao = medicao && typeof medicao === "object" ? medicao : {};
+  const stats = computeMeasurementStats(safeMedicao);
+  const mediaFinal = toNum(stats?.mediaFinal);
   const periodo = resolvePeriodoHorizontal(medicao, obra);
   const minimo = getMinCriterion({
     criterios,
     subtipo: stats.subtipo,
-    classe_tipo: medicao.tipoMedicao || medicao.tipo_medicao,
-    elemento_marcacao: medicao.tipoDeMarcacao || medicao.tipo_marcacao || medicao.elemento_via,
+    classe_tipo: safeMedicao.tipoMedicao || safeMedicao.tipo_medicao,
+    elemento_marcacao: safeMedicao.tipoDeMarcacao || safeMedicao.tipo_marcacao || safeMedicao.elemento_via,
     periodo,
-    obra_id: medicao.obra_id,
-    geom: equipamento?.geometria || medicao.geometria
+    obra_id: safeMedicao.obra_id,
+    geom: equipamento?.geometria || safeMedicao.geometria
   });
-  if (minimo === null || stats.media === null) {
+  if (minimo === null || mediaFinal === null) {
     return { ...stats, minimo, status: "NÃO AVALIADO", motivo: "Critério não configurado para esta combinação", periodo };
   }
-  if (stats.media >= minimo) {
+  if (mediaFinal >= minimo) {
     return { ...stats, minimo, status: "CONFORME", motivo: "", periodo };
   }
   return { ...stats, minimo, status: "NÃO CONFORME", motivo: "Média abaixo do mínimo", periodo };
