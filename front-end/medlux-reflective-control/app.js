@@ -4,13 +4,21 @@ import {
   saveMedicao,
   getMedicoesByUser,
   getAllMedicoes,
-  getAllObras
+  getAllObras,
+  getAllCriterios
 } from "../shared/db.js";
 import { ensureDefaultAdmin, authenticate, logout, requireAuth, getSession } from "../shared/auth.js";
 import { AUDIT_ACTIONS, buildDiff, logAudit } from "../shared/audit.js";
 import { validateMedicao } from "../shared/validation.js";
 import { initGlobalErrorHandling, logError } from "../shared/errors.js";
 import { sanitizeText } from "../shared/utils.js";
+import {
+  computeMeasurementStats,
+  evaluateMedicao,
+  buildConformidadeResumo,
+  getMarcacaoConfig,
+  computeLegendaStats
+} from "../shared/medicao-utils.js";
 
 const medicaoForm = document.getElementById("medicaoForm");
 const medicaoEquip = document.getElementById("medicaoEquip");
@@ -19,6 +27,8 @@ const medicaoMarcacao = document.getElementById("medicaoMarcacao");
 const medicaoLinha = document.getElementById("medicaoLinha");
 const medicaoEstacao = document.getElementById("medicaoEstacao");
 const medicaoLetra = document.getElementById("medicaoLetra");
+const medicaoLegendaTexto = document.getElementById("medicaoLegendaTexto");
+const medicaoDataAplicacao = document.getElementById("medicaoDataAplicacao");
 const medicaoCor = document.getElementById("medicaoCor");
 const medicaoAngulo = document.getElementById("medicaoAngulo");
 const medicaoPosicao = document.getElementById("medicaoPosicao");
@@ -61,6 +71,7 @@ let equipamentos = [];
 let vinculos = [];
 let medicoes = [];
 let obras = [];
+let criterios = [];
 
 initGlobalErrorHandling("medlux-reflective-control");
 
@@ -128,7 +139,7 @@ const renderMedicoes = () => {
     const qtd = leituras.length || (medicao.valor ? 1 : 0);
     const dataHora = medicao.dataHora || medicao.data_hora;
     const dataLabel = dataHora ? new Date(dataHora).toLocaleString("pt-BR") : "-";
-    const mediaCalc = calculateMediaFromLeituras(leituras, medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao);
+    const mediaCalc = computeMeasurementStats(medicao).media;
     const mediaLabel = mediaCalc !== null ? mediaCalc.toFixed(2) : (medicao.media ?? medicao.valor ?? "-");
     [
       medicao.obra_id || "-",
@@ -153,6 +164,7 @@ const loadData = async () => {
     isAdmin() ? getAllMedicoes() : getMedicoesByUser(activeSession?.id),
     getAllObras()
   ]);
+  criterios = await getAllCriterios();
 };
 
 const addLeituraInput = (value = "") => {
@@ -193,29 +205,6 @@ const parseLeituraList = (text) => text
   .map((item) => Number(item.replace(",", ".")))
   .filter((value) => Number.isFinite(value));
 
-const calculateMediaFromLeituras = (leituras, subtipo) => {
-  const valores = leituras.filter((item) => Number.isFinite(item));
-  if (!valores.length) return null;
-  const tipo = String(subtipo || "").trim().toUpperCase();
-  if (tipo === "HORIZONTAL") {
-    if (valores.length < 10) return null;
-    const sorted = [...valores].sort((a, b) => a - b);
-    const trimmed = sorted.slice(1, sorted.length - 1);
-    if (!trimmed.length) return null;
-    return trimmed.reduce((acc, item) => acc + item, 0) / trimmed.length;
-  }
-  if (tipo === "PLACA") {
-    if (valores.length < 5) return null;
-  }
-  if (tipo === "LEGENDA") {
-    if (valores.length < 3) return null;
-  }
-  if (tipo === "VERTICAL") {
-    if (valores.length < 5) return null;
-  }
-  return valores.reduce((acc, item) => acc + item, 0) / valores.length;
-};
-
 const updateMedia = () => {
   const leituras = getLeituras();
   const valid = leituras.filter((item) => item !== null);
@@ -223,7 +212,13 @@ const updateMedia = () => {
     medicaoMedia.value = "";
     return;
   }
-  const media = calculateMediaFromLeituras(valid, medicaoSubtipo.value);
+  const stats = computeMeasurementStats({
+    subtipo: medicaoSubtipo.value,
+    tipoDeMarcacao: medicaoMarcacao.value,
+    texto_legenda: medicaoLegendaTexto?.value || "",
+    leituras: valid
+  });
+  const media = stats.media;
   medicaoMedia.value = media === null ? "" : media.toFixed(2);
 };
 
@@ -236,11 +231,27 @@ const toggleField = (input, show) => {
 const updateSubtipoFields = () => {
   const subtipo = String(medicaoSubtipo.value || "").toUpperCase();
   toggleField(medicaoLetra, subtipo === "LEGENDA");
+  toggleField(medicaoLegendaTexto, subtipo === "HORIZONTAL" || subtipo === "LEGENDA");
+  toggleField(medicaoDataAplicacao, subtipo === "HORIZONTAL");
   toggleField(medicaoCor, subtipo === "PLACA");
   toggleField(medicaoAngulo, subtipo === "PLACA");
   toggleField(medicaoPosicao, subtipo === "PLACA");
   toggleField(medicaoLinha, subtipo === "HORIZONTAL");
   toggleField(medicaoEstacao, subtipo === "HORIZONTAL");
+  const marcacaoLabel = medicaoMarcacao.closest(".field")?.querySelector("label");
+  const marcacaoConfig = getMarcacaoConfig(subtipo);
+  if (marcacaoLabel) marcacaoLabel.textContent = marcacaoConfig.label;
+  medicaoMarcacao.textContent = "";
+  const first = document.createElement("option");
+  first.value = "";
+  first.textContent = "Selecione";
+  medicaoMarcacao.appendChild(first);
+  marcacaoConfig.options.forEach((optionValue) => {
+    const option = document.createElement("option");
+    option.value = optionValue;
+    option.textContent = optionValue;
+    medicaoMarcacao.appendChild(option);
+  });
   updateMedia();
 };
 
@@ -255,7 +266,7 @@ const formatLocal = (medicao) => {
 };
 
 const formatMediaLabel = (medicao) => {
-  const media = calculateMediaFromLeituras(medicao.leituras || [], medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao);
+  const media = computeMeasurementStats(medicao).media;
   return media === null ? (medicao.media ?? medicao.valor ?? "-") : media.toFixed(2);
 };
 
@@ -446,10 +457,19 @@ const handleMedicaoSubmit = async (event) => {
       return;
     }
   }
-  const media = calculateMediaFromLeituras(leituras, subtipo);
+  const obraId = normalizeText(data.obra_id).toUpperCase();
+  const equip = equipamentos.find((item) => item.id === data.equip_id) || null;
+  const obra = obras.find((item) => (item.idObra || item.id) === obraId) || null;
+  const stats = computeMeasurementStats({
+    subtipo,
+    tipoDeMarcacao: data.tipoDeMarcacao,
+    texto_legenda: data.texto_legenda || "",
+    leituras
+  });
+  const avaliacao = evaluateMedicao({ medicao: { ...data, subtipo, obra_id: obraId, leituras, data_aplicacao: data.data_aplicacao }, criterios, obra, equipamento: equip });
+  const media = stats.media;
   const now = new Date().toISOString();
   const medicaoId = crypto.randomUUID();
-  const obraId = normalizeText(data.obra_id).toUpperCase();
   const relatorioId = normalizeText(data.identificadorRelatorio).toUpperCase();
   const gpsLatValue = Number(gpsLat.value);
   const gpsLngValue = Number(gpsLng.value);
@@ -460,6 +480,9 @@ const handleMedicaoSubmit = async (event) => {
     accuracy: Number.isFinite(gpsAccValue) ? gpsAccValue : null,
     source: gpsSource.value || (Number.isFinite(gpsLatValue) && Number.isFinite(gpsLngValue) ? "MANUAL" : "")
   };
+  if (avaliacao.status === "NÃO AVALIADO") {
+    medicaoHint.textContent = "Critério não configurado — ficará como NÃO AVALIADO.";
+  }
   const { fotos, errors } = await collectFotos();
   if (errors.length) {
     medicaoHint.textContent = errors.join(" ");
@@ -480,7 +503,6 @@ const handleMedicaoSubmit = async (event) => {
     tipo_medicao: data.tipo_medicao,
     subtipo,
     leituras,
-    media: media ?? "",
     unidade: data.unidade || "",
     enderecoTexto: data.enderecoTexto || "",
     cidadeUF: data.cidadeUF || "",
@@ -489,6 +511,18 @@ const handleMedicaoSubmit = async (event) => {
     sentido: data.sentido || "",
     faixa: data.faixa || "",
     tipoDeMarcacao: data.tipoDeMarcacao || "",
+    texto_legenda: data.texto_legenda || "",
+    media: media ?? "",
+    media_final: media ?? "",
+    raw_readings: stats.rawReadings || leituras,
+    discarded_min: stats.discardedMin,
+    discarded_max: stats.discardedMax,
+    regra_calculo: stats.regra,
+    minimo: avaliacao.minimo,
+    status_conformidade: avaliacao.status,
+    motivo_status: avaliacao.motivo,
+    periodo_horizontal: avaliacao.periodo,
+    data_aplicacao: data.data_aplicacao || "",
     linha: data.linha || "",
     estacao: data.estacao || "",
     letra: data.letra || "",
@@ -564,22 +598,37 @@ const buildUserPdf = async () => {
   doc.text(toSafeText(`Obra: ${obraValue || "Todas"}`), 40, 86);
   doc.text(toSafeText(`Período: ${userReportStart.value || "-"} → ${userReportEnd.value || "-"}`), 40, 100);
 
-  const rows = filtered.map((medicao) => [
-    toSafeText(medicao.id || medicao.medicao_id),
-    toSafeText(medicao.obra_id || "-"),
-    toSafeText(medicao.equipamento_id || medicao.equip_id),
-    toSafeText(medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao),
-    toSafeText(formatMediaLabel(medicao)),
-    toSafeText(formatLocal(medicao)),
-    toSafeText(formatGps(medicao.gps)),
-    toSafeText(medicao.dataHora || medicao.data_hora)
-  ]);
+  const avaliacoes = filtered.map((medicao) => {
+    const equip = equipamentos.find((item) => item.id === (medicao.equipamento_id || medicao.equip_id)) || null;
+    const obra = obras.find((item) => (item.idObra || item.id) === medicao.obra_id) || null;
+    return evaluateMedicao({ medicao, criterios, obra, equipamento: equip });
+  });
+  const resumo = buildConformidadeResumo(avaliacoes);
+  doc.text(toSafeText(`Resumo: Total ${resumo.total} | Conformes ${resumo.conformes} | Não conformes ${resumo.naoConformes} | Não avaliadas ${resumo.naoAvaliadas} | % conformidade ${resumo.pctConformidade.toFixed(2)}%`), 40, 114);
+
+  const rows = filtered.map((medicao, index) => {
+    const av = avaliacoes[index];
+    return [
+      toSafeText(medicao.id || medicao.medicao_id),
+      toSafeText(medicao.obra_id || "-"),
+      toSafeText(medicao.equipamento_id || medicao.equip_id),
+      toSafeText(medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao),
+      toSafeText(av.periodo || "-"),
+      toSafeText(av.media === null ? "-" : av.media.toFixed(2)),
+      toSafeText(av.minimo === null ? "-" : av.minimo),
+      toSafeText(av.status),
+      toSafeText(av.motivo || "-"),
+      toSafeText(formatLocal(medicao)),
+      toSafeText(formatGps(medicao.gps)),
+      toSafeText(medicao.dataHora || medicao.data_hora)
+    ];
+  });
 
   doc.autoTable({
-    head: [["ID", "Obra", "Equip.", "Subtipo", "Média", "Local", "GPS", "Data/Hora"]],
+    head: [["ID", "Obra", "Equip.", "Subtipo", "Período", "MÉDIA", "Mínimo", "Status", "Motivo", "Local", "GPS", "Data/Hora"]],
     body: rows,
-    startY: 120,
-    styles: { fontSize: 8 }
+    startY: 124,
+    styles: { fontSize: 7 }
   });
 
   const fotos = filtered.flatMap((medicao) => medicao.fotos || []);
