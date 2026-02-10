@@ -511,198 +511,200 @@ const handleCaptureGps = () => {
 const handleMedicaoSubmit = async (event) => {
   event.preventDefault();
 
-  const data = Object.fromEntries(new FormData(medicaoForm).entries());
-  const leituras = getLeituras();
-  const subtipo = String(data.subtipo || "").toUpperCase();
-
-  const legendaEstrutura = legendaPorLetra ? parseLegendaPorLetra(legendaPorLetra.value || "") : [];
-  if (subtipo === "LEGENDA" && legendaEstrutura.length) {
-    const invalida = legendaEstrutura.some((item) => item.leituras.length !== 3);
-    if (invalida) {
-      medicaoHint.textContent = "Na estrutura por letra, cada letra deve ter 3 leituras.";
-      return;
-    }
-  }
-
-  const validation = validateMedicao({
-    ...data,
-    equipamento_id: data.equip_id,
-    user_id: activeSession?.id,
-    leituras,
-    subtipo
-  });
-
-  if (!validation.ok) {
-    medicaoHint.textContent = validation.errors.map((item) => item.message).join(" ");
-    return;
-  }
-
-  if (!isAdmin()) {
-    const vinculoAtivo = vinculos.find(
-      (item) =>
-        isVinculoAtivo(item) &&
-        (item.equipamento_id || item.equip_id) === data.equip_id &&
-        normalizeUserIdComparable(item.user_id) === normalizeUserIdComparable(activeSession.id)
-    );
-    if (!vinculoAtivo) {
-      medicaoHint.textContent = "Equipamento não vinculado ao operador.";
-      return;
-    }
-  }
-
-  const obraId = normalizeText(data.obra_id).toUpperCase();
-  const equip = equipamentos.find((item) => item.id === data.equip_id) || null;
-  const obra = obras.find((item) => (item.idObra || item.id) === obraId) || null;
-
-  const stats = computeMeasurementStats({
-    subtipo,
-    tipoDeMarcacao: data.tipoDeMarcacao || data.tipo_marcacao || "",
-    texto_legenda: data.texto_legenda || data.legenda_texto || "",
-    leituras,
-    legenda_por_letra: legendaEstrutura
-  });
-
-  const avaliacao = evaluateMedicao({
-    medicao: {
-      ...data,
-      subtipo,
-      obra_id: obraId,
-      leituras,
-      data_aplicacao: data.data_aplicacao || data.dataAplikacao || ""
-    },
-    criterios,
-    obra,
-    equipamento: equip
-  });
-
-  if (avaliacao.status === "NÃO AVALIADO") {
-    medicaoHint.textContent = "Critério não configurado — ficará como NÃO AVALIADO.";
-  }
-
-  const { fotos, errors } = await collectFotos();
-  if (errors.length) {
-    medicaoHint.textContent = errors.join(" ");
-    return;
-  }
-
-  const now = new Date().toISOString();
-  const medicaoId = crypto.randomUUID();
-  const relatorioId = normalizeText(data.identificadorRelatorio || "").toUpperCase();
-
-  const gpsLatValue = Number(gpsLat.value);
-  const gpsLngValue = Number(gpsLng.value);
-  const gpsAccValue = Number(gpsAcc.value);
-  const gps = {
-    lat: Number.isFinite(gpsLatValue) ? gpsLatValue : null,
-    lng: Number.isFinite(gpsLngValue) ? gpsLngValue : null,
-    accuracy: Number.isFinite(gpsAccValue) ? gpsAccValue : null,
-    source: gpsSource.value || (Number.isFinite(gpsLatValue) && Number.isFinite(gpsLngValue) ? "MANUAL" : "")
-  };
-
-  const medicao = {
-    id: medicaoId,
-    medicao_id: medicaoId,
-
-    equipamento_id: data.equip_id,
-    equip_id: data.equip_id,
-    user_id: activeSession.id,
-
-    obra_id: obraId,
-    relatorio_id: relatorioId || "",
-    identificadorRelatorio: relatorioId || "",
-
-    dataHora: now,
-    data_hora: now,
-
-    tipoMedicao: data.tipo_medicao,
-    tipo_medicao: data.tipo_medicao,
-    subtipo,
-
-    leituras,
-    media: stats.media ?? "",
-    media_final: stats.media ?? "",
-    raw_readings: stats.rawReadings || leituras,
-    discarded_min: stats.discardedMin ?? null,
-    discarded_max: stats.discardedMax ?? null,
-    regra_calculo: stats.regra || "",
-
-    // Campos de conformidade (auto)
-    periodo: avaliacao.periodo || "",
-    minimo: avaliacao.minimo ?? null,
-    status_conformidade: avaliacao.status || "NÃO AVALIADO",
-    motivo_conformidade: avaliacao.motivo || "",
-    criterio_id: avaliacao.criterio_id || "",
-    criterio_minimo: avaliacao.minimo ?? null,
-    criterio_fonte: avaliacao.criterio_fonte || "",
-    criterio_fallback_level: avaliacao.criterio_fallback_level ?? null,
-
-    // Campos de classificação/contexto
-    classe_tipo: data.classe_tipo || "",
-    elemento_via: data.tipoDeMarcacao || data.tipo_marcacao || "",
-
-    unidade: data.unidade || "",
-    enderecoTexto: data.enderecoTexto || "",
-    cidadeUF: data.cidadeUF || "",
-    rodovia: data.rodovia || "",
-    km: data.km || "",
-    sentido: data.sentido || "",
-    faixa: data.faixa || "",
-    tipoDeMarcacao: data.tipoDeMarcacao || "",
-    texto_legenda: data.texto_legenda || "",
-    legenda_por_letra: legendaEstrutura,
-
-    data_aplicacao: data.data_aplicacao || "",
-    linha: data.linha || "",
-    estacao: data.estacao || "",
-    letra: data.letra || "",
-    cor: data.cor || "",
-    angulo: data.angulo || "",
-    posicao: data.posicao || "",
-    clima: data.clima || "",
-    observacoes: data.observacoes || "",
-
-    gps,
-    dataHoraGPS: data.dataHoraGPS || "",
-
-    fotos,
-    created_at: now
-  };
-
   try {
+    const data = Object.fromEntries(new FormData(medicaoForm).entries());
+    const leituras = getLeituras();
+    const subtipo = String(data.subtipo || "").toUpperCase();
+
+    const legendaEstrutura = legendaPorLetra ? parseLegendaPorLetra(legendaPorLetra.value || "") : [];
+    if (subtipo === "LEGENDA" && legendaEstrutura.length) {
+      const invalida = legendaEstrutura.some((item) => item.leituras.length !== 3);
+      if (invalida) {
+        medicaoHint.textContent = "Na estrutura por letra, cada letra deve ter 3 leituras.";
+        return;
+      }
+    }
+
+    const validation = validateMedicao({
+      ...data,
+      equipamento_id: data.equip_id,
+      user_id: activeSession?.id,
+      leituras,
+      subtipo
+    });
+
+    if (!validation.ok) {
+      medicaoHint.textContent = validation.errors.map((item) => item.message).join(" ");
+      return;
+    }
+
+    if (!isAdmin()) {
+      const vinculoAtivo = vinculos.find(
+        (item) =>
+          isVinculoAtivo(item) &&
+          (item.equipamento_id || item.equip_id) === data.equip_id &&
+          normalizeUserIdComparable(item.user_id) === normalizeUserIdComparable(activeSession.id)
+      );
+      if (!vinculoAtivo) {
+        medicaoHint.textContent = "Equipamento não vinculado ao operador.";
+        return;
+      }
+    }
+
+    const obraId = normalizeText(data.obra_id).toUpperCase();
+    const equip = equipamentos.find((item) => item.id === data.equip_id) || null;
+    const obra = obras.find((item) => (item.idObra || item.id) === obraId) || null;
+
+    const stats = computeMeasurementStats({
+      subtipo,
+      tipoDeMarcacao: data.tipoDeMarcacao || data.tipo_marcacao || "",
+      texto_legenda: data.texto_legenda || data.legenda_texto || "",
+      leituras,
+      legenda_por_letra: legendaEstrutura
+    });
+
+    const avaliacao = evaluateMedicao({
+      medicao: {
+        ...data,
+        subtipo,
+        obra_id: obraId,
+        leituras,
+        data_aplicacao: data.data_aplicacao || data.dataAplikacao || ""
+      },
+      criterios,
+      obra,
+      equipamento: equip
+    });
+
+    if (avaliacao.status === "NÃO AVALIADO") {
+      medicaoHint.textContent = "Critério não configurado — ficará como NÃO AVALIADO.";
+    }
+
+    const { fotos, errors } = await collectFotos();
+    if (errors.length) {
+      medicaoHint.textContent = errors.join(" ");
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const medicaoId = crypto.randomUUID();
+    const relatorioId = normalizeText(data.identificadorRelatorio || "").toUpperCase();
+
+    const gpsLatValue = Number(gpsLat.value);
+    const gpsLngValue = Number(gpsLng.value);
+    const gpsAccValue = Number(gpsAcc.value);
+    const gps = {
+      lat: Number.isFinite(gpsLatValue) ? gpsLatValue : null,
+      lng: Number.isFinite(gpsLngValue) ? gpsLngValue : null,
+      accuracy: Number.isFinite(gpsAccValue) ? gpsAccValue : null,
+      source: gpsSource.value || (Number.isFinite(gpsLatValue) && Number.isFinite(gpsLngValue) ? "MANUAL" : "")
+    };
+
+    const medicao = {
+      id: medicaoId,
+      medicao_id: medicaoId,
+
+      equipamento_id: data.equip_id,
+      equip_id: data.equip_id,
+      user_id: activeSession.id,
+
+      obra_id: obraId,
+      relatorio_id: relatorioId || "",
+      identificadorRelatorio: relatorioId || "",
+
+      dataHora: now,
+      data_hora: now,
+
+      tipoMedicao: data.tipo_medicao,
+      tipo_medicao: data.tipo_medicao,
+      subtipo,
+
+      leituras,
+      media: stats.media ?? "",
+      media_final: stats.media ?? "",
+      raw_readings: stats.rawReadings || leituras,
+      discarded_min: stats.discardedMin ?? null,
+      discarded_max: stats.discardedMax ?? null,
+      regra_calculo: stats.regra || "",
+
+      periodo: avaliacao.periodo || "",
+      minimo: avaliacao.minimo ?? null,
+      status_conformidade: avaliacao.status || "NÃO AVALIADO",
+      motivo_conformidade: avaliacao.motivo || "",
+      criterio_id: avaliacao.criterio_id || "",
+      criterio_minimo: avaliacao.minimo ?? null,
+      criterio_fonte: avaliacao.criterio_fonte || "",
+      criterio_fallback_level: avaliacao.criterio_fallback_level ?? null,
+
+      classe_tipo: data.classe_tipo || "",
+      elemento_via: data.tipoDeMarcacao || data.tipo_marcacao || "",
+
+      unidade: data.unidade || "",
+      enderecoTexto: data.enderecoTexto || "",
+      cidadeUF: data.cidadeUF || "",
+      rodovia: data.rodovia || "",
+      km: data.km || "",
+      sentido: data.sentido || "",
+      faixa: data.faixa || "",
+      tipoDeMarcacao: data.tipoDeMarcacao || "",
+      texto_legenda: data.texto_legenda || "",
+      legenda_por_letra: legendaEstrutura,
+
+      data_aplicacao: data.data_aplicacao || "",
+      linha: data.linha || "",
+      estacao: data.estacao || "",
+      letra: data.letra || "",
+      cor: data.cor || "",
+      angulo: data.angulo || "",
+      posicao: data.posicao || "",
+      clima: data.clima || "",
+      observacoes: data.observacoes || "",
+
+      gps,
+      dataHoraGPS: data.dataHoraGPS || "",
+
+      fotos,
+      created_at: now
+    };
+
     await saveMedicao(medicao);
+
+    await logAudit({
+      action: AUDIT_ACTIONS.ENTITY_CREATED,
+      entity_type: "medicoes",
+      entity_id: medicaoId,
+      actor_user_id: activeSession?.id || null,
+      summary: `Medição registrada para equipamento ${data.equip_id}.`,
+      diff: buildDiff(null, medicao, ["id", "equipamento_id", "user_id", "obra_id", "subtipo"])
+    });
+
+    medicoes = isAdmin() ? await getAllMedicoes() : await getMedicoesByUser(activeSession.id);
+    renderMedicoes();
+
+    medicaoForm.reset();
+    if (legendaPorLetra) legendaPorLetra.value = "";
+    rebuildLeituras();
+    updateGpsInputs({ lat: null, lng: null, accuracy: null, source: "", dateTime: "" });
+    gpsStatus.textContent = "Sem captura.";
+    fotoMedicaoInfo.textContent = "Nenhuma foto selecionada.";
+    fotoLocalInfo.textContent = "Nenhuma foto selecionada.";
+    updateSubtipoFields();
+    setStatusMessage("Medição registrada com sucesso.");
   } catch (error) {
     await logError({
       module: "medlux-reflective-control",
       action: "SAVE_MEDICAO",
-      message: "Falha ao salvar medição com fotos no IndexedDB.",
-      stack: error.stack,
-      context: { medicao_id: medicaoId, fotos: fotos.length }
+      message: error?.message || "Falha inesperada ao registrar medição.",
+      stack: error?.stack,
+      context: {
+        user_id: activeSession?.id || null,
+        equipamento_id: medicaoEquip?.value || "",
+        obra_id: document.getElementById("medicaoObra")?.value || ""
+      }
     });
-    window.alert("Falha ao salvar fotos no IndexedDB. Tente remover algumas fotos e salvar novamente.");
-    return;
+    medicaoHint.textContent = error?.message || "Falha ao registrar medição. Verifique os dados e tente novamente.";
+    window.alert(medicaoHint.textContent);
   }
-
-  await logAudit({
-    action: AUDIT_ACTIONS.ENTITY_CREATED,
-    entity_type: "medicoes",
-    entity_id: medicaoId,
-    actor_user_id: activeSession?.id || null,
-    summary: `Medição registrada para equipamento ${data.equip_id}.`,
-    diff: buildDiff(null, medicao, ["id", "equipamento_id", "user_id", "obra_id", "subtipo"])
-  });
-
-  medicoes = isAdmin() ? await getAllMedicoes() : await getMedicoesByUser(activeSession.id);
-
-  renderMedicoes();
-  medicaoForm.reset();
-  if (legendaPorLetra) legendaPorLetra.value = "";
-  rebuildLeituras();
-  updateGpsInputs({ lat: null, lng: null, accuracy: null, source: "", dateTime: "" });
-  gpsStatus.textContent = "Sem captura.";
-  fotoMedicaoInfo.textContent = "Nenhuma foto selecionada.";
-  fotoLocalInfo.textContent = "Nenhuma foto selecionada.";
-  updateSubtipoFields();
-  setStatusMessage("Medição registrada com sucesso.");
 };
 
 const initialize = async () => {

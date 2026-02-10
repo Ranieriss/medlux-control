@@ -387,12 +387,14 @@ input:focus, select:focus, textarea:focus{
   outline: 2px solid rgba(124,92,255,.4);
 }
 
-.table-wrapper{
+.table-wrapper,
+.table-wrap{
   overflow-x:auto;
 }
 
 .table{
   width:100%;
+  table-layout: fixed;
   border-collapse:collapse;
   font-size: 13px;
 }
@@ -402,6 +404,8 @@ input:focus, select:focus, textarea:focus{
   border-bottom: 1px solid rgba(255,255,255,.08);
   text-align:left;
   vertical-align:top;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .table th{
@@ -409,6 +413,7 @@ input:focus, select:focus, textarea:focus{
   text-transform: uppercase;
   letter-spacing:.08em;
   color: rgba(185,198,255,.9);
+  white-space: nowrap;
 }
 
 .sort-btn{

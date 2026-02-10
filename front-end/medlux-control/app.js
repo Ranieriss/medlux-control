@@ -31,6 +31,7 @@ import { initGlobalErrorHandling, logError } from "../shared/errors.js";
 import { getAppVersion, sanitizeText } from "../shared/utils.js";
 import { computeMeasurementStats, evaluateMedicao, buildConformidadeResumo, computeLegendaStats } from "../shared/medicao-utils.js";
 import { generateUserIndividualPdf } from "./reports/user-report.js";
+import { ensurePdfLib } from "../shared/reports/pdf-lib.js";
 
 // normalizarTexto precisa ficar no topo para evitar TDZ na avaliação do módulo.
 const normalizarTexto = (value) => String(value || "").trim().replace(/\s+/g, " ");
@@ -1521,6 +1522,7 @@ const blobToDataUrl = (blob) => new Promise((resolve, reject) => {
 const toSafeText = (value) => sanitizeText(value ?? "-");
 
 const buildGlobalPdf = async () => {
+  await ensurePdfLib();
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
   const now = new Date();
@@ -1688,6 +1690,7 @@ doc.autoTable({
 };
 
 const buildObraPdf = async () => {
+  await ensurePdfLib();
   const obraValue = normalizeText(obraFilter.value).toUpperCase();
   const relatorioValue = normalizeText(relatorioFilter.value).toUpperCase();
   const faixaValue = normalizeText(faixaFilter.value).toUpperCase();

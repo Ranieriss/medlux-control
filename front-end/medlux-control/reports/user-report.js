@@ -5,6 +5,7 @@ import {
   getObraById,
   getUserById
 } from "../db.js";
+import { ensurePdfLib } from "../../shared/reports/pdf-lib.js";
 
 const normalizeText = (value) => String(value || "").trim();
 const normalizeUpper = (value) => normalizeText(value).toUpperCase();
@@ -36,61 +37,6 @@ const resolveMedicaoDate = (medicao) => parseDate(medicao?.created_at || medicao
 const resolveUserId = (loggedUser) => normalizeText(loggedUser?.id || loggedUser?.user_id);
 
 
-let pdfLibPromise = null;
-
-const PDF_LIB_URLS = {
-  jspdf: "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",
-  autoTable: "https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"
-};
-
-const hasJsPdf = () => Boolean(window.jspdf && typeof window.jspdf.jsPDF === "function");
-
-const hasAutoTablePlugin = () => Boolean(window.jspdf?.jsPDF?.prototype?.autoTable || window.jsPDF?.API?.autoTable);
-
-const loadScript = (src) =>
-  new Promise((resolve, reject) => {
-    const existing = document.querySelector(`script[data-medlux-pdf-src="${src}"]`) || document.querySelector(`script[src="${src}"]`);
-    if (existing) {
-      if (existing.dataset.loaded === "true" || (src === PDF_LIB_URLS.jspdf && hasJsPdf()) || (src === PDF_LIB_URLS.autoTable && hasAutoTablePlugin())) {
-        resolve();
-        return;
-      }
-      existing.addEventListener("load", () => resolve(), { once: true });
-      existing.addEventListener("error", () => reject(new Error(`Falha ao carregar script: ${src}`)), { once: true });
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.src = src;
-    script.defer = true;
-    script.dataset.medluxPdfSrc = src;
-    script.addEventListener("load", () => {
-      script.dataset.loaded = "true";
-      resolve();
-    });
-    script.addEventListener("error", () => reject(new Error(`Falha ao carregar script: ${src}`)));
-    document.head.appendChild(script);
-  });
-
-const ensurePdfLibReady = async () => {
-  if (hasJsPdf()) return;
-
-  if (!pdfLibPromise) {
-    pdfLibPromise = (async () => {
-      await loadScript(PDF_LIB_URLS.jspdf);
-      await loadScript(PDF_LIB_URLS.autoTable);
-    })().catch((error) => {
-      pdfLibPromise = null;
-      throw error;
-    });
-  }
-
-  await pdfLibPromise;
-
-  if (!hasJsPdf()) {
-    throw new Error("Biblioteca de PDF não disponível no navegador. Verifique conexão com a internet ou bloqueio de CDN.");
-  }
-};
 
 const resolvePeriodo = ({ startDate, endDate }) => {
   const start = parseDate(startDate);
@@ -108,13 +54,10 @@ const resolvePeriodo = ({ startDate, endDate }) => {
 };
 
 const buildPdfBlob = async ({ loggedUser, obra, obraId, periodo, medicoes }) => {
-  await ensurePdfLibReady();
+  await ensurePdfLib();
 
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
-  if (typeof doc.autoTable !== "function") {
-    await loadScript(PDF_LIB_URLS.autoTable);
-  }
   if (typeof doc.autoTable !== "function") {
     throw new Error("Biblioteca de PDF carregada parcialmente: plugin AutoTable indisponível.");
   }
@@ -171,7 +114,8 @@ const buildPdfBlob = async ({ loggedUser, obra, obraId, periodo, medicoes }) => 
       startY: 126,
       head: [["Data/Hora", "Equipamento", "Tipo/Subtipo", "Media final", "Unidade", "Rodovia/KM", "Faixa", "Sentido", "Observacoes"]],
       body: tableBody,
-      styles: { fontSize: 8, cellPadding: 3 }
+      styles: { fontSize: 8, cellPadding: 3, overflow: "linebreak" },
+      headStyles: { halign: "center", valign: "middle", overflow: "visible" }
     });
   }
 

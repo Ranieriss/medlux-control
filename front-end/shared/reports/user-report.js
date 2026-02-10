@@ -5,6 +5,7 @@ import {
   getAllUsers,
   getUserById
 } from "../db.js";
+import { ensurePdfLib } from "./pdf-lib.js";
 
 const normalizeText = (value) => String(value || "").trim();
 const normalizeUpper = (value) => normalizeText(value).toUpperCase();
@@ -53,63 +54,6 @@ const toFixedSafe = (value, digits = 2) => {
 
 const textSafe = (value) => normalizeText(value) || "-";
 
-let pdfLibPromise = null;
-
-const PDF_LIB_URLS = {
-  jspdf: "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",
-  autoTable: "https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"
-};
-
-const loadScript = (src) =>
-  new Promise((resolve, reject) => {
-    const existing = document.querySelector(`script[data-medlux-pdf-src="${src}"]`) || document.querySelector(`script[src="${src}"]`);
-    if (existing) {
-      if (existing.dataset.loaded === "true" || (src === PDF_LIB_URLS.jspdf && hasJsPdf()) || (src === PDF_LIB_URLS.autoTable && hasAutoTablePlugin())) {
-        resolve();
-        return;
-      }
-      existing.addEventListener("load", () => resolve(), { once: true });
-      existing.addEventListener("error", () => reject(new Error(`Falha ao carregar script: ${src}`)), { once: true });
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.src = src;
-    script.defer = true;
-    script.dataset.medluxPdfSrc = src;
-    script.addEventListener("load", () => {
-      script.dataset.loaded = "true";
-      resolve();
-    });
-    script.addEventListener("error", () => reject(new Error(`Falha ao carregar script: ${src}`)));
-    document.head.appendChild(script);
-  });
-
-const hasJsPdf = () => Boolean(window.jspdf && typeof window.jspdf.jsPDF === "function");
-
-const hasAutoTablePlugin = () => Boolean(window.jspdf?.jsPDF?.prototype?.autoTable || window.jsPDF?.API?.autoTable);
-
-const ensurePdfLibReady = async () => {
-  if (hasJsPdf()) {
-    return;
-  }
-
-  if (!pdfLibPromise) {
-    pdfLibPromise = (async () => {
-      await loadScript(PDF_LIB_URLS.jspdf);
-      await loadScript(PDF_LIB_URLS.autoTable);
-    })().catch((error) => {
-      pdfLibPromise = null;
-      throw error;
-    });
-  }
-
-  await pdfLibPromise;
-
-  if (!hasJsPdf()) {
-    throw new Error("Biblioteca de PDF não disponível no navegador. Verifique conexão com a internet ou bloqueio de CDN.");
-  }
-};
 const resolveConformidadeResumo = (medicoes = []) => {
   const total = medicoes.length;
   if (!total) return { conformes: 0, naoConformes: 0, naoAvaliadas: 0, pctConformes: 0, pctNaoConformes: 0, pctNaoAvaliadas: 0 };
@@ -172,7 +116,7 @@ export async function generateUserPdfReport({ obraId, startDate, endDate, curren
   const normalizedObraId = normalizeUpper(obraId);
   if (!normalizedObraId) throw new Error("Informe a obra para gerar o relatório individual.");
 
-  await ensurePdfLibReady();
+  await ensurePdfLib();
 
   const user = await resolveCurrentUser(currentUser);
   const userId = normalizeText(user?.id || user?.user_id);
@@ -190,15 +134,16 @@ export async function generateUserPdfReport({ obraId, startDate, endDate, curren
 
   const obra = obras.find((item) => normalizeUpper(item.id || item.idObra) === normalizedObraId) || null;
 
+  if (!filtradas.length) {
+    throw new Error("Nenhuma medição encontrada para os filtros informados.");
+  }
+
   const medias = filtradas.map((item) => Number(item.media_final ?? item.media)).filter((item) => Number.isFinite(item));
   const mediaGeral = medias.length ? medias.reduce((acc, item) => acc + item, 0) / medias.length : null;
   const conformidade = resolveConformidadeResumo(filtradas);
 
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
-  if (typeof doc.autoTable !== "function") {
-    await loadScript(PDF_LIB_URLS.autoTable);
-  }
   if (typeof doc.autoTable !== "function") {
     throw new Error("Biblioteca de PDF carregada parcialmente: plugin AutoTable indisponível.");
   }
@@ -218,10 +163,7 @@ export async function generateUserPdfReport({ obraId, startDate, endDate, curren
   doc.text(`Periodo: ${formatDateOnly(parseDayStart(startDate))} a ${formatDateOnly(parseDayEnd(endDate))}`, 40, 98);
   doc.text(`Gerado em: ${generatedAt.toLocaleString("pt-BR")}`, 40, 112);
 
-  if (!filtradas.length) {
-    doc.setFontSize(12);
-    doc.text("Nenhuma medicao encontrada no periodo informado.", 40, 148);
-  } else {
+  {
     const rows = filtradas.map((medicao) => {
       const equipamento = equipamentos.find((item) => item.id === (medicao.equipamento_id || medicao.equip_id));
       return [
@@ -239,7 +181,17 @@ export async function generateUserPdfReport({ obraId, startDate, endDate, curren
       startY: 126,
       head: [["Data/Hora", "Equipamento", "Subtipo", "Média", "Mínimo/Critério", "Status", "Modelo"]],
       body: rows,
-      styles: { fontSize: 8, cellPadding: 2 }
+      styles: { fontSize: 8, cellPadding: 3, overflow: "linebreak" },
+      headStyles: { halign: "center", valign: "middle", overflow: "visible" },
+      columnStyles: {
+        0: { cellWidth: 82 },
+        1: { cellWidth: 62 },
+        2: { cellWidth: 58 },
+        3: { cellWidth: 48 },
+        4: { cellWidth: 70 },
+        5: { cellWidth: 62 },
+        6: { cellWidth: "wrap" }
+      }
     });
   }
 
@@ -291,11 +243,7 @@ export function initUserReportFeature({
         currentUser
       });
 
-      if (!result.total) {
-        onStatusMessage("PDF gerado sem medições (nenhuma medição encontrada no período).");
-      } else {
-        onStatusMessage("PDF individual gerado com sucesso.");
-      }
+      onStatusMessage("PDF individual gerado com sucesso.");
 
       await onSuccess(result);
     } catch (error) {
