@@ -130,6 +130,15 @@ const renderEquipamentos = () => {
     opt.textContent = `${equipamento.id} • ${equipamento?.modelo || "Sem modelo"}`;
     medicaoEquip.appendChild(opt);
   });
+
+  if (!disponiveis.length && !isAdmin()) {
+    medicaoHint.textContent = "Sem equipamentos vinculados ao seu usuário. Solicite vínculo ao ADMIN.";
+    medicaoEquip.disabled = true;
+    return;
+  }
+
+  medicaoEquip.disabled = false;
+  medicaoHint.textContent = "Campos com * são obrigatórios.";
 };
 
 const renderObrasList = () => {
@@ -151,8 +160,9 @@ const parseLegendaPorLetra = (text) => {
     .map((line) => {
       const [letra, raw] = line.split(":");
       const leituras = String(raw || "")
-        .split(/[;,\s]+/)
-        .map((item) => Number(item.replace(",", ".")))
+        .replace(/,/g, ".")
+        .split(/[;\s]+/)
+        .map((item) => Number(item))
         .filter((item) => Number.isFinite(item));
       return { letra: String(letra || "").trim().toUpperCase(), leituras };
     })
@@ -254,13 +264,15 @@ const getLeituras = () =>
     return Number.isFinite(value) ? value : null;
   });
 
-const parseLeituraList = (text) =>
-  String(text || "")
-    .split(/[;\n\r,\t ]+/)
+const parseLeituraList = (text) => {
+  const normalized = String(text || "").replace(/,/g, ".");
+  return normalized
+    .split(/[;\n\r\t ]+/)
     .map((item) => item.trim())
     .filter(Boolean)
-    .map((item) => Number(item.replace(",", ".")))
+    .map((item) => Number(item))
     .filter((value) => Number.isFinite(value));
+};
 
 const toTrimmedValue = (value) => String(value || "").trim();
 
@@ -528,7 +540,13 @@ const handleMedicaoSubmit = async (event) => {
     }
 
     const data = Object.fromEntries(new FormData(medicaoForm).entries());
-    const leituras = getLeituras().filter((item) => Number.isFinite(item));
+if (!data.equip_id) {
+  medicaoHint.textContent = "Selecione um equipamento para registrar a medição.";
+  return;
+}
+
+const leituras = getLeituras().filter((item) => Number.isFinite(item));
+
     const subtipo = String(data.subtipo || "").toUpperCase();
 
     if (!leituras.length) {
