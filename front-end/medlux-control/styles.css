@@ -410,9 +410,17 @@ input:focus, select:focus, textarea:focus{
 
 .table th{
   font-size: 12px;
+  padding: 8px 10px;
   text-transform: uppercase;
   letter-spacing:.08em;
   color: rgba(185,198,255,.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.table thead th,
+.table thead th *{
   white-space: nowrap;
 }
 

@@ -98,6 +98,14 @@ const setStatusMessage = (message) => {
   statusMessage.textContent = message;
 };
 
+const showFeedback = (message, type = "info") => {
+  medicaoHint.textContent = message;
+  setStatusMessage(message);
+  if (type === "error") {
+    window.alert(message);
+  }
+};
+
 const isAdmin = () => activeSession?.role === "ADMIN";
 
 const isVinculoAtivo = (item) => item.status === "ATIVO" || item.ativo === true;
@@ -265,6 +273,8 @@ const parseLeituraList = (text) => {
     .map((item) => Number(item))
     .filter((value) => Number.isFinite(value));
 };
+
+const toTrimmedValue = (value) => String(value || "").trim();
 
 const updateMedia = () => {
   const leituras = getLeituras();
@@ -524,19 +534,31 @@ const handleMedicaoSubmit = async (event) => {
   event.preventDefault();
 
   try {
-    const data = Object.fromEntries(new FormData(medicaoForm).entries());
-    if (!data.equip_id) {
-      medicaoHint.textContent = "Selecione um equipamento para registrar a medição.";
+    if (!activeSession?.id) {
+      showFeedback("Sessão inválida. Faça login novamente.", "error");
       return;
     }
-    const leituras = getLeituras();
+
+    const data = Object.fromEntries(new FormData(medicaoForm).entries());
+if (!data.equip_id) {
+  medicaoHint.textContent = "Selecione um equipamento para registrar a medição.";
+  return;
+}
+
+const leituras = getLeituras().filter((item) => Number.isFinite(item));
+
     const subtipo = String(data.subtipo || "").toUpperCase();
+
+    if (!leituras.length) {
+      showFeedback("Nenhuma leitura válida na lista colada/informada.", "error");
+      return;
+    }
 
     const legendaEstrutura = legendaPorLetra ? parseLegendaPorLetra(legendaPorLetra.value || "") : [];
     if (subtipo === "LEGENDA" && legendaEstrutura.length) {
       const invalida = legendaEstrutura.some((item) => item.leituras.length !== 3);
       if (invalida) {
-        medicaoHint.textContent = "Na estrutura por letra, cada letra deve ter 3 leituras.";
+        showFeedback("Na estrutura por letra, cada letra deve ter 3 leituras.", "error");
         return;
       }
     }
@@ -550,7 +572,7 @@ const handleMedicaoSubmit = async (event) => {
     });
 
     if (!validation.ok) {
-      medicaoHint.textContent = validation.errors.map((item) => item.message).join(" ");
+      showFeedback(validation.errors.map((item) => item.message).join(" "), "error");
       return;
     }
 
@@ -562,7 +584,7 @@ const handleMedicaoSubmit = async (event) => {
           normalizeUserIdComparable(item.user_id) === normalizeUserIdComparable(activeSession.id)
       );
       if (!vinculoAtivo) {
-        medicaoHint.textContent = "Equipamento não vinculado ao operador.";
+        showFeedback("Equipamento não vinculado ao operador.", "error");
         return;
       }
     }
@@ -578,6 +600,11 @@ const handleMedicaoSubmit = async (event) => {
       leituras,
       legenda_por_letra: legendaEstrutura
     });
+
+    if (stats.media === null) {
+      showFeedback("Nenhuma leitura válida na lista colada para calcular a média.", "error");
+      return;
+    }
 
     const avaliacao = evaluateMedicao({
       medicao: {
@@ -598,7 +625,7 @@ const handleMedicaoSubmit = async (event) => {
 
     const { fotos, errors } = await collectFotos();
     if (errors.length) {
-      medicaoHint.textContent = errors.join(" ");
+      showFeedback(errors.join(" "), "error");
       return;
     }
 
@@ -616,15 +643,20 @@ const handleMedicaoSubmit = async (event) => {
       source: gpsSource.value || (Number.isFinite(gpsLatValue) && Number.isFinite(gpsLngValue) ? "MANUAL" : "")
     };
 
+    // Correção crítica: persistimos todos os campos relevantes para histórico/PDF
+    // evitando objetos incompletos que geravam relatório vazio.
     const medicao = {
       id: medicaoId,
       medicao_id: medicaoId,
 
       equipamento_id: data.equip_id,
       equip_id: data.equip_id,
+      equipamento_nome: equip?.modelo || equip?.id || "",
       user_id: activeSession.id,
+      user_nome: activeSession.nome || "",
 
       obra_id: obraId,
+      obra_nome: obra?.nomeObra || obra?.nome || "",
       relatorio_id: relatorioId || "",
       identificadorRelatorio: relatorioId || "",
 
@@ -638,6 +670,8 @@ const handleMedicaoSubmit = async (event) => {
       leituras,
       media: stats.media ?? "",
       media_final: stats.media ?? "",
+      minFinal: stats.minFinal ?? null,
+      maxFinal: stats.maxFinal ?? null,
       raw_readings: stats.rawReadings || leituras,
       discarded_min: stats.discardedMin ?? null,
       discarded_max: stats.discardedMax ?? null,
@@ -652,29 +686,29 @@ const handleMedicaoSubmit = async (event) => {
       criterio_fonte: avaliacao.criterio_fonte || "",
       criterio_fallback_level: avaliacao.criterio_fallback_level ?? null,
 
-      classe_tipo: data.classe_tipo || "",
+      classe_tipo: toTrimmedValue(data.classe_tipo),
       elemento_via: data.tipoDeMarcacao || data.tipo_marcacao || "",
 
-      unidade: data.unidade || "",
-      enderecoTexto: data.enderecoTexto || "",
-      cidadeUF: data.cidadeUF || "",
-      rodovia: data.rodovia || "",
-      km: data.km || "",
-      sentido: data.sentido || "",
-      faixa: data.faixa || "",
-      tipoDeMarcacao: data.tipoDeMarcacao || "",
-      texto_legenda: data.texto_legenda || "",
+      unidade: toTrimmedValue(data.unidade),
+      enderecoTexto: toTrimmedValue(data.enderecoTexto),
+      cidadeUF: toTrimmedValue(data.cidadeUF),
+      rodovia: toTrimmedValue(data.rodovia),
+      km: toTrimmedValue(data.km),
+      sentido: toTrimmedValue(data.sentido),
+      faixa: toTrimmedValue(data.faixa),
+      tipoDeMarcacao: toTrimmedValue(data.tipoDeMarcacao),
+      texto_legenda: toTrimmedValue(data.texto_legenda),
       legenda_por_letra: legendaEstrutura,
 
-      data_aplicacao: data.data_aplicacao || "",
-      linha: data.linha || "",
-      estacao: data.estacao || "",
-      letra: data.letra || "",
-      cor: data.cor || "",
-      angulo: data.angulo || "",
-      posicao: data.posicao || "",
-      clima: data.clima || "",
-      observacoes: data.observacoes || "",
+      data_aplicacao: toTrimmedValue(data.data_aplicacao),
+      linha: toTrimmedValue(data.linha),
+      estacao: toTrimmedValue(data.estacao),
+      letra: toTrimmedValue(data.letra),
+      cor: toTrimmedValue(data.cor),
+      angulo: toTrimmedValue(data.angulo),
+      posicao: toTrimmedValue(data.posicao),
+      clima: toTrimmedValue(data.clima),
+      observacoes: toTrimmedValue(data.observacoes),
 
       gps,
       dataHoraGPS: data.dataHoraGPS || "",
@@ -705,8 +739,13 @@ const handleMedicaoSubmit = async (event) => {
     fotoMedicaoInfo.textContent = "Nenhuma foto selecionada.";
     fotoLocalInfo.textContent = "Nenhuma foto selecionada.";
     updateSubtipoFields();
-    setStatusMessage("Medição registrada com sucesso.");
+    showFeedback("Medição registrada com sucesso.");
   } catch (error) {
+    console.error("Falha no submit da medição", {
+      error,
+      user_id: activeSession?.id || null,
+      equipamento_id: medicaoEquip?.value || ""
+    });
     await logError({
       module: "medlux-reflective-control",
       action: "SAVE_MEDICAO",
@@ -718,8 +757,7 @@ const handleMedicaoSubmit = async (event) => {
         obra_id: document.getElementById("medicaoObra")?.value || ""
       }
     });
-    medicaoHint.textContent = error?.message || "Falha ao registrar medição. Verifique os dados e tente novamente.";
-    window.alert(medicaoHint.textContent);
+    showFeedback(error?.message || "Falha ao registrar medição. Verifique os dados e tente novamente.", "error");
   }
 };
 

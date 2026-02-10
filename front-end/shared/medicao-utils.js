@@ -73,17 +73,22 @@ const computeMeasurementStats = (medicaoInput = {}) => {
     : [];
   const quantidade = values.length || (toNum(medicao.valor) !== null ? 1 : 0);
   const legenda = computeLegendaStats(medicao);
-  const buildStats = ({ media = null, minimo = null, maximo = null, discardedMin = null, discardedMax = null, regra = "Média simples" } = {}) => ({
+  const buildStats = ({ media = null, minimo = null, maximo = null, discardedMin = null, discardedMax = null, regra = "Média simples", observacao = "" } = {}) => ({
     subtipo,
     media,
+    mediaFinal: media,
     minimo,
+    minFinal: minimo,
     maximo,
+    maxFinal: maximo,
     quantidade,
+    qtdValidas: quantidade,
     quantidadeLeituras: quantidade,
     rawReadings: values,
     discardedMin,
     discardedMax,
-    regra
+    regra,
+    observacao
   });
 
   const isLegenda = subtipo === "LEGENDA" || tipoDeMarcacao === "LEGENDA";
@@ -102,20 +107,23 @@ const computeMeasurementStats = (medicaoInput = {}) => {
     if (values.length) {
       return buildStats({ media: average(values), regra: "Legenda: fallback para média simples das leituras" });
     }
-    return buildStats({ media: null, regra: "Legenda sem leituras válidas" });
+    return buildStats({ media: null, regra: "Legenda sem leituras válidas", observacao: "Sem leituras válidas" });
   }
 
   if (!values.length) {
     return buildStats({
-      media: toNum(medicao.media) ?? toNum(medicao.valor),
+      media: null,
+      minimo: null,
+      maximo: null,
       discardedMin: toNum(medicao.discarded_min),
       discardedMax: toNum(medicao.discarded_max),
-      regra: "Sem leituras válidas"
+      regra: "Sem leituras válidas",
+      observacao: "Sem leituras válidas"
     });
   }
   if (subtipo === "HORIZONTAL") {
     if (values.length < 10) {
-      return buildStats({ media: null, regra: "Horizontal exige no mínimo 10 leituras" });
+      return buildStats({ media: null, regra: "Horizontal exige no mínimo 10 leituras", observacao: "Sem leituras válidas" });
     }
     const sorted = [...values].sort((a, b) => a - b);
     const discardedMin = sorted[0];
@@ -130,6 +138,8 @@ const computeMeasurementStats = (medicaoInput = {}) => {
   }
   return buildStats({
     media: average(values),
+    minimo: Math.min(...values),
+    maximo: Math.max(...values),
     regra: subtipo === "VERTICAL" ? "Vertical: média simples" : (subtipo === "TACHAS" ? "Tachas: média simples" : "Média simples")
   });
 };
@@ -139,6 +149,10 @@ Casos esperados (sanity checks):
 - computeMeasurementStats(null) => { media: null, quantidade: 0, ... }
 - computeMeasurementStats({ subtipo: "LEGENDA", tipoDeMarcacao: "LEGENDA" }) => não lança erro e retorna media null
 - computeMeasurementStats({ leituras: [100, 120] }).media => 110
+- Leituras vazias devem retornar mediaFinal/minFinal/maxFinal = null e observação "Sem leituras válidas"
+- Leituras com strings inválidas (ex.: ["abc", "--"]) não podem lançar exceção
+- Leituras com vírgula/ponto devem ser normalizadas antes de chegar aqui (camada de formulário)
+- Leituras RL/Qd devem retornar qtdValidas e regra de cálculo sem quebrar relatórios
 */
 
 const resolvePeriodoHorizontal = (medicao = {}, obra = null) => {
