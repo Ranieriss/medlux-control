@@ -31,7 +31,7 @@ import { initGlobalErrorHandling, logError } from "../shared/errors.js";
 import { getAppVersion, sanitizeText } from "../shared/utils.js";
 import { computeMeasurementStats, evaluateMedicao, buildConformidadeResumo, computeLegendaStats } from "../shared/medicao-utils.js";
 import { generateUserIndividualPdf } from "./reports/user-report.js";
-import { ensurePdfLib } from "../shared/reports/pdf-lib.js";
+import { ensurePdfLib, makePdfTableNoWrap } from "../shared/reports/pdf-lib.js";
 
 // normalizarTexto precisa ficar no topo para evitar TDZ na avaliação do módulo.
 const normalizarTexto = (value) => String(value || "").trim().replace(/\s+/g, " ");
@@ -274,6 +274,20 @@ const formatDate = (dateString) => {
   return `${day}/${month}/${year}`;
 };
 
+const formatDateTimeLocal = (value) => {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date);
+};
+
 const getEquipamentoStatus = (equipamento) => equipamento.statusLocal || equipamento.statusOperacional || equipamento.status || "STAND_BY";
 const getEquipamentoLocalidade = (equipamento) => equipamento.localidadeCidadeUF || equipamento.localidade || "";
 const formatStatus = (status) => STATUS_LABELS[status] || STATUS_LABELS[normalizeStatus(status)] || "-";
@@ -362,6 +376,10 @@ const normalizeObra = (data) => ({
 const validateObra = (obra) => {
   if (!obra.idObra) return "ID da obra obrigatório.";
   if (!obra.nomeObra) return "Nome da obra obrigatório.";
+  if (!obra.rodovia) return "Rodovia obrigatória.";
+  if (!obra.kmInicio) return "KM inicial obrigatório.";
+  if (!obra.concessionariaCliente) return "Cliente obrigatório.";
+  if (!obra.responsavelTecnico) return "Responsável técnico obrigatório.";
   return "";
 };
 
@@ -1773,11 +1791,17 @@ const blobToDataUrl = (blob) => new Promise((resolve, reject) => {
 });
 
 const toSafeText = (value) => sanitizeText(value ?? "-");
+const resolveUserName = (userId) => {
+  const normalized = normalizeUserIdComparable(userId || "");
+  if (!normalized) return "-";
+  const user = usuarios.find((item) => normalizeUserIdComparable(item.id || item.user_id) === normalized);
+  return user?.nome || userId || "-";
+};
 
 const buildGlobalPdf = async () => {
   await ensurePdfLib();
   const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+  let doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
   const now = new Date();
   const title = "Relatório Global MEDLUX";
   doc.setFontSize(16);
@@ -1804,11 +1828,13 @@ const buildGlobalPdf = async () => {
     toSafeText(equipamento.numeroCertificado || equipamento.certificado || "-")
   ]);
 
-  doc.autoTable({
-    head: [["ID", "Função", "Geom.", "Modelo", "Série", "Fabricante", "Usuário", "Localidade", "Status", "Calibração", "Certificado"]],
-    body: equipamentoRows,
+  doc = makePdfTableNoWrap({
+    jsPDF,
+    doc,
     startY: 90,
-    styles: { fontSize: 8 }
+    head: [["ID", "Função", "Geom.", "Modelo", "Série", "Fabric.", "Usuário", "Localidade", "Status", "Calib.", "Cert."]],
+    body: equipamentoRows,
+    columnWidths: [58, 58, 44, 68, 58, 62, 90, 120, 52, 52, 76]
   });
 
   let cursorY = doc.lastAutoTable.finalY + 20;
@@ -1816,16 +1842,18 @@ const buildGlobalPdf = async () => {
   doc.text(toSafeText("Histórico de vínculos"), 40, cursorY);
   const vinculoRows = vinculos.map((vinculo) => [
     toSafeText(vinculo.equipamento_id || vinculo.equip_id),
-    toSafeText(vinculo.user_id),
-    toSafeText(formatDate(vinculo.inicio || vinculo.data_inicio)),
-    toSafeText(vinculo.fim || vinculo.data_fim ? formatDate(vinculo.fim || vinculo.data_fim) : "Ativo"),
+    toSafeText(`${resolveUserName(vinculo.user_id)} (${vinculo.user_id || "-"})`),
+    toSafeText(formatDateTimeLocal(vinculo.inicio || vinculo.data_inicio)),
+    toSafeText(vinculo.fim || vinculo.data_fim ? formatDateTimeLocal(vinculo.fim || vinculo.data_fim) : "Ativo"),
     toSafeText(vinculo.termo_pdf || vinculo.termo_cautela_pdf ? "Sim" : "Não")
   ]);
-  doc.autoTable({
+  doc = makePdfTableNoWrap({
+    jsPDF,
+    doc,
+    startY: cursorY + 18,
     head: [["Equipamento", "Usuário", "Início", "Fim", "Termo"]],
     body: vinculoRows,
-    startY: cursorY + 18,
-    styles: { fontSize: 8 }
+    columnWidths: [90, 180, 110, 110, 52]
   });
 
   cursorY = doc.lastAutoTable.finalY + 20;
@@ -1862,7 +1890,7 @@ const medicaoRows = medicoes.map((medicao, index) => {
 
   return [
     index + 1,
-    toSafeText(medicao.dataHora || medicao.data_hora || "-"),
+    toSafeText(formatDateTimeLocal(medicao.dataHora || medicao.data_hora || medicao.created_at)),
     toSafeText(subtipo),
     toSafeText(medicao.tipoMedicao || medicao.tipo_medicao || "-"),
     toSafeText(medicao.tipoDeMarcacao || "-"),
@@ -1871,14 +1899,16 @@ const medicaoRows = medicoes.map((medicao, index) => {
     toSafeText(avaliacao.media === null ? "-" : avaliacao.media.toFixed(2)),
     toSafeText(avaliacao.minimo === null ? "-" : avaliacao.minimo),
     toSafeText(avaliacao.status),
-    toSafeText(medicao.user_id || "-"),
+    toSafeText(`${resolveUserName(medicao.user_id)} (${medicao.user_id || "-"})`),
     toSafeText(medicao.obra_id || "-"),
     toSafeText(`${medicao.rodovia || "-"} / ${medicao.km || "-"}`),
     toSafeText(medicao.cidadeUF || "-")
   ];
 });
 
-doc.autoTable({
+doc = makePdfTableNoWrap({
+  jsPDF,
+  doc,
   head: [[
     "Nº",
     "Data/Hora",
@@ -1897,7 +1927,8 @@ doc.autoTable({
   ]],
   body: medicaoRows,
   startY: cursorY + 24,
-  styles: { fontSize: 7 }
+  columnWidths: [24, 82, 48, 50, 64, 42, 28, 44, 46, 54, 100, 58, 86, 72],
+  styles: { fontSize: 8, cellPadding: 2 }
 });
 
  
@@ -1953,6 +1984,10 @@ const buildObraPdf = async () => {
     setStatusMessage("Informe uma obra ou ID de relatório para gerar o PDF.");
     return;
   }
+  if (userReportStart?.value && userReportEnd?.value && new Date(userReportEnd.value) < new Date(userReportStart.value)) {
+    setStatusMessage("Período inválido: data final deve ser maior ou igual à data inicial.");
+    return;
+  }
   const filtradas = medicoes.filter((medicao) => {
     const matchObra = obraValue ? (medicao.obra_id || "").toUpperCase() === obraValue : true;
     const relatorioId = medicao.identificadorRelatorio || medicao.relatorio_id || "";
@@ -1968,14 +2003,18 @@ const buildObraPdf = async () => {
   }
 
   const obra = obras.find((item) => normalizeId(item.idObra || item.id) === obraValue) || null;
+  if (obraValue && !obra) {
+    setStatusMessage("Obra informada não encontrada para geração do relatório.");
+    return;
+  }
   const identificador = relatorioValue || filtradas[0].identificadorRelatorio || filtradas[0].relatorio_id || "-";
   const datas = filtradas.map((item) => new Date(item.dataHora || item.data_hora)).filter((d) => !Number.isNaN(d.getTime()));
   const periodo = datas.length
-    ? `${datas.reduce((min, d) => (d < min ? d : min)).toLocaleDateString("pt-BR")} → ${datas.reduce((max, d) => (d > max ? d : max)).toLocaleDateString("pt-BR")}`
+    ? `${datas.reduce((min, d) => (d < min ? d : min)).toLocaleDateString("pt-BR")} até ${datas.reduce((max, d) => (d > max ? d : max)).toLocaleDateString("pt-BR")}`
     : "-";
 
   const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+  let doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
   const now = new Date();
   doc.setFontSize(18);
   doc.text(toSafeText("Relatório por Obra MEDLUX"), 40, 40);
@@ -2037,14 +2076,17 @@ const buildObraPdf = async () => {
       toSafeText(avaliacao.motivo || "-"),
       (medicao.leituras || []).length || 1,
       toSafeText(formatLocal(medicao)),
-      toSafeText(medicao.dataHora || medicao.data_hora)
+      toSafeText(formatDateTimeLocal(medicao.dataHora || medicao.data_hora || medicao.created_at))
     ];
   });
-  doc.autoTable({
+  doc = makePdfTableNoWrap({
+    jsPDF,
+    doc,
     head: [["ID", "Subtipo", "Linha/Estação", "Período", "Média", "Mínimo", "Status", "Motivo", "N Leituras", "Local", "Data/Hora"]],
     body: resumoRows,
     startY: resumoStart + 10,
-    styles: { fontSize: 8 }
+    columnWidths: [54, 58, 78, 48, 42, 42, 56, 110, 46, 166, 96],
+    styles: { fontSize: 8, cellPadding: 2 }
   });
 
   let cursorY = doc.lastAutoTable.finalY + 20;
@@ -2066,11 +2108,13 @@ const buildObraPdf = async () => {
   if (resumoStats.length) {
     doc.setFontSize(12);
     doc.text(toSafeText("Resumo estatístico por subtipo"), 40, cursorY);
-    doc.autoTable({
+    doc = makePdfTableNoWrap({
+      jsPDF,
+      doc,
       head: [["Subtipo", "Qtd.", "Média geral"]],
       body: resumoStats,
       startY: cursorY + 10,
-      styles: { fontSize: 8 }
+      columnWidths: [110, 80, 120]
     });
     cursorY = doc.lastAutoTable.finalY + 20;
   }
@@ -2102,11 +2146,13 @@ const buildObraPdf = async () => {
     });
     doc.setFontSize(12);
     doc.text(toSafeText("Média por letra (LEGENDA)"), 40, cursorY);
-    doc.autoTable({
+    doc = makePdfTableNoWrap({
+      jsPDF,
+      doc,
       head: [["Medição", "Letra", "Leituras", "Média"]],
       body: rows,
       startY: cursorY + 10,
-      styles: { fontSize: 8 }
+      columnWidths: [84, 60, 220, 70]
     });
     cursorY = doc.lastAutoTable.finalY + 20;
   }

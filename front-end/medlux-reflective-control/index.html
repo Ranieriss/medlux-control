@@ -107,6 +107,7 @@
               <div class="field">
                 <label for="medicaoLegendaTexto">Texto da legenda</label>
                 <input id="medicaoLegendaTexto" name="texto_legenda" placeholder="Ex.: PARE" />
+                <small class="muted" id="medicaoLegendaCounter">0 caractere(s)</small>
               </div>
 
               <div class="field">
@@ -169,8 +170,15 @@
               </div>
 
               <div class="field">
-                <label for="medicaoPosicao">Posição (placa)</label>
-                <input id="medicaoPosicao" name="posicao" placeholder="Centro, topo..." />
+                <label for="medicaoPosicao">Posição</label>
+                <select id="medicaoPosicao" name="posicao_tipo">
+                  <option value="">Selecione</option>
+                  <option value="BORDO_DIREITO">Bordo Direito</option>
+                  <option value="BORDO_ESQUERDO">Bordo Esquerdo</option>
+                  <option value="EIXO_DIREITO">Eixo Direito</option>
+                  <option value="EIXO_ESQUERDO">Eixo Esquerdo</option>
+                  <option value="LEGENDA">Letra (Legenda)</option>
+                </select>
               </div>
 
               <div class="field">

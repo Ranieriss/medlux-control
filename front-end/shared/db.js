@@ -231,6 +231,10 @@ const normalizeMedicaoRecord = (record = {}) => {
 
   const fotos = Array.isArray(record.fotos) ? record.fotos : [];
   const legenda_por_letra = Array.isArray(record.legenda_por_letra) ? record.legenda_por_letra : [];
+  const posicao_tipo = String(record.posicao_tipo || record.posicaoTipo || record.posicao || "").trim().toUpperCase();
+  const legenda_char_index = Number.isInteger(record.legenda_char_index)
+    ? record.legenda_char_index
+    : toNumber(record.legenda_char_index ?? record.legendaCharIndex);
 
   return {
     id,
@@ -292,6 +296,10 @@ const normalizeMedicaoRecord = (record = {}) => {
     cor: record.cor || "",
     angulo: record.angulo || "",
     posicao: record.posicao || "",
+    posicao_tipo,
+    legenda_texto: record.legenda_texto || record.texto_legenda || "",
+    legenda_char_index: Number.isFinite(legenda_char_index) ? Number(legenda_char_index) : null,
+    legenda_char: record.legenda_char || record.letra || "",
     clima: record.clima || "",
     observacoes: record.observacoes || "",
     data_aplicacao: record.data_aplicacao || "",
@@ -938,11 +946,7 @@ const exportSnapshot = async ({ appVersion = "" } = {}) => {
     getAllCriterios()
   ]);
 
-  return {
-    export_version: EXPORT_VERSION,
-    schema_version: DB_VERSION,
-    created_at: new Date().toISOString(),
-    app_version: appVersion || "",
+  const data = {
     equipamentos,
     users: usuarios,
     usuarios,
@@ -951,6 +955,15 @@ const exportSnapshot = async ({ appVersion = "" } = {}) => {
     obras,
     audit_log: auditoria,
     criterios
+  };
+
+  return {
+    export_version: EXPORT_VERSION,
+    schema_version: DB_VERSION,
+    created_at: new Date().toISOString(),
+    app_version: appVersion || "",
+    data,
+    ...data
   };
 };
 
@@ -985,16 +998,17 @@ const dedupeByMostRecent = (items = [], keyResolver) => {
 
 const normalizeImportPayload = (payload = {}) => {
   const warnings = [];
-  const schemaVersion = Number(payload.schema_version || payload.version || 0);
-  const exportVersion = Number(payload.export_version || 0);
+  const source = payload?.data && typeof payload.data === "object" ? { ...payload, ...payload.data } : payload;
+  const schemaVersion = Number(source.schema_version || source.version || payload.schema_version || payload.version || 0);
+  const exportVersion = Number(source.export_version || payload.export_version || 0);
 
-  const rawUsers = [...asArray(payload.usuarios), ...asArray(payload.users)];
+  const rawUsers = [...asArray(source.users), ...asArray(source.usuarios)];
   const users = dedupeByMostRecent(rawUsers, (item = {}) => {
     const normalizedId = normalizeId(item.id_normalized || item.id || item.user_id || item.uuid);
     return normalizedId || resolveImportKey(item, ["uuid", "user_uuid"]);
   });
 
-  const vinculos = asArray(payload.vinculos).map((item = {}, index) => {
+  const vinculos = asArray(source.vinculos).map((item = {}, index) => {
     const contextKey = `vinculo[${index}]`;
     const termo_pdf = sanitizeTermoPdf(item.termo_pdf ?? item.termo_cautela_pdf ?? item.termo, warnings, contextKey);
     return {
@@ -1010,13 +1024,13 @@ const normalizeImportPayload = (payload = {}) => {
   return {
     export_version: Number.isFinite(exportVersion) ? exportVersion : 0,
     schema_version: Number.isFinite(schemaVersion) ? schemaVersion : 0,
-    equipamentos: asArray(payload.equipamentos),
+    equipamentos: asArray(source.equipamentos),
     users,
     vinculos,
-    medicoes: asArray(payload.medicoes),
-    obras: asArray(payload.obras),
-    audit_log: asArray(payload.audit_log || payload.auditoria),
-    criterios: asArray(payload.criterios),
+    medicoes: asArray(source.medicoes),
+    obras: asArray(source.obras),
+    audit_log: asArray(source.audit_log || source.auditoria),
+    criterios: asArray(source.criterios),
     warnings
   };
 };
