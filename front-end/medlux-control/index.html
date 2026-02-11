@@ -260,9 +260,9 @@
           </div>
 
           <div class="audit-grid">
-            <div class="subpanel">
+            <div class="subpanel compact-card">
               <h3>Relatório global</h3>
-              <p class="muted">Gera um PDF completo com equipamentos e todas as medições.</p>
+              <p class="muted">PDF consolidado de equipamentos e medições.</p>
               <button class="btn" id="generateGlobalPdf" type="button">Gerar PDF Global</button>
             </div>
             <div class="subpanel">
@@ -324,10 +324,10 @@
             <div class="subpanel">
               <h3>Exportar backup</h3>
               <p class="muted">Gera um arquivo JSON com todos os dados locais.</p>
-              <button class="btn" id="exportBackup" type="button">Exportar JSON</button>
+              <button class="btn" id="exportBackup" type="button">Exportar backup (.json)</button>
             </div>
             <div class="subpanel">
-              <h3>Importar JSON</h3>
+              <h3>Importar backup</h3>
               <p class="muted">Valida e permite mesclar ou substituir todos os dados.</p>
               <input type="file" id="importFile" accept="application/json" />
               <div class="radio-group">
@@ -335,36 +335,8 @@
                 <label><input type="radio" name="importMode" value="replace" /> Substituir tudo</label>
               </div>
               <p class="muted import-preview" id="importPreview">Prévia: aguarde o arquivo JSON.</p>
-              <button class="btn secondary" id="importBackup" type="button">Importar JSON</button>
-            </div>
-            <div class="subpanel">
-              <h3>Importar Excel (.xlsx)</h3>
-              <p class="muted">Faça a pré-visualização antes de importar para o IndexedDB.</p>
-              <input type="file" id="importXlsxFile" accept=".xlsx" />
-              <div class="radio-group">
-                <label><input type="radio" name="importXlsxMode" value="merge" checked /> Mesclar (atualiza campos existentes)</label>
-                <label><input type="radio" name="importXlsxMode" value="replace" /> Substituir tudo</label>
-              </div>
-              <div class="toolbar">
-                <button class="btn secondary" id="previewXlsx" type="button">Pré-visualizar Excel</button>
-                <button class="btn" id="importXlsx" type="button">Importar Excel (.xlsx)</button>
-              </div>
-              <div class="preview-card" id="xlsxPreview"></div>
-            </div>
-            <div class="subpanel">
-              <h3>Importação em lote</h3>
-              <p class="muted">Cole aqui dados do Excel (TSV) ou CSV com os cabeçalhos padrão.</p>
-              <textarea id="bulkPaste" rows="7" placeholder="Identificação | Função | Nº de série | Data de aquisição | Fabricante | Localidade"></textarea>
-              <div class="toolbar">
-                <button class="btn secondary" id="importBulk" type="button">Importar texto colado</button>
-                <a class="download-link" href="./seed.csv" download>Baixar CSV de exemplo</a>
-              </div>
-            </div>
-            <div class="subpanel">
-              <h3>Importar CSV</h3>
-              <p class="muted">Aceita cabeçalhos semelhantes ao padrão da planilha.</p>
-              <input type="file" id="importCsvFile" accept="text/csv" />
-              <button class="btn secondary" id="importCsv" type="button">Importar CSV</button>
+              <button class="btn secondary" id="importBackup" type="button">Importar backup (.json)</button>
+              <button class="btn ghost" id="verifyIntegrity" type="button">Verificar integridade</button>
             </div>
             <div class="subpanel">
               <h3>Resetar dados locais</h3>
