@@ -13,7 +13,44 @@
     }
 
     *{ box-sizing:border-box; }
-    body{ margin:0; background: linear-gradient(180deg, #050a16 0%, #060d1f 100%); }
+    body{ margin:0; background: linear-gradient(180deg, #050a16 0%, #060d1f 100%); padding-top:84px; }
+
+    .app-topbar{
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap: 12px;
+      padding: 14px 22px;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+      background: rgba(5, 10, 22, 0.94);
+      box-shadow: 0 10px 30px rgba(0,0,0,.45);
+      backdrop-filter: blur(8px);
+    }
+
+    .topbar-brand{
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+
+    .topbar-logo{
+      width: 34px;
+      height: 34px;
+      object-fit: contain;
+      filter: drop-shadow(0 0 10px rgba(0,212,255,.32));
+    }
+
+    .topbar-title{
+      margin:0;
+      text-transform: uppercase;
+      letter-spacing:.08em;
+      font-size: 13px;
+    }
 
     .wrap{
       min-height:100vh;
@@ -45,6 +82,14 @@
     .brand h1{
       font-size: 32px;
       margin:0 0 8px 0;
+    }
+
+    .hero-logo{
+      width: clamp(130px, 24vw, 220px);
+      max-width: 100%;
+      height: auto;
+      margin-bottom: 14px;
+      filter: drop-shadow(0 0 22px rgba(0,212,255,.35));
     }
 
     .brand p{ margin:0; color: rgba(232,238,255,.7); max-width: 520px; }
@@ -141,18 +186,33 @@
       box-shadow: 0 0 18px rgba(0,212,255,.25);
       margin-right:8px;
     }
+
+    @media (max-width: 720px){
+      body{ padding-top: 98px; }
+      .app-topbar{ padding: 12px 14px; }
+      .topbar-title{ font-size: 12px; }
+    }
   </style>
 </head>
 
 <body>
+  <header class="app-topbar">
+    <div class="topbar-brand">
+      <img class="topbar-logo" src="./assets/img/medlux-logo.png" alt="Logo MEDLUX" />
+      <p class="topbar-title">MEDLUX Platform</p>
+    </div>
+    <div class="badge">Versão Web • GitHub Pages</div>
+  </header>
+
   <main class="wrap">
     <section class="card">
       <header>
         <div class="brand">
+          <img class="hero-logo" src="./assets/img/medlux-logo.png" alt="Logo MEDLUX em destaque" />
           <h1><span class="dot"></span>MEDLUX</h1>
           <p>Sistema offline-first para gestão técnica de equipamentos, cautelas e medições.</p>
         </div>
-        <div class="badge">Versão Web • GitHub Pages</div>
+        <div class="badge">Portal inicial</div>
       </header>
 
       <div class="grid">

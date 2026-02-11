@@ -25,7 +25,44 @@ body{
   display:flex;
   align-items:flex-start;
   justify-content:center;
-  padding:18px;
+  padding:92px 18px 18px;
+}
+
+.app-topbar{
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  padding: 14px 22px;
+  background: rgba(5, 10, 22, 0.94);
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  box-shadow: 0 10px 32px rgba(0,0,0,.45);
+  backdrop-filter: blur(8px);
+}
+
+.app-topbar__brand{
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+
+.app-topbar__logo{
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 10px rgba(0, 212, 255, .35));
+}
+
+.app-topbar__title{
+  margin: 0;
+  font-size: 14px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
 }
 
 .wrap{
@@ -42,7 +79,7 @@ body{
   overflow:hidden;
 }
 
-header{
+.module-header{
   padding:22px;
   display:flex;
   align-items:flex-start;
@@ -118,7 +155,9 @@ header{
 }
 
 @media (max-width: 900px){
-  header{ flex-direction:column; align-items:flex-start; }
+  body{ padding-top: 108px; }
+  .app-topbar{ padding: 12px 16px; }
+  .module-header{ flex-direction:column; align-items:flex-start; }
   .badge{ align-self:flex-start; }
 }
 
