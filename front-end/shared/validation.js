@@ -9,6 +9,29 @@ const addError = (errors, field, message) => {
   errors.push({ field, message });
 };
 
+const normalizeCpf = (value) => String(value || "").replace(/\D/g, "");
+
+const isValidCpf = (value) => {
+  const cpf = normalizeCpf(value);
+  if (!cpf) return true;
+  if (cpf.length !== 11) return false;
+  if (/^(\d)\1{10}$/.test(cpf)) return false;
+
+  const calcDigit = (base, factor) => {
+    let total = 0;
+    for (const char of base) {
+      total += Number(char) * factor;
+      factor -= 1;
+    }
+    const mod = total % 11;
+    return mod < 2 ? 0 : 11 - mod;
+  };
+
+  const d1 = calcDigit(cpf.slice(0, 9), 10);
+  const d2 = calcDigit(cpf.slice(0, 10), 11);
+  return d1 === Number(cpf[9]) && d2 === Number(cpf[10]);
+};
+
 const validateUser = (data = {}) => {
   const errors = [];
   const id = String(data.id || data.user_id || "").trim();
@@ -56,6 +79,13 @@ const validateVinculo = (data = {}) => {
   if (!String(data.inicio || data.data_inicio || "").trim()) addError(errors, "data_inicio", "Data de início obrigatória.");
   const status = String(data.status || (data.ativo === false ? "ENCERRADO" : "ATIVO")).trim().toUpperCase();
   if (status && !["ATIVO", "ENCERRADO"].includes(status)) addError(errors, "status", "Status inválido.");
+
+  const cpf = normalizeCpf(data.cpfUsuario || data.cpf_usuario || "");
+  if (cpf && !isValidCpf(cpf)) addError(errors, "cpf_usuario", "CPF inválido.");
+
+  const observacoes = String(data.observacoes || "");
+  if (observacoes.length > 500) addError(errors, "observacoes", "Observações devem ter até 500 caracteres.");
+
   return buildResult(errors);
 };
 
