@@ -3,6 +3,7 @@ import {
   getAllUsers
 } from "./db.js";
 import { AUDIT_ACTIONS, logAudit } from "./audit.js";
+import { logError } from "./errors.js";
 
 const SESSION_KEY = "medlux_session";
 const ITERATIONS = 100000;
@@ -15,6 +16,7 @@ const fromBase64 = (value) => Uint8Array.from(atob(value), (c) => c.charCodeAt(0
 
 const generateSalt = () => crypto.getRandomValues(new Uint8Array(16));
 const normalizeId = (value) => String(value || "").trim().toUpperCase();
+const normalizeRole = (value) => (normalizeId(value) === "ADMIN" ? "ADMIN" : "USER");
 
 const resolveUserByNormalizedId = async (userId) => {
   const normalized = normalizeId(userId);
@@ -89,6 +91,12 @@ const createUserWithPin = async ({ user_id, id, nome, role, ativo, status, pin }
 const authenticate = async (userId, pin) => {
   const usuario = await resolveUserByNormalizedId(userId);
   if (!usuario || usuario.status !== "ATIVO") {
+    await logError({
+      module: "shared-auth",
+      action: "AUTH_LOGIN",
+      message: "Usuário inválido ou inativo.",
+      context: { user_id: normalizeId(userId) }
+    });
     await logAudit({
       action: AUDIT_ACTIONS.LOGIN_FAIL,
       entity_type: "auth",
@@ -98,9 +106,27 @@ const authenticate = async (userId, pin) => {
     });
     return { success: false, message: "Usuário inválido/inativo" };
   }
-  const salt = fromBase64(usuario.salt);
+  const saltRaw = usuario.salt || usuario.pin_salt;
+  const pinHashStored = usuario.pinHash || usuario.pin_hash;
+  if (!saltRaw || !pinHashStored) {
+    await logError({
+      module: "shared-auth",
+      action: "AUTH_LOGIN",
+      message: "Registro de autenticação incompleto.",
+      context: { user_id: usuario.id || usuario.user_id || null }
+    });
+    return { success: false, message: "Usuário sem PIN configurado." };
+  }
+
+  const salt = fromBase64(saltRaw);
   const pinHash = await hashPin(pin, salt);
-  if (pinHash !== usuario.pinHash) {
+  if (pinHash !== pinHashStored) {
+    await logError({
+      module: "shared-auth",
+      action: "AUTH_LOGIN",
+      message: "PIN incorreto.",
+      context: { user_id: usuario.id || usuario.user_id || null }
+    });
     await logAudit({
       action: AUDIT_ACTIONS.LOGIN_FAIL,
       entity_type: "auth",
@@ -114,9 +140,10 @@ const authenticate = async (userId, pin) => {
     id: usuario.id,
     user_id: usuario.id,
     nome: usuario.nome,
-    role: usuario.role,
+    role: normalizeRole(usuario.role),
     id_normalized: normalizeId(usuario.id),
-    loginAt: new Date().toISOString()
+    loginAt: new Date().toISOString(),
+    isAdmin: normalizeRole(usuario.role) === "ADMIN"
   };
   sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
   await logAudit({

@@ -1133,7 +1133,7 @@ const getDbSchema = async (db) => {
   });
 };
 
-const exportDiagnosticoCompleto = async ({ appModule = "medlux-control", appVersion = "", visibleEquipamentosInUI = [], session = null } = {}) => {
+const exportDiagnosticoCompleto = async ({ appModule = "medlux-control", appVersion = "", visibleEquipamentosInUI = [], session = null, commitHash = "", criticalHandlers = {} } = {}) => {
   try {
     const db = await openDB();
     const [
@@ -1215,9 +1215,11 @@ const exportDiagnosticoCompleto = async ({ appModule = "medlux-control", appVers
       diagnostic_version: "1.0",
       created_at: new Date().toISOString(),
       app_version: appVersion || "",
+      commit_hash: commitHash || "",
       db_version: DB_VERSION,
       app_module: appModule,
       module: appModule,
+      handlers: { ...criticalHandlers },
       env: {
         url: typeof window !== "undefined" ? window.location.href : "",
         userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
@@ -1405,8 +1407,13 @@ const applyLegacyImportDefaults = (normalized = {}) => {
 };
 
 const buildImportPreview = async (payload) => {
-  const normalized = applyLegacyImportDefaults(normalizeImportPayload(payload));
-  validateImportPayload(normalized);
+  let normalized;
+  try {
+    normalized = applyLegacyImportDefaults(normalizeImportPayload(payload));
+    validateImportPayload(normalized);
+  } catch (error) {
+    normalized = applyLegacyImportDefaults({ warnings: ["Payload inválido. Prévia gerada em modo tolerante."] });
+  }
 
   const [equipamentos, usuarios, vinculos, medicoes, obras, auditoria, criterios, anexos] = await Promise.all([
     getAllEquipamentos(),
