@@ -563,6 +563,14 @@
             <label for="vinculoTermo">Termo cautela (PDF)</label>
             <input id="vinculoTermo" name="termo" type="file" accept="application/pdf" />
           </div>
+          <div class="field">
+            <label for="vinculoCpf">CPF do usuário</label>
+            <input id="vinculoCpf" name="cpf_usuario" inputmode="numeric" maxlength="14" placeholder="000.000.000-00" />
+          </div>
+          <div class="field field-full">
+            <label for="vinculoObservacoes">Observações</label>
+            <textarea id="vinculoObservacoes" name="observacoes" maxlength="500" rows="4" placeholder="Até 500 caracteres"></textarea>
+          </div>
         </div>
         <div class="modal-actions">
           <span class="muted" id="vinculoHint">Campos com * são obrigatórios.</span>

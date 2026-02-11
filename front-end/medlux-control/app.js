@@ -116,6 +116,8 @@ const newVinculo = document.getElementById("newVinculo");
 const vinculoEquip = document.getElementById("vinculoEquip");
 const vinculoUser = document.getElementById("vinculoUser");
 const vinculoTermo = document.getElementById("vinculoTermo");
+const vinculoCpf = document.getElementById("vinculoCpf");
+const vinculoObservacoes = document.getElementById("vinculoObservacoes");
 
 const obrasBody = document.getElementById("obrasBody");
 const newObra = document.getElementById("newObra");
@@ -225,6 +227,37 @@ const parseDateString = (value) => {
   return { value: "", error: "Data inválida" };
 };
 
+const onlyDigits = (value) => String(value || "").replace(/\D/g, "");
+
+const formatCpf = (value) => {
+  const digits = onlyDigits(value).slice(0, 11);
+  if (!digits) return "";
+  return digits
+    .replace(/(\d{3})(\d)/, "$1.$2")
+    .replace(/(\d{3})(\d)/, "$1.$2")
+    .replace(/(\d{3})(\d{1,2})$/, "$1-$2");
+};
+
+const isValidCpf = (value) => {
+  const cpf = onlyDigits(value);
+  if (cpf.length !== 11) return false;
+  if (/^(\d)\1{10}$/.test(cpf)) return false;
+
+  const calcDigit = (base, factor) => {
+    let total = 0;
+    for (const char of base) {
+      total += Number(char) * factor;
+      factor -= 1;
+    }
+    const mod = total % 11;
+    return mod < 2 ? 0 : 11 - mod;
+  };
+
+  const d1 = calcDigit(cpf.slice(0, 9), 10);
+  const d2 = calcDigit(cpf.slice(0, 10), 11);
+  return d1 === Number(cpf[9]) && d2 === Number(cpf[10]);
+};
+
 const formatDate = (dateString) => {
   if (!dateString) return "-";
   const [year, month, day] = dateString.split("-");
@@ -255,6 +288,7 @@ let equipamentos = [];
 let usuarios = [];
 let vinculos = [];
 let medicoes = [];
+let editingVinculoId = null;
 let obras = [];
 let criterios = [];
 let editingId = null;
@@ -527,6 +561,14 @@ const renderVinculos = () => {
       row.appendChild(cell);
     });
     const actions = document.createElement("td");
+
+    const editButton = document.createElement("button");
+    editButton.className = "btn secondary";
+    editButton.type = "button";
+    editButton.textContent = "Editar";
+    editButton.addEventListener("click", () => openVinculoModal(vinculo.vinculo_id || vinculo.id));
+    actions.appendChild(editButton);
+
     if (vinculo.status === "ATIVO" || vinculo.ativo) {
       const endButton = document.createElement("button");
       endButton.className = "btn secondary";
@@ -824,6 +866,9 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
 const handleVinculoSubmit = async (event) => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(vinculoForm).entries());
+  const cpfUsuario = onlyDigits(data.cpf_usuario || "");
+  const observacoes = String(data.observacoes || "").trim().slice(0, 500);
+
   const validation = validateVinculo({
     equipamento_id: data.equip_id,
     equip_id: data.equip_id,
@@ -835,38 +880,62 @@ const handleVinculoSubmit = async (event) => {
     vinculoHint.textContent = validation.errors.map((item) => item.message).join(" ");
     return;
   }
+
+  const selectedUser = usuarios.find((item) => normalizeUserIdComparable(item.user_id || item.id) === normalizeUserIdComparable(data.user_id));
+  const isNovoUsuario = !selectedUser;
+  if (isNovoUsuario && !cpfUsuario) {
+    vinculoHint.textContent = "CPF do usuário é obrigatório para novo usuário.";
+    return;
+  }
+  if (cpfUsuario && !isValidCpf(cpfUsuario)) {
+    vinculoHint.textContent = "CPF inválido. Informe um CPF válido com 11 dígitos.";
+    return;
+  }
+
   const termoFile = vinculoTermo.files[0];
-  const termo = termoFile ? await fileToBase64(termoFile) : "";
   const now = new Date().toISOString();
-  const vinculoId = crypto.randomUUID();
+  const parsedInicio = parseDateString(data.data_inicio).value;
+  const existing = editingVinculoId
+    ? vinculos.find((item) => item.id === editingVinculoId || item.vinculo_id === editingVinculoId)
+    : null;
+  const termo = termoFile
+    ? await fileToBase64(termoFile)
+    : existing?.termo_pdf || existing?.termo_cautela_pdf || "";
+  const vinculoId = editingVinculoId || crypto.randomUUID();
   const vinculo = {
     id: vinculoId,
     vinculo_id: vinculoId,
     equipamento_id: data.equip_id,
     equip_id: data.equip_id,
     user_id: data.user_id,
-    inicio: parseDateString(data.data_inicio).value,
-    data_inicio: parseDateString(data.data_inicio).value,
-    fim: null,
-    data_fim: null,
-    status: "ATIVO",
-    ativo: true,
+    inicio: parsedInicio,
+    data_inicio: parsedInicio,
+    fim: existing?.fim || existing?.data_fim || null,
+    data_fim: existing?.fim || existing?.data_fim || null,
+    status: existing?.status || (existing?.ativo === false ? "ENCERRADO" : "ATIVO"),
+    ativo: existing ? (existing.status === "ATIVO" || existing.ativo) : true,
     termo_pdf: termo,
     termo_cautela_pdf: termo,
-    created_at: now,
+    cpfUsuario,
+    observacoes,
+    created_at: existing?.created_at || now,
     updated_at: now
   };
+
   await saveVinculo(vinculo);
   await logAudit({
-    action: AUDIT_ACTIONS.ENTITY_CREATED,
+    action: editingVinculoId ? AUDIT_ACTIONS.ENTITY_UPDATED : AUDIT_ACTIONS.ENTITY_CREATED,
     entity_type: "vinculos",
     entity_id: vinculoId,
     actor_user_id: activeSession?.user_id || null,
-    summary: `Vínculo criado para equipamento ${data.equip_id}.`,
-    diff: buildDiff(null, vinculo, ["id", "equipamento_id", "user_id", "status", "inicio"])
+    summary: editingVinculoId
+      ? `Vínculo ${vinculoId} atualizado.`
+      : `Vínculo criado para equipamento ${data.equip_id}.`,
+    diff: buildDiff(existing || null, vinculo, ["id", "equipamento_id", "user_id", "status", "inicio", "cpfUsuario", "observacoes"])
   });
+
   const equipamento = equipamentos.find((item) => item.id === data.equip_id);
-  if (equipamento) {
+  if (equipamento && (vinculo.status === "ATIVO" || vinculo.ativo)) {
     await saveEquipamento({
       ...equipamento,
       statusLocal: "OBRA",
@@ -876,10 +945,11 @@ const handleVinculoSubmit = async (event) => {
       usuarioResponsavel: data.user_id
     });
   }
+
   await loadData();
   renderAll();
   closeModalElement(vinculoModal);
-  setStatusMessage("Vínculo cadastrado.");
+  setStatusMessage(editingVinculoId ? "Vínculo atualizado." : "Vínculo cadastrado.");
 };
 
 const handleEncerrarVinculo = async (vinculoId) => {
@@ -914,10 +984,30 @@ const handleEncerrarVinculo = async (vinculoId) => {
   });
 };
 
-const openVinculoModal = () => {
+const openVinculoModal = (vinculoId = "") => {
   vinculoForm.reset();
-  vinculoHint.textContent = "Campos com * são obrigatórios.";
   refreshSelectOptions();
+  vinculoHint.textContent = "Campos com * são obrigatórios.";
+  editingVinculoId = null;
+
+  if (!vinculoId) {
+    vinculoTitle.textContent = "Novo vínculo";
+    vinculoCpf.required = false;
+    openModal(vinculoModal);
+    return;
+  }
+
+  const vinculo = vinculos.find((item) => item.id === vinculoId || item.vinculo_id === vinculoId);
+  if (!vinculo) return;
+
+  editingVinculoId = vinculo.id || vinculo.vinculo_id;
+  vinculoTitle.textContent = `Editar vínculo ${editingVinculoId}`;
+  vinculoEquip.value = vinculo.equipamento_id || vinculo.equip_id || "";
+  vinculoUser.value = vinculo.user_id || "";
+  vinculoForm.querySelector("#vinculoInicio").value = toISODate(vinculo.inicio || vinculo.data_inicio);
+  vinculoCpf.value = formatCpf(vinculo.cpfUsuario || "");
+  vinculoObservacoes.value = String(vinculo.observacoes || "");
+  vinculoCpf.required = false;
   openModal(vinculoModal);
 };
 
@@ -2065,9 +2155,14 @@ closeUsuario.addEventListener("click", () => closeModalElement(usuarioModal));
 cancelUsuario.addEventListener("click", () => closeModalElement(usuarioModal));
 usuarioForm.addEventListener("submit", handleUsuarioSubmit);
 
+vinculoCpf.addEventListener("input", (event) => {
+  const digits = onlyDigits(event.target.value).slice(0, 11);
+  event.target.value = formatCpf(digits);
+});
+
 newVinculo.addEventListener("click", openVinculoModal);
-closeVinculo.addEventListener("click", () => closeModalElement(vinculoModal));
-cancelVinculo.addEventListener("click", () => closeModalElement(vinculoModal));
+closeVinculo.addEventListener("click", () => { editingVinculoId = null; closeModalElement(vinculoModal); });
+cancelVinculo.addEventListener("click", () => { editingVinculoId = null; closeModalElement(vinculoModal); });
 vinculoForm.addEventListener("submit", handleVinculoSubmit);
 
 newObra.addEventListener("click", () => openObraModal());

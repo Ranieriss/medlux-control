@@ -1,7 +1,7 @@
 // front-end/shared/db.js
 
 const DB_NAME = "medlux_suite_db";
-const DB_VERSION = 7;
+const DB_VERSION = 8;
 const EXPORT_VERSION = 1;
 
 const STORE_EQUIPAMENTOS = "equipamentos";
@@ -143,6 +143,8 @@ const normalizeVinculoRecord = (record = {}) => {
     fim,
     status,
     termo_pdf: record.termo_pdf || record.termo_cautela_pdf || record.termo || null,
+    cpfUsuario: String(record.cpfUsuario || record.cpf_usuario || "").replace(/\D/g, ""),
+    observacoes: String(record.observacoes || ""),
     created_at,
     updated_at,
     // aliases
@@ -151,7 +153,8 @@ const normalizeVinculoRecord = (record = {}) => {
     ativo: status === "ATIVO",
     data_inicio: inicio,
     data_fim: fim,
-    termo_cautela_pdf: record.termo_cautela_pdf || record.termo_pdf || null
+    termo_cautela_pdf: record.termo_cautela_pdf || record.termo_pdf || null,
+    cpf_usuario: String(record.cpf_usuario || record.cpfUsuario || "").replace(/\D/g, "")
   };
 };
 
@@ -519,8 +522,17 @@ const openDB = () =>
         return { ...record, uuid: record.uuid || crypto.randomUUID() };
       });
       ensureRecordUuids(vinculosStore, (record) => {
-        if (record.uuid) return null;
-        return { ...record, uuid: record.uuid || record.id || crypto.randomUUID() };
+        const cpfUsuario = String(record.cpfUsuario || record.cpf_usuario || "").replace(/\D/g, "");
+        const observacoes = String(record.observacoes || "");
+        const needsUpdate = !record.uuid || record.cpfUsuario !== cpfUsuario || record.observacoes !== observacoes;
+        if (!needsUpdate) return null;
+        return {
+          ...record,
+          uuid: record.uuid || record.id || crypto.randomUUID(),
+          cpfUsuario,
+          cpf_usuario: cpfUsuario,
+          observacoes
+        };
       });
       ensureRecordUuids(medicoesStore, (record) => {
         if (!record.created_at) {
