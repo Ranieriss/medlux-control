@@ -13,9 +13,17 @@
   <script type="module" src="./app.js" defer></script>
 </head>
 <body>
+  <header class="app-topbar">
+    <div class="app-topbar__brand">
+      <img class="app-topbar__logo" src="../assets/img/medlux-logo.png" alt="Logo MEDLUX" />
+      <p class="app-topbar__title">MEDLUX Control</p>
+    </div>
+    <div class="badge">Gestão técnica</div>
+  </header>
+
   <main class="wrap">
     <section class="card">
-      <header>
+      <div class="module-header">
         <div class="brand">
           <h1><span class="dot"></span>MEDLUX Control</h1>
           <p>Controle offline-first de equipamentos MEDLUX com cautelas, usuários e auditoria.</p>
@@ -24,7 +32,7 @@
           <div class="badge" id="syncStatus">Offline pronto • IndexedDB</div>
           <button class="btn secondary small" id="logoutButton" type="button">Sair</button>
         </div>
-      </header>
+      </div>
 
       <nav class="nav" aria-label="Abas do módulo">
         <button class="tab" type="button" data-section="dashboard" aria-selected="true">Dashboard</button>

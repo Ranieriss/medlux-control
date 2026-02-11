@@ -11,9 +11,17 @@
   <script type="module" src="./app.js" defer></script>
 </head>
 <body>
+  <header class="app-topbar">
+    <div class="app-topbar__brand">
+      <img class="app-topbar__logo" src="../assets/img/medlux-logo.png" alt="Logo MEDLUX" />
+      <p class="app-topbar__title">MEDLUX Reflective Control</p>
+    </div>
+    <div class="badge">Medições de campo</div>
+  </header>
+
   <main class="wrap">
     <section class="card">
-      <header>
+      <div class="module-header">
         <div class="brand">
           <h1><span class="dot"></span>MEDLUX Reflective Control</h1>
           <p>Registro de medições de retrorrefletância para equipamentos vinculados.</p>
@@ -22,7 +30,7 @@
           <div class="badge" id="syncStatus">Offline pronto • IndexedDB</div>
           <button class="btn secondary small" id="logoutButton" type="button">Sair</button>
         </div>
-      </header>
+      </div>
 
       <div class="content">
         <section class="panel">
