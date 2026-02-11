@@ -915,29 +915,51 @@ const renderObras = () => {
 };
 
 const refreshSelectOptions = () => {
+  const ativosPorEquipamento = new Map();
+  (vinculos || []).forEach((item) => {
+    const equipamentoId = item.equipamento_id || item.equip_id;
+    if (!equipamentoId) return;
+    const ativo = String(item.status || "").toUpperCase() === "ATIVO" || item.ativo === true;
+    if (!ativo || ativosPorEquipamento.has(equipamentoId)) return;
+    ativosPorEquipamento.set(equipamentoId, item);
+  });
+
   vinculoEquip.textContent = "";
   const emptyEquip = document.createElement("option");
   emptyEquip.value = "";
   emptyEquip.textContent = "Selecione";
   vinculoEquip.appendChild(emptyEquip);
+
   equipamentos.forEach((equip) => {
+    const statusEquip = String(equip.statusLocal || equip.statusOperacional || equip.status || "").toUpperCase();
+    const vinculoAtivo = ativosPorEquipamento.get(equip.id);
+    const editandoMesmoVinculo = editingVinculoId && vinculoAtivo
+      && (vinculoAtivo.id === editingVinculoId || vinculoAtivo.vinculo_id === editingVinculoId);
+
+    if (statusEquip === "VENDIDO") return;
+    if (vinculoAtivo && !editandoMesmoVinculo) return;
+
     const option = document.createElement("option");
     option.value = equip.id;
     option.textContent = `${equip.id} • ${equip.modelo || "Sem modelo"}`;
     vinculoEquip.appendChild(option);
   });
+
   vinculoUser.textContent = "";
   const emptyUser = document.createElement("option");
   emptyUser.value = "";
   emptyUser.textContent = "Selecione";
   vinculoUser.appendChild(emptyUser);
-  usuarios.filter((user) => user.status === "ATIVO" || user.ativo).forEach((user) => {
-    const userId = user.user_id || user.id;
-    const option = document.createElement("option");
-    option.value = userId;
-    option.textContent = `${userId} • ${user.nome}`;
-    vinculoUser.appendChild(option);
-  });
+
+  usuarios
+    .filter((user) => String(user.status || (user.ativo ? "ATIVO" : "INATIVO")).toUpperCase() === "ATIVO")
+    .forEach((user) => {
+      const userId = user.user_id || user.id;
+      const option = document.createElement("option");
+      option.value = userId;
+      option.textContent = `${userId} • ${user.nome}`;
+      vinculoUser.appendChild(option);
+    });
 
   if (obraList) {
     obraList.textContent = "";
@@ -1458,6 +1480,32 @@ const handleDeleteVinculo = async (vinculoId) => {
   await loadData();
   renderAll();
   setStatusMessage(`Vínculo ${vinculoId} removido.`);
+};
+
+const handleNewVinculoClick = async () => {
+  await logAudit({
+    action: "UI_CLICK_NEW_VINCULO",
+    entity_type: "ui",
+    entity_id: "newVinculo",
+    actor_user_id: activeSession?.user_id || null,
+    summary: "Clique no botão Novo vínculo."
+  });
+
+  openVinculoModal();
+
+  window.setTimeout(() => {
+    const opened = vinculoModal?.classList?.contains("active");
+    if (opened) return;
+    void logError({
+      module: "medlux-control",
+      action: "UI_MODAL_OPEN_FAIL",
+      message: "Modal de vínculo não abriu após clique.",
+      context: {
+        selector: "#vinculoModal",
+        ariaHidden: vinculoModal?.getAttribute("aria-hidden")
+      }
+    });
+  }, 300);
 };
 
 const openVinculoModal = (vinculoId = "") => {
@@ -2658,7 +2706,8 @@ const renderDiagnostico = async () => {
     }
     errors.forEach((item) => {
       const row = document.createElement("li");
-      row.textContent = `[${new Date(item.created_at).toLocaleString("pt-BR")}] ${item.module}: ${item.message}`;
+      const contextPretty = item.context ? `\ncontext: ${JSON.stringify(item.context, null, 2)}` : "";
+      row.textContent = `[${new Date(item.created_at).toLocaleString("pt-BR")}] ${item.module} • ${item.action || "-"}\nmessage: ${item.message || "-"}\nstack: ${item.stack || "-"}${contextPretty}`;
       diagnosticoErrors.appendChild(row);
     });
   } catch (error) {
@@ -2763,7 +2812,7 @@ const initialize = async () => {
 
 const bindUiListeners = () => {
   safeBind(newEquipamento, "click", openNewModal, "newEquipamento_click");
-  safeBind(newVinculo, "click", openVinculoModal, "newVinculo_click");
+  safeBind(newVinculo, "click", handleNewVinculoClick, "newVinculo_click");
   safeBind(newUsuario, "click", () => openUsuarioModal(), "newUsuario_click");
   safeBind(newObra, "click", () => openObraModal(), "newObra_click");
 };
@@ -2821,7 +2870,7 @@ importFile.addEventListener("change", async () => {
   } catch (error) {
     setStatusMessage("Falha ao ler o JSON para prévia.");
     console.error("Falha ao ler JSON de importação.", error);
-    await logError({ module: "medlux-control", action: "IMPORT_PREVIEW_FILE", message: error.message, stack: error.stack });
+    await logError({ module: "medlux-control", action: "IMPORT_PREVIEW", message: error.message, stack: error.stack });
   }
 });
 if (previewXlsx) previewXlsx.addEventListener("click", handlePreviewXlsx);
@@ -2846,6 +2895,8 @@ if (diagnosticoExport) {
         appModule: "medlux-control",
         appVersion: getAppVersion(),
         session: getSession(),
+        commitHash: window.MEDLUX_COMMIT_HASH || "",
+        criticalHandlers: { hasNewVinculoHandler: Boolean(newVinculo), hasVinculoModal: Boolean(vinculoModal), hasVinculoSubmitHandler: Boolean(vinculoForm) },
         visibleEquipamentosInUI
       });
 

@@ -80,6 +80,7 @@ let vinculos = [];
 let medicoes = [];
 let obras = [];
 let criterios = [];
+let emptyVinculoAuditLogged = false;
 
 initGlobalErrorHandling("medlux-reflective-control");
 
@@ -135,16 +136,9 @@ const getAllowedEquipamentosForSession = (sessionUserId, role, allVinculos = [])
   const ativos = (allVinculos || [])
     .filter((item) => isVinculoAtivo(item))
     .filter((item) => !normalizeText(item.fim || item.data_fim))
-    .filter((item) => normalizeUserIdComparable(item.user_id) === userComparable)
-    .sort((a, b) => {
-      const aTs = new Date(a.updated_at || a.created_at || a.inicio || a.data_inicio || 0).getTime();
-      const bTs = new Date(b.updated_at || b.created_at || b.inicio || b.data_inicio || 0).getTime();
-      return bTs - aTs;
-    });
+    .filter((item) => normalizeUserIdComparable(item.user_id) === userComparable);
 
-  const maisRecente = ativos[0];
-  const equipId = normalizeEquipId(maisRecente || {});
-  return equipId ? [equipId] : [];
+  return [...new Set(ativos.map((item) => normalizeEquipId(item)).filter(Boolean))];
 };
 
 
@@ -175,12 +169,23 @@ const renderEquipamentos = () => {
   });
 
   if (!disponiveis.length && !isAdmin()) {
-    medicaoHint.textContent = "Você não tem equipamento atribuído.";
+    medicaoHint.textContent = "Você não possui vínculo ATIVO. Peça atribuição no Medlux Control.";
     medicaoEquip.disabled = true;
+    if (!emptyVinculoAuditLogged) {
+      emptyVinculoAuditLogged = true;
+      void logAudit({
+        action: "REFLECTIVE_EMPTY_VINCULO",
+        entity_type: "auth",
+        entity_id: activeSession?.id || activeSession?.user_id || "",
+        actor_user_id: activeSession?.id || activeSession?.user_id || null,
+        summary: "Usuário sem vínculo ativo para seleção de equipamento."
+      });
+    }
     return;
   }
 
   medicaoEquip.disabled = false;
+  emptyVinculoAuditLogged = false;
   medicaoHint.textContent = "Campos com * são obrigatórios.";
 };
 
@@ -532,22 +537,25 @@ const handleLogin = async (event) => {
     return;
   }
 
-  if (!["USER", "OPERADOR", "ADMIN"].includes(result.session.role)) {
+  if (!["USER", "ADMIN"].includes(result.session.role)) {
     loginHint.textContent = "Perfil não autorizado.";
     logout();
     return;
   }
 
   const vinculosAtivos = await getAllVinculos();
-  if (["USER", "OPERADOR"].includes(result.session.role)) {
+  if (result.session.role === "USER") {
     const possuiVinculo = vinculosAtivos.some(
       (item) => isVinculoAtivo(item) && normalizeUserIdComparable(item.user_id) === normalizeUserIdComparable(result.session.id)
     );
     if (!possuiVinculo) {
-      loginHint.textContent = "Sem vínculo ativo";
-      logout();
-      window.location.href = "../index.html";
-      return;
+      await logAudit({
+        action: "REFLECTIVE_EMPTY_VINCULO",
+        entity_type: "auth",
+        entity_id: result.session.id,
+        actor_user_id: result.session.id,
+        summary: "Login sem vínculo ativo no Reflective Control."
+      });
     }
   }
 
@@ -1052,6 +1060,8 @@ bindEvent(diagnosticoExport, "click", async () => {
       appModule: "medlux-reflective-control",
       appVersion: getAppVersion(),
       session: getSession(),
+      commitHash: window.MEDLUX_COMMIT_HASH || "",
+      criticalHandlers: { hasLoginHandler: Boolean(loginForm), hasEquipamentoSelect: Boolean(medicaoEquip), hasMedicaoSubmitHandler: Boolean(medicaoForm) },
       visibleEquipamentosInUI
     });
 
