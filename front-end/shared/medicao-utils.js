@@ -4,6 +4,13 @@ const HORIZONTAL_MARKING_OPTIONS = ["BORDO_DIREITO", "BORDO_ESQUERDO", "EIXO_DIR
 const VERTICAL_CLASS_OPTIONS = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
 const TACHAS_CLASS_OPTIONS = ["I", "II", "III", "IV"];
 
+const DEFAULT_MIN_CRITERIA_BY_SUBTIPO = {
+  HORIZONTAL: 100,
+  VERTICAL: 80,
+  TACHAS: 80,
+  LEGENDA: 100
+};
+
 const toNum = (value) => {
   if (value === null || value === undefined) return null;
   if (typeof value === "string") {
@@ -222,7 +229,10 @@ const getMinCriterion = ({ criterios = [], subtipo = "", classe_tipo = "", eleme
     if (item.geom && target.geom && item.geom !== target.geom) return false;
     return true;
   });
-  if (!candidates.length) return null;
+  if (!candidates.length) {
+    const fallback = DEFAULT_MIN_CRITERIA_BY_SUBTIPO[target.subtipo] ?? null;
+    return fallback;
+  }
   candidates.sort((a, b) => {
     const scoreA = [a.obra_id, a.subtipo, a.classe_tipo, a.elemento_marcacao, a.periodo, a.geom].filter(Boolean).length;
     const scoreB = [b.obra_id, b.subtipo, b.classe_tipo, b.elemento_marcacao, b.periodo, b.geom].filter(Boolean).length;
@@ -245,8 +255,22 @@ const evaluateMedicao = ({ medicao = {}, criterios = [], obra = null, equipament
     obra_id: safeMedicao.obra_id,
     geom: equipamento?.geometria || safeMedicao.geometria
   });
-  if (minimo === null || mediaFinal === null) {
+  if (minimo === null && mediaFinal === null) {
+    return {
+      ...stats,
+      minimo,
+      status: "NÃO AVALIADO",
+      motivo: "Sem leituras válidas e sem critério configurado para esta combinação",
+      periodo
+    };
+  }
+
+  if (minimo === null) {
     return { ...stats, minimo, status: "NÃO AVALIADO", motivo: "Critério não configurado para esta combinação", periodo };
+  }
+
+  if (mediaFinal === null) {
+    return { ...stats, minimo, status: "NÃO AVALIADO", motivo: stats.observacao || "Sem leituras válidas", periodo };
   }
   if (mediaFinal >= minimo) {
     return { ...stats, minimo, status: "CONFORME", motivo: "", periodo };

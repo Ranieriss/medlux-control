@@ -107,3 +107,92 @@ export async function getPdfLibReady() {
     autoTable: window.autoTable || window.jspdf?.autoTable || null
   };
 }
+
+const resolvePageWidth = (doc, margin = 40) => {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  return Math.max(0, pageWidth - margin * 2);
+};
+
+const totalColumnWidth = (columnWidths = []) =>
+  (columnWidths || []).reduce((acc, width) => acc + (Number(width) || 0), 0);
+
+export function makePdfTableNoWrap({
+  jsPDF,
+  orientation = "portrait",
+  format = "a4",
+  margin = 40,
+  startY = 80,
+  head = [],
+  body = [],
+  columnWidths = [],
+  pageTitle = "",
+  doc: incomingDoc = null,
+  styles = {},
+  headStyles = {},
+  ...rest
+} = {}) {
+  if (typeof jsPDF !== "function") {
+    throw new Error("jsPDF indisponível para geração de tabela PDF.");
+  }
+
+  const createDoc = (currentOrientation) => new jsPDF({ orientation: currentOrientation, unit: "pt", format });
+  let doc = incomingDoc || createDoc(orientation);
+  const colTotal = totalColumnWidth(columnWidths);
+  const tryOrientations = orientation === "landscape" ? ["landscape"] : ["portrait", "landscape"];
+
+  for (const currentOrientation of tryOrientations) {
+    const testDoc = incomingDoc ? doc : createDoc(currentOrientation);
+    const available = resolvePageWidth(testDoc, margin);
+    if (!colTotal || colTotal <= available) {
+      doc = testDoc;
+      break;
+    }
+    if (currentOrientation === "landscape") {
+      doc = testDoc;
+    }
+  }
+
+  if (pageTitle) {
+    doc.setFontSize(12);
+    doc.text(pageTitle, margin, startY - 10);
+  }
+
+  const baseSizes = [styles?.fontSize || 10, 9, 8];
+  const paddings = [styles?.cellPadding ?? 3, 2, 1.5, 1];
+  const availableWidth = resolvePageWidth(doc, margin);
+  const scale = colTotal > 0 && colTotal > availableWidth ? availableWidth / colTotal : 1;
+  const scaledColumnWidths = columnWidths.length
+    ? Object.fromEntries(columnWidths.map((width, index) => [index, { cellWidth: Math.max(24, Math.floor((Number(width) || 40) * scale)) }]))
+    : undefined;
+
+  const tableStyles = {
+    fontSize: baseSizes[0],
+    cellPadding: paddings[0],
+    overflow: "ellipsize",
+    lineWidth: 0.1,
+    ...styles
+  };
+
+  if (colTotal > availableWidth) {
+    tableStyles.fontSize = baseSizes[baseSizes.length - 1];
+    tableStyles.cellPadding = paddings[paddings.length - 1];
+  }
+
+  doc.autoTable({
+    startY,
+    margin: { left: margin, right: margin },
+    head,
+    body,
+    styles: tableStyles,
+    headStyles: {
+      halign: "center",
+      valign: "middle",
+      overflow: "ellipsize",
+      ...headStyles
+    },
+    columnStyles: scaledColumnWidths,
+    ...rest
+  });
+
+  return doc;
+}

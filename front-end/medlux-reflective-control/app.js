@@ -29,6 +29,7 @@ const medicaoLinha = document.getElementById("medicaoLinha");
 const medicaoEstacao = document.getElementById("medicaoEstacao");
 const medicaoLetra = document.getElementById("medicaoLetra");
 const medicaoLegendaTexto = document.getElementById("medicaoLegendaTexto");
+const medicaoLegendaCounter = document.getElementById("medicaoLegendaCounter");
 const medicaoClasseTipo = document.getElementById("medicaoClasseTipo"); // pode não existir no HTML
 const medicaoDataAplicacao = document.getElementById("medicaoDataAplicacao"); // pode não existir no HTML
 const medicaoMarcacaoLabel = document.getElementById("medicaoMarcacaoLabel"); // opcional (label antigo)
@@ -305,6 +306,13 @@ const parseLeituraList = (text) => {
 };
 
 const toTrimmedValue = (value) => String(value || "").trim();
+const getLegendaChars = (text) => String(text || "").replace(/\s+/g, "").split("").filter(Boolean);
+
+const updateLegendaCounter = () => {
+  if (!medicaoLegendaCounter) return;
+  const count = getLegendaChars(medicaoLegendaTexto?.value || "").length;
+  medicaoLegendaCounter.textContent = `${count} caractere(s)`;
+};
 
 const updateMedia = () => {
   const leituras = getLeituras();
@@ -330,6 +338,7 @@ const updateMedia = () => {
 
   const mediaValue = Number(stats?.media);
   medicaoMedia.value = Number.isFinite(mediaValue) ? mediaValue.toFixed(2) : "";
+  updateLegendaCounter();
 };
 
 const toggleField = (input, show) => {
@@ -342,11 +351,12 @@ const updateSubtipoFields = () => {
   const subtipo = String(medicaoSubtipo.value || "").toUpperCase();
 
   toggleField(medicaoLetra, subtipo === "LEGENDA");
-  toggleField(medicaoLegendaTexto, subtipo === "HORIZONTAL" || subtipo === "LEGENDA");
+  const isLegendaPosicao = String(medicaoPosicao?.value || "").toUpperCase() === "LEGENDA";
+  toggleField(medicaoLegendaTexto, subtipo === "HORIZONTAL" || subtipo === "LEGENDA" || isLegendaPosicao);
   toggleField(medicaoDataAplicacao, subtipo === "HORIZONTAL");
   toggleField(medicaoCor, subtipo === "PLACA");
   toggleField(medicaoAngulo, subtipo === "PLACA");
-  toggleField(medicaoPosicao, subtipo === "PLACA");
+  toggleField(medicaoPosicao, subtipo === "PLACA" || subtipo === "HORIZONTAL" || subtipo === "LEGENDA");
   toggleField(medicaoLinha, subtipo === "HORIZONTAL");
   toggleField(medicaoEstacao, subtipo === "HORIZONTAL");
 
@@ -560,7 +570,7 @@ const handleCaptureGps = () => {
   );
 };
 
-const buildMedicaoPayload = ({ data, leituras, subtipo, legendaEstrutura, stats, avaliacao, obra, equip, fotos }) => {
+const buildMedicaoPayload = ({ data, leituras, subtipo, legendaEstrutura, stats, avaliacao, obra, equip, fotos, legendaMeta = {} }) => {
   const now = new Date().toISOString();
   const medicaoId = crypto.randomUUID();
   const relatorioId = normalizeText(data.identificadorRelatorio || "").toUpperCase();
@@ -627,7 +637,11 @@ const buildMedicaoPayload = ({ data, leituras, subtipo, legendaEstrutura, stats,
     letra: toTrimmedValue(data.letra),
     cor: toTrimmedValue(data.cor),
     angulo: toTrimmedValue(data.angulo),
-    posicao: toTrimmedValue(data.posicao),
+    posicao_tipo: toTrimmedValue(data.posicao_tipo || data.posicao).toUpperCase(),
+    posicao: toTrimmedValue(data.posicao_tipo || data.posicao),
+    legenda_texto: toTrimmedValue(data.texto_legenda),
+    legenda_char_index: legendaMeta.charIndex ?? null,
+    legenda_char: legendaMeta.charValue || "",
     clima: toTrimmedValue(data.clima),
     observacoes: toTrimmedValue(data.observacoes),
     gps,
@@ -737,32 +751,62 @@ const handleMedicaoSubmit = async (event) => {
       return;
     }
 
-    const medicao = buildMedicaoPayload({
-      data,
-      leituras,
-      subtipo,
-      legendaEstrutura,
-      stats,
-      avaliacao,
-      obra,
-      equip,
-      fotos
-    });
+    const medicoesParaSalvar = [];
+    const posicaoTipo = String(data.posicao_tipo || "").toUpperCase();
+    const legendaChars = getLegendaChars(data.texto_legenda || "");
 
-    await saveMedicao(medicao);
+    if (posicaoTipo === "LEGENDA" && legendaChars.length) {
+      const requiredReadings = legendaChars.length * 3;
+      if (leituras.length < requiredReadings) {
+        showFeedback(`Para posição LEGENDA são necessárias 3 leituras por caractere (${requiredReadings} no total).`, "error");
+        return;
+      }
+      legendaChars.forEach((char, index) => {
+        const charReadings = leituras.slice(index * 3, (index + 1) * 3);
+        const charStats = computeMeasurementStats({ subtipo: "LEGENDA", tipoDeMarcacao: "LEGENDA", leituras: charReadings });
+        medicoesParaSalvar.push(buildMedicaoPayload({
+          data,
+          leituras: charReadings,
+          subtipo,
+          legendaEstrutura,
+          stats: charStats,
+          avaliacao,
+          obra,
+          equip,
+          fotos,
+          legendaMeta: { charIndex: index, charValue: char }
+        }));
+      });
+    } else {
+      medicoesParaSalvar.push(buildMedicaoPayload({
+        data,
+        leituras,
+        subtipo,
+        legendaEstrutura,
+        stats,
+        avaliacao,
+        obra,
+        equip,
+        fotos
+      }));
+    }
 
-    // Atualização imediata da tabela local após persistir no IndexedDB.
-    medicoes = [medicao, ...(medicoes || [])];
+    for (const medicao of medicoesParaSalvar) {
+      // eslint-disable-next-line no-await-in-loop
+      await saveMedicao(medicao);
+    }
+
+    medicoes = [...medicoesParaSalvar, ...(medicoes || [])];
     medicoes.sort((a, b) => new Date(b.created_at || b.dataHora || b.data_hora || 0) - new Date(a.created_at || a.dataHora || a.data_hora || 0));
     renderMedicoes();
 
     await logAudit({
       action: AUDIT_ACTIONS.ENTITY_CREATED,
       entity_type: "medicoes",
-      entity_id: medicao.id,
+      entity_id: medicoesParaSalvar[0]?.id || "lote-medicao",
       actor_user_id: activeSession?.id || null,
       summary: `Medição registrada para equipamento ${data.equip_id}.`,
-      diff: buildDiff(null, medicao, ["id", "equipamento_id", "user_id", "obra_id", "subtipo"])
+      diff: buildDiff(null, medicoesParaSalvar[0], ["id", "equipamento_id", "user_id", "obra_id", "subtipo"])
     });
 
     await loadData();
@@ -778,7 +822,7 @@ const handleMedicaoSubmit = async (event) => {
     fotoMedicaoInfo.textContent = "Nenhuma foto selecionada.";
     fotoLocalInfo.textContent = "Nenhuma foto selecionada.";
     updateSubtipoFields();
-    showFeedback("Medição registrada com sucesso.");
+    showFeedback(`Medição registrada com sucesso (${medicoesParaSalvar.length} item(ns)).`);
   } catch (error) {
     console.error("Falha no submit da medição", {
       error,
@@ -883,6 +927,7 @@ const initialize = async () => {
   });
 
   rebuildLeituras();
+  updateLegendaCounter();
   updateSubtipoFields();
 
   if (!authorized) return;
@@ -953,6 +998,8 @@ bindEvent(clearFotoLocal, "click", () => {
 });
 
 bindEvent(medicaoSubtipo, "change", updateSubtipoFields);
+bindEvent(medicaoPosicao, "change", updateSubtipoFields);
+bindEvent(medicaoLegendaTexto, "input", () => { updateLegendaCounter(); updateMedia(); });
 bindEvent(legendaPorLetra, "input", updateMedia);
 
 bindEvent(logoutButton, "click", () => {

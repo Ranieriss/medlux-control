@@ -5,7 +5,8 @@ import {
   getObraById,
   getUserById
 } from "../db.js";
-import { ensurePdfLib } from "../../shared/reports/pdf-lib.js";
+import { ensurePdfLib, makePdfTableNoWrap } from "../../shared/reports/pdf-lib.js";
+import { computeLegendaStats } from "../../shared/medicao-utils.js";
 
 const normalizeText = (value) => String(value || "").trim();
 const normalizeUpper = (value) => normalizeText(value).toUpperCase();
@@ -57,7 +58,7 @@ const buildPdfBlob = async ({ loggedUser, obra, obraId, periodo, medicoes }) => 
   await ensurePdfLib();
 
   const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+  let doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
   if (typeof doc.autoTable !== "function") {
     throw new Error("Biblioteca de PDF carregada parcialmente: plugin AutoTable indisponível.");
   }
@@ -90,32 +91,67 @@ const buildPdfBlob = async ({ loggedUser, obra, obraId, periodo, medicoes }) => 
   const periodoLabel = `${formatDateOnly(periodo.start)} a ${formatDateOnly(periodo.end)}`;
   doc.text(`Periodo: ${periodoLabel}`, 40, 110);
 
-  const tableBody = medicoes.map((medicao) => {
+  const tableBody = medicoes.flatMap((medicao) => {
     const tipo = normalizeText(medicao.tipoMedicao || medicao.tipo_medicao);
     const subtipo = normalizeText(medicao.subtipo || medicao.subtipo_medicao);
-    return [
+    const isLegenda = normalizeUpper(medicao.posicao_tipo || medicao.tipoDeMarcacao || medicao.tipo_marcacao) === "LEGENDA";
+    if (!isLegenda) {
+      return [[
+        formatDateTime(medicao.created_at || medicao.dataHora || medicao.data_hora),
+        normalizeText(medicao.equipamento_id || medicao.equip_id) || "-",
+        [tipo, subtipo].filter(Boolean).join(" / ") || "-",
+        normalizeText(medicao.posicao_tipo || medicao.posicao) || "-",
+        medicao.media_final ?? medicao.media ?? "-",
+        normalizeText(medicao.unidade) || "-",
+        [normalizeText(medicao.rodovia), normalizeText(medicao.km)].filter(Boolean).join(" / ") || "-",
+        normalizeText(medicao.faixa) || "-",
+        normalizeText(medicao.sentido) || "-",
+        normalizeText(medicao.observacoes) || "-"
+      ]];
+    }
+
+    const legenda = computeLegendaStats(medicao);
+    if (!legenda?.letras?.length) {
+      return [[
+        formatDateTime(medicao.created_at || medicao.dataHora || medicao.data_hora),
+        normalizeText(medicao.equipamento_id || medicao.equip_id) || "-",
+        [tipo, subtipo].filter(Boolean).join(" / ") || "-",
+        "LEGENDA",
+        medicao.media_final ?? medicao.media ?? "-",
+        normalizeText(medicao.unidade) || "-",
+        [normalizeText(medicao.rodovia), normalizeText(medicao.km)].filter(Boolean).join(" / ") || "-",
+        normalizeText(medicao.faixa) || "-",
+        normalizeText(medicao.sentido) || "-",
+        `Legenda: ${normalizeText(medicao.legenda_texto || medicao.texto_legenda) || "-"}`
+      ]];
+    }
+
+    return legenda.letras.map((item) => [
       formatDateTime(medicao.created_at || medicao.dataHora || medicao.data_hora),
       normalizeText(medicao.equipamento_id || medicao.equip_id) || "-",
-      [tipo, subtipo].filter(Boolean).join(" / ") || "-",
-      medicao.media_final ?? medicao.media ?? "-",
+      [tipo, subtipo, `Letra ${item.letra}`].filter(Boolean).join(" / "),
+      "LEGENDA",
+      item.media ?? "-",
       normalizeText(medicao.unidade) || "-",
       [normalizeText(medicao.rodovia), normalizeText(medicao.km)].filter(Boolean).join(" / ") || "-",
       normalizeText(medicao.faixa) || "-",
       normalizeText(medicao.sentido) || "-",
-      normalizeText(medicao.observacoes) || "-"
-    ];
+      `L:${item.letra} | Leituras: ${(item.leituras || []).join(", ")}`
+    ]);
   });
 
   if (!tableBody.length) {
     doc.setFontSize(11);
     doc.text("Nenhuma medicao encontrada para os filtros informados.", 40, 140);
   } else {
-    doc.autoTable({
+    doc = makePdfTableNoWrap({
+      jsPDF,
+      doc,
       startY: 126,
-      head: [["Data/Hora", "Equipamento", "Tipo/Subtipo", "Media final", "Unidade", "Rodovia/KM", "Faixa", "Sentido", "Observacoes"]],
+      head: [["Data/Hora", "Equip.", "Tipo/Subtipo", "Posição", "Média", "Unid.", "Rodovia/KM", "Faixa", "Sentido", "Obs."]],
       body: tableBody,
-      styles: { fontSize: 8, cellPadding: 3, overflow: "linebreak" },
-      headStyles: { halign: "center", valign: "middle", overflow: "visible" }
+      styles: { fontSize: 8, cellPadding: 2 },
+      columnWidths: [86, 58, 104, 62, 44, 44, 88, 46, 54, 160]
     });
   }
 
