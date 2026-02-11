@@ -580,6 +580,27 @@ footer,
   border-radius: 10px;
 }
 
+
+.btn.vinculo-delete{
+  min-height: 30px;
+  padding: 2px 8px;
+  font-size: 16px;
+  line-height: 1;
+  border-radius: 8px;
+  background: rgba(255,93,108,.12);
+  border-color: rgba(255,93,108,.35);
+  color: #ffd4d8;
+}
+
+.btn.vinculo-delete:hover:not(:disabled){
+  background: rgba(255,93,108,.22);
+}
+
+.btn.vinculo-delete:disabled{
+  opacity: .55;
+  cursor: not-allowed;
+}
+
 .btn.secondary{
   background: rgba(255,255,255,.02);
   color: var(--muted);
