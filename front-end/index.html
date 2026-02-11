@@ -8,19 +8,41 @@
     :root{
       color-scheme: dark;
       font-family: "Inter", system-ui, sans-serif;
-      --medlux-blue: #1ec8ff;
-      --medlux-blue-soft: #4fd8ff;
-      background: #0c1730;
-      color: #f8fbff;
+      --medlux-blue: var(--brand);
+      --medlux-blue-soft: color-mix(in srgb, var(--brand) 75%, #ffffff);
+      --bg: #f7fbfc;
+      --text: #0c1f26;
+      --brand: #2fc3d6;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    :root.theme-light {
+      --brand: #2fc3d6;
+      --bg: #f7fbfc;
+      --text: #0c1f26;
+    }
+
+    :root.theme-medium {
+      --brand: #1fa9bb;
+      --bg: #e9f7f9;
+      --text: #12313a;
+    }
+
+    :root.theme-dark {
+      --brand: #0b6c79;
+      --bg: #0c1f26;
+      --text: #ffffff;
     }
 
     *{ box-sizing:border-box; }
     body{
       margin:0;
       background:
-        radial-gradient(circle at 18% 10%, rgba(79,216,255,.2), transparent 42%),
-        radial-gradient(circle at 82% 2%, rgba(30,200,255,.16), transparent 46%),
-        linear-gradient(180deg, #0c1730 0%, #0f1e3d 100%);
+        radial-gradient(circle at 18% 10%, color-mix(in srgb, var(--brand) 20%, transparent), transparent 42%),
+        radial-gradient(circle at 82% 2%, color-mix(in srgb, var(--brand) 16%, transparent), transparent 46%),
+        linear-gradient(180deg, color-mix(in srgb, var(--bg) 62%, #0f1729) 0%, color-mix(in srgb, var(--bg) 48%, #0d1d33) 100%);
+      color: var(--text);
       padding-top:84px;
     }
 
@@ -36,7 +58,7 @@
       gap: 12px;
       padding: 14px 22px;
       border-bottom: 1px solid rgba(255,255,255,.08);
-      background: rgba(5, 10, 22, 0.94);
+      background: color-mix(in srgb, var(--bg) 38%, #000000);
       box-shadow: 0 10px 30px rgba(0,0,0,.45);
       backdrop-filter: blur(8px);
     }
@@ -73,7 +95,7 @@
 
     .card{
       width:min(960px, 100%);
-      background: rgba(10,14,28,0.95);
+      background: color-mix(in srgb, var(--bg) 35%, #050910);
       border: 1px solid rgba(255,255,255,.1);
       border-radius: 24px;
       box-shadow: 0 18px 40px rgba(0,0,0,.4);
@@ -111,7 +133,7 @@
       padding: 6px 12px;
       border-radius: 999px;
       background: color-mix(in srgb, var(--medlux-blue) 18%, transparent);
-      color: rgba(206,246,255,.9);
+      color: color-mix(in srgb, var(--text) 82%, #ffffff);
       font-size: 12px;
       font-weight: 600;
       letter-spacing: 0.2px;
@@ -126,7 +148,7 @@
     }
 
     .panel{
-      background: rgba(7,10,19,0.65);
+      background: color-mix(in srgb, var(--bg) 24%, #000000);
       border: 1px solid rgba(255,255,255,.06);
       border-radius: 18px;
       padding: 18px;
@@ -141,8 +163,8 @@
 
     .btn{
       border: 1px solid rgba(255,255,255,.12);
-      background: rgba(14,18,32,0.85);
-      color: #fff;
+      background: color-mix(in srgb, var(--bg) 28%, #000000);
+      color: var(--text);
       border-radius: 18px;
       padding: 18px;
       font-size: 16px;
@@ -163,7 +185,7 @@
     .pill{
       font-size: 11px;
       background: color-mix(in srgb, var(--medlux-blue-soft) 16%, transparent);
-      color: rgba(206,246,255,.9);
+      color: color-mix(in srgb, var(--text) 82%, #ffffff);
       padding: 4px 10px;
       border-radius: 999px;
       text-transform: uppercase;
@@ -178,7 +200,7 @@
 
     footer{
       padding: 12px 18px 18px 18px;
-      color: rgba(255,255,255,.55);
+      color: color-mix(in srgb, var(--text) 58%, transparent);
       font-size: 12px;
       display:flex;
       flex-wrap:wrap;
@@ -187,11 +209,25 @@
     }
 
     .link{
-      color: rgba(234,240,255,.85);
+      color: color-mix(in srgb, var(--text) 86%, #ffffff);
       text-decoration:none;
-      border-bottom: 1px dashed rgba(234,240,255,.35);
+      border-bottom: 1px dashed color-mix(in srgb, var(--text) 35%, transparent);
     }
-    .link:hover{ border-bottom-color: rgba(234,240,255,.75); }
+    .link:hover{ border-bottom-color: color-mix(in srgb, var(--text) 75%, transparent); }
+
+    .theme-btn{
+      position:absolute;
+      top:12px;
+      right:16px;
+      padding:4px 8px;
+      font-size:12px;
+      border-radius:8px;
+      border:none;
+      cursor:pointer;
+      background:white;
+      color:#0c1f26;
+      box-shadow:0 2px 6px rgba(0,0,0,0.1);
+    }
 
     .dot{
       width:8px;height:8px;border-radius:999px;display:inline-block;
@@ -214,6 +250,7 @@
       <img class="topbar-logo" src="./assets/img/medlux-logo.png" alt="Logo MEDLUX" />
       <p class="topbar-title">MEDLUX Platform</p>
     </div>
+    <button id="themeToggle" class="theme-btn" type="button">Tema</button>
     <div class="badge">Versão Web • GitHub Pages</div>
   </header>
 
@@ -270,6 +307,25 @@
 
   <script type="module">
     import { getSession } from "./shared/auth.js";
+
+    const themes = ["theme-light", "theme-medium", "theme-dark"];
+    const savedTheme = localStorage.getItem("theme");
+    let currentTheme = themes.includes(savedTheme) ? savedTheme : "theme-light";
+
+    const applyTheme = (theme) => {
+      document.documentElement.classList.remove(...themes);
+      document.documentElement.classList.add(theme);
+    };
+
+    applyTheme(currentTheme);
+
+    document.getElementById("themeToggle").addEventListener("click", () => {
+      let index = themes.indexOf(currentTheme);
+      index = (index + 1) % themes.length;
+      currentTheme = themes[index];
+      applyTheme(currentTheme);
+      localStorage.setItem("theme", currentTheme);
+    });
 
     document.getElementById("btnControl").addEventListener("click", () => {
       const session = getSession();
