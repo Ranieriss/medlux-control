@@ -24,6 +24,7 @@ import {
   DB_VERSION,
   getAllCriterios,
   saveAnexo,
+  getAnexoById,
   getLatestLaudoByEquipamento,
   exportDiagnosticoCompleto
 } from "./db.js";
@@ -155,6 +156,7 @@ const formFields = {
   dataAquisicao: document.getElementById("equipAquisicao"),
   fabricante: document.getElementById("equipFabricante"),
   certificado: document.getElementById("equipCertificado"),
+  dataCalibracao: document.getElementById("equipDataCalibracao"),
   statusLocal: document.getElementById("equipStatus"),
   calibrado: document.getElementById("equipCalibrado"),
   usuarioAtual: document.getElementById("equipResponsavel"),
@@ -297,6 +299,35 @@ const readPdfFile = async (file) => {
   return new Blob([buffer], { type: "application/pdf" });
 };
 
+const openPdfBlob = (blob) => {
+  if (!blob) return false;
+  const url = URL.createObjectURL(blob);
+  window.open(url, "_blank", "noopener,noreferrer");
+  window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  return true;
+};
+
+const getLaudoById = async (laudoId) => {
+  if (!laudoId) return null;
+  return getAnexoById(laudoId);
+};
+
+const saveLaudoEquipamento = async (equipamentoId, file) => {
+  const blob = await readPdfFile(file);
+  const id = crypto.randomUUID();
+  await saveAnexo({
+    id,
+    tipo: "LAUDO_EQUIPAMENTO",
+    equipamentoId,
+    filename: file.name,
+    mime: "application/pdf",
+    size: file.size,
+    createdAt: new Date().toISOString(),
+    data: blob
+  });
+  return id;
+};
+
 const toISODate = (date) => {
   if (!date) return "";
   const d = new Date(date);
@@ -405,6 +436,7 @@ let editingObraId = null;
 let activeSession = null;
 let sortState = { key: "id", direction: "asc" };
 let currentPage = 1;
+let currentLaudoMeta = null;
 
 initGlobalErrorHandling("medlux-control");
 
@@ -434,7 +466,9 @@ const normalizeEquipamento = (data) => {
     dataAquisicao: data.dataAquisicao ? parseDateString(data.dataAquisicao).value : "",
     calibrado: normalizeCalibrado(data.calibrado),
     dataCalibracao: data.dataCalibracao ? parseDateString(data.dataCalibracao).value : "",
-    numeroCertificado: normalizeText(data.certificado || data.numeroCertificado),
+    certificadoNumero: normalizeText(data.certificado || data.certificadoNumero || data.numeroCertificado),
+    numeroCertificado: normalizeText(data.certificado || data.certificadoNumero || data.numeroCertificado),
+    laudoId: normalizeText(data.laudoId),
     fabricante: normalizeText(data.fabricante),
     usuarioAtual: normalizeText(data.usuarioAtual || data.usuarioResponsavel),
     usuarioResponsavel: normalizeText(data.usuarioAtual || data.usuarioResponsavel),
@@ -869,7 +903,50 @@ const handleDelete = async (id) => {
   setStatusMessage(`Equipamento ${id} removido.`);
 };
 
-const openEditModal = (id) => {
+const renderLaudoStatus = (meta) => {
+  currentLaudoMeta = meta ? { ...meta } : null;
+  if (!equipLaudoStatus) return;
+  equipLaudoStatus.textContent = "";
+  if (!currentLaudoMeta?.id && !currentLaudoMeta?.blob) {
+    equipLaudoStatus.textContent = "Nenhum laudo anexado.";
+    return;
+  }
+  const label = document.createElement("span");
+  label.textContent = "Arquivo anexado: ";
+  const link = document.createElement("button");
+  link.type = "button";
+  link.className = "laudo-link";
+  link.textContent = currentLaudoMeta.filename || "Visualizar PDF";
+  link.addEventListener("click", async () => {
+    if (currentLaudoMeta?.blob) {
+      openPdfBlob(currentLaudoMeta.blob);
+      return;
+    }
+    const laudo = await getLaudoById(currentLaudoMeta.id);
+    if (!laudo?.blob) {
+      setStatusMessage("Sem laudo anexado");
+      return;
+    }
+    openPdfBlob(laudo.blob);
+  });
+  equipLaudoStatus.append(label, link);
+};
+
+const openLaudoIfExists = async (laudoMeta) => {
+  if (laudoMeta?.blob) return openPdfBlob(laudoMeta.blob);
+  if (!laudoMeta?.id) {
+    setStatusMessage("Sem laudo anexado");
+    return false;
+  }
+  const laudo = await getLaudoById(laudoMeta.id);
+  if (!laudo?.blob) {
+    setStatusMessage("Sem laudo anexado");
+    return false;
+  }
+  return openPdfBlob(laudo.blob);
+};
+
+const openEditModal = async (id) => {
   const equipamento = equipamentos.find((item) => item.id === id);
   if (!equipamento) return;
   editingId = id;
@@ -883,17 +960,25 @@ const openEditModal = (id) => {
   formFields.modelo.value = equipamento.modelo || "";
   formFields.dataAquisicao.value = equipamento.dataAquisicao || "";
   formFields.fabricante.value = equipamento.fabricante || "";
-  formFields.certificado.value = equipamento.certificado || equipamento.numeroCertificado || "";
+  formFields.certificado.value = equipamento.certificadoNumero || equipamento.certificado || equipamento.numeroCertificado || "";
+  formFields.dataCalibracao.value = equipamento.dataCalibracao || "";
   formFields.statusLocal.value = equipamento.statusLocal || equipamento.statusOperacional || equipamento.status || "STAND_BY";
   formFields.calibrado.value = equipamento.calibrado || "";
   formFields.usuarioAtual.value = vinculoAtivo?.user_id || equipamento.usuarioAtual || equipamento.usuarioResponsavel || "";
-  formFields.usuarioAtual.disabled = Boolean(vinculoAtivo);
+  formFields.usuarioAtual.disabled = false;
+  formFields.usuarioAtual.readOnly = true;
   formFields.localidadeCidadeUF.value = equipamento.localidadeCidadeUF || equipamento.localidade || "";
   formFields.dataEntregaUsuario.value = equipamento.dataEntregaUsuario || "";
   formFields.observacoes.value = equipamento.observacoes || "";
   formHint.textContent = "Campos com * são obrigatórios.";
   if (equipLaudoInput) equipLaudoInput.value = "";
-  if (equipLaudoStatus) equipLaudoStatus.textContent = "Arquivo anexado salvo no banco local.";
+  const laudoId = equipamento.laudoId || "";
+  if (laudoId) {
+    const laudo = await getLaudoById(laudoId);
+    renderLaudoStatus(laudo ? { id: laudo.id, filename: laudo.filename } : null);
+  } else {
+    renderLaudoStatus(null);
+  }
   updateGeometriaState();
   openModal(modal);
 };
@@ -908,7 +993,8 @@ const openNewModal = () => {
   formFields.calibrado.value = "Sim";
   formHint.textContent = "Campos com * são obrigatórios.";
   if (equipLaudoInput) equipLaudoInput.value = "";
-  if (equipLaudoStatus) equipLaudoStatus.textContent = "Nenhum laudo anexado.";
+  if (formFields.dataCalibracao) formFields.dataCalibracao.value = "";
+  renderLaudoStatus(null);
   updateGeometriaState();
   openModal(modal);
 };
@@ -935,20 +1021,18 @@ const handleFormSubmit = async (event) => {
     normalized.usuarioResponsavel = vinculoAtivo.user_id;
   }
   const laudoFile = equipLaudoInput?.files?.[0] || null;
+  let laudoId = existing?.laudoId || "";
   if (laudoFile) {
-    const blob = await readPdfFile(laudoFile);
-    await saveAnexo({
-      equipamento_id: normalized.id,
-      tipo: "LAUDO_EQUIPAMENTO",
-      filename: laudoFile.name,
-      mime: "application/pdf",
-      size: laudoFile.size,
-      created_at: now,
-      blob
-    });
+    try {
+      laudoId = await saveLaudoEquipamento(normalized.id, laudoFile);
+    } catch (error) {
+      formHint.textContent = error.message || "Falha ao anexar PDF.";
+      return;
+    }
   }
   await saveEquipamento({
     ...normalized,
+    laudoId,
     created_at: existing?.created_at || now,
     updated_at: now
   });
@@ -2489,6 +2573,26 @@ const handleSort = (event) => {
   renderEquipamentos();
 };
 
+const handleLaudoInputChange = () => {
+  const file = equipLaudoInput?.files?.[0] || null;
+  if (!file) {
+    renderLaudoStatus(currentLaudoMeta);
+    return;
+  }
+  if (file.type !== "application/pdf") {
+    equipLaudoInput.value = "";
+    setStatusMessage("Anexe apenas arquivos PDF.");
+    return;
+  }
+  const blob = new Blob([file], { type: "application/pdf" });
+  renderLaudoStatus({ id: currentLaudoMeta?.id || "", filename: file.name, blob });
+};
+
+const handleCalibradoChange = async () => {
+  if (formFields.calibrado.value !== "Sim") return;
+  await openLaudoIfExists(currentLaudoMeta);
+};
+
 const updateGeometriaState = () => {
   const funcao = formFields.funcao.value;
   const isHorizontal = funcao === "HORIZONTAL";
@@ -2512,6 +2616,8 @@ cancelModal.addEventListener("click", () => closeModalElement(modal));
 deleteModal.addEventListener("click", () => handleDelete(editingId));
 form.addEventListener("submit", handleFormSubmit);
 formFields.funcao.addEventListener("change", updateGeometriaState);
+formFields.calibrado.addEventListener("change", () => { void handleCalibradoChange(); });
+if (equipLaudoInput) equipLaudoInput.addEventListener("change", handleLaudoInputChange);
 
 newUsuario.addEventListener("click", () => openUsuarioModal());
 closeUsuario.addEventListener("click", () => closeModalElement(usuarioModal));

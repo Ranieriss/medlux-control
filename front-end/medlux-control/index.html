@@ -425,6 +425,10 @@
             <input id="equipCertificado" name="certificado" />
           </div>
           <div class="field">
+            <label for="equipDataCalibracao">Data de calibração</label>
+            <input id="equipDataCalibracao" name="dataCalibracao" type="date" />
+          </div>
+          <div class="field">
             <label for="equipStatus">Status</label>
             <select id="equipStatus" name="statusLocal">
               <option value="OBRA">Obra</option>
@@ -443,7 +447,7 @@
           </div>
           <div class="field">
             <label for="equipResponsavel">Usuário responsável (derivado do vínculo)</label>
-            <input id="equipResponsavel" name="usuarioAtual" />
+            <input id="equipResponsavel" name="usuarioAtual" readonly />
           </div>
           <div class="field">
             <label for="equipLocalidade">Localidade (Cidade/UF)</label>
@@ -453,9 +457,12 @@
             <label for="equipEntrega">Data entrega usuário</label>
             <input id="equipEntrega" name="dataEntregaUsuario" type="date" />
           </div>
-          <div class="field">
+          <div class="field field-full">
             <label for="equipLaudo">Laudo de calibração (PDF)</label>
-            <input id="equipLaudo" name="laudoPdf" type="file" accept="application/pdf" />
+            <div class="laudo-upload-row">
+              <label class="btn secondary file-upload-trigger" for="equipLaudo">Anexar PDF</label>
+              <input id="equipLaudo" name="laudoPdf" type="file" accept="application/pdf" />
+            </div>
             <small class="muted" id="equipLaudoStatus">Nenhum laudo anexado.</small>
           </div>
           <div class="field field-full">

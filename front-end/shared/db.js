@@ -144,7 +144,9 @@ const normalizeEquipamentoRecord = (record = {}) => {
     dataAquisicao: record.dataAquisicao || record.data_aquisicao || "",
     calibrado,
     dataCalibracao: record.dataCalibracao || record.data_calibracao || "",
+    certificadoNumero: certificado,
     numeroCertificado: certificado,
+    laudoId: record.laudoId || record.laudo_id || "",
     usuarioAtual: record.usuarioAtual || record.usuarioResponsavel || record.usuario_responsavel || "",
     localidadeCidadeUF,
     dataEntregaUsuario: record.dataEntregaUsuario || record.data_entrega_usuario || "",
@@ -156,7 +158,9 @@ const normalizeEquipamentoRecord = (record = {}) => {
     statusOperacional: statusLocal,
     status: statusLocal,
     localidade: localidadeCidadeUF,
-    usuarioResponsavel: record.usuarioResponsavel || record.usuario_responsavel || record.usuarioAtual || ""
+    usuarioResponsavel: record.usuarioResponsavel || record.usuario_responsavel || record.usuarioAtual || "",
+    certificado: certificado,
+    laudo_id: record.laudoId || record.laudo_id || ""
   };
 };
 
@@ -344,7 +348,9 @@ const prepareEquipamentoRecord = (record = {}) => {
     statusOperacional: normalized.statusLocal,
     statusLocal: normalized.statusLocal,
     localidadeCidadeUF: normalized.localidadeCidadeUF,
-    geometria: normalized.funcao === "HORIZONTAL" ? normalized.geometria : null
+    geometria: normalized.funcao === "HORIZONTAL" ? normalized.geometria : null,
+    certificadoNumero: normalized.certificadoNumero || normalized.numeroCertificado || "",
+    laudoId: normalized.laudoId || ""
   };
 };
 
@@ -885,15 +891,20 @@ const getAllAnexos = () => getAllFromStore(STORE_ANEXOS);
 const saveAnexo = (anexo) =>
   putInStore(STORE_ANEXOS, {
     id: anexo.id || crypto.randomUUID(),
-    equipamento_id: anexo.equipamento_id || anexo.equipId || anexo.target_id || null,
+    equipamento_id: anexo.equipamento_id || anexo.equipamentoId || anexo.equipId || anexo.target_id || null,
     medicao_id: anexo.medicao_id || null,
     tipo: anexo.tipo || "ANEXO",
     filename: anexo.filename || anexo.name || "arquivo",
     mime: anexo.mime || anexo.type || "application/octet-stream",
     size: Number(anexo.size || anexo.file_size || 0),
-    created_at: anexo.created_at || nowIso(),
-    blob: anexo.blob || null
+    created_at: anexo.created_at || anexo.createdAt || nowIso(),
+    blob: anexo.blob || anexo.data || null
   });
+
+const getAnexoById = async (anexoId) => {
+  if (!anexoId) return null;
+  return getByKey(STORE_ANEXOS, anexoId);
+};
 
 const getAnexosByEquipamento = async (equipamentoId) => {
   const normalizedId = String(equipamentoId || "").trim().toUpperCase();
@@ -1558,6 +1569,7 @@ export {
   deleteObra,
 
   getAllAnexos,
+  getAnexoById,
   saveAnexo,
   getAnexosByEquipamento,
   getLatestLaudoByEquipamento,
