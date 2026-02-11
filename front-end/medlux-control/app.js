@@ -23,6 +23,8 @@ import {
   getRecentErrors,
   DB_VERSION,
   getAllCriterios,
+  saveAnexo,
+  getLatestLaudoByEquipamento,
   exportDiagnosticoCompleto
 } from "./db.js";
 import { ensureDefaultAdmin, authenticate, updatePin, createUserWithPin, logout, requireAuth, getSession } from "../shared/auth.js";
@@ -97,6 +99,8 @@ const cancelModal = document.getElementById("cancelModal");
 const deleteModal = document.getElementById("deleteEquipamento");
 const form = document.getElementById("equipamentoForm");
 const formHint = document.getElementById("formHint");
+const equipLaudoInput = document.getElementById("equipLaudo");
+const equipLaudoStatus = document.getElementById("equipLaudoStatus");
 
 const usuarioModal = document.getElementById("usuarioModal");
 const usuarioTitle = document.getElementById("usuarioTitle");
@@ -266,6 +270,31 @@ const getCalibrationBadgeStatus = (equipamento) => {
   if (recalibracao.status === "vencido") return "danger";
   if (recalibracao.status === "warning") return "warning";
   return "";
+};
+
+
+const getCalibrationTimeline = (equipamento) => {
+  const dataCalibracao = equipamento?.dataCalibracao || equipamento?.data_calibracao;
+  if (!dataCalibracao) return null;
+  const calibrationDate = new Date(dataCalibracao);
+  if (Number.isNaN(calibrationDate.getTime())) return null;
+  const vencimento = new Date(calibrationDate.getTime() + (365 * 24 * 60 * 60 * 1000));
+  const diasRestantes = Math.ceil((vencimento.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+  return { vencimento, diasRestantes };
+};
+
+const formatDiasRestantes = (equipamento) => {
+  const timeline = getCalibrationTimeline(equipamento);
+  if (!timeline) return "-";
+  if (timeline.diasRestantes < 0) return `Vencido (${Math.abs(timeline.diasRestantes)}d)`;
+  return `${timeline.diasRestantes}d`;
+};
+
+const readPdfFile = async (file) => {
+  if (!file) return null;
+  if (file.type !== "application/pdf") throw new Error("Anexe um arquivo PDF válido.");
+  const buffer = await file.arrayBuffer();
+  return new Blob([buffer], { type: "application/pdf" });
 };
 
 const toISODate = (date) => {
@@ -568,8 +597,10 @@ const renderEquipamentos = () => {
       null,
       equipamento.usuarioAtual || equipamento.usuarioResponsavel || "-",
       formatStatus(getEquipamentoStatus(equipamento)),
-      getEquipamentoLocalidade(equipamento) || "-"
-    ].forEach((text, index) => {
+getEquipamentoLocalidade(equipamento) || "-",
+formatDiasRestantes(equipamento)
+].forEach((text, index) => {
+
       const cell = document.createElement("td");
       if (index === 3) {
         const recalibracao = calcDiasParaRecalibrar(equipamento);
@@ -594,6 +625,25 @@ const renderEquipamentos = () => {
       }
       row.appendChild(cell);
     });
+
+    const laudoCell = document.createElement("td");
+    const laudoBtn = document.createElement("button");
+    laudoBtn.className = "btn secondary";
+    laudoBtn.type = "button";
+    laudoBtn.textContent = "Ver laudo";
+    laudoBtn.disabled = true;
+    getLatestLaudoByEquipamento(equipamento.id).then((laudo) => {
+      if (!laudo?.blob) return;
+      laudoBtn.disabled = false;
+      laudoBtn.title = laudo.filename || "Laudo";
+      laudoBtn.addEventListener("click", () => {
+        const url = URL.createObjectURL(laudo.blob);
+        window.open(url, "_blank", "noopener,noreferrer");
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      });
+    });
+    laudoCell.appendChild(laudoBtn);
+    row.appendChild(laudoCell);
 
     const actions = document.createElement("td");
     const editButton = document.createElement("button");
@@ -703,7 +753,6 @@ const renderVinculos = () => {
       termoCell.textContent = "-";
     }
     row.appendChild(termoCell);
-
     const actions = document.createElement("td");
     if (vinculo.status === "ATIVO" || vinculo.ativo) {
       const endButton = document.createElement("button");
@@ -843,6 +892,8 @@ const openEditModal = (id) => {
   formFields.dataEntregaUsuario.value = equipamento.dataEntregaUsuario || "";
   formFields.observacoes.value = equipamento.observacoes || "";
   formHint.textContent = "Campos com * são obrigatórios.";
+  if (equipLaudoInput) equipLaudoInput.value = "";
+  if (equipLaudoStatus) equipLaudoStatus.textContent = "Arquivo anexado salvo no banco local.";
   updateGeometriaState();
   openModal(modal);
 };
@@ -856,6 +907,8 @@ const openNewModal = () => {
   formFields.statusLocal.value = "STAND_BY";
   formFields.calibrado.value = "Sim";
   formHint.textContent = "Campos com * são obrigatórios.";
+  if (equipLaudoInput) equipLaudoInput.value = "";
+  if (equipLaudoStatus) equipLaudoStatus.textContent = "Nenhum laudo anexado.";
   updateGeometriaState();
   openModal(modal);
 };
@@ -880,6 +933,19 @@ const handleFormSubmit = async (event) => {
   if (vinculoAtivo) {
     normalized.usuarioAtual = vinculoAtivo.user_id;
     normalized.usuarioResponsavel = vinculoAtivo.user_id;
+  }
+  const laudoFile = equipLaudoInput?.files?.[0] || null;
+  if (laudoFile) {
+    const blob = await readPdfFile(laudoFile);
+    await saveAnexo({
+      equipamento_id: normalized.id,
+      tipo: "LAUDO_EQUIPAMENTO",
+      filename: laudoFile.name,
+      mime: "application/pdf",
+      size: laudoFile.size,
+      created_at: now,
+      blob
+    });
   }
   await saveEquipamento({
     ...normalized,

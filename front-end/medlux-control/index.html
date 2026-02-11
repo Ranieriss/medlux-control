@@ -156,6 +156,8 @@
                   <th><button class="sort-btn" type="button" data-sort="usuarioAtual">Usuário atual</button></th>
                   <th>Status</th>
                   <th>Localidade</th>
+                  <th>Dias p/ recalibrar</th>
+                  <th>Laudo</th>
                   <th>Ações</th>
                 </tr>
               </thead>
@@ -450,6 +452,11 @@
           <div class="field">
             <label for="equipEntrega">Data entrega usuário</label>
             <input id="equipEntrega" name="dataEntregaUsuario" type="date" />
+          </div>
+          <div class="field">
+            <label for="equipLaudo">Laudo de calibração (PDF)</label>
+            <input id="equipLaudo" name="laudoPdf" type="file" accept="application/pdf" />
+            <small class="muted" id="equipLaudoStatus">Nenhum laudo anexado.</small>
           </div>
           <div class="field field-full">
             <label for="equipObs">Observações</label>

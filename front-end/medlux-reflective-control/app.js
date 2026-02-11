@@ -708,6 +708,20 @@ const handleMedicaoSubmit = async (event) => {
           normalizeUserIdComparable(item.user_id) === normalizeUserIdComparable(activeSession.id)
       );
       if (!vinculoAtivo) {
+        await logAudit({
+          action: "RBAC_MEASUREMENT_BLOCKED",
+          entity_type: "medicoes",
+          entity_id: data.equip_id || "",
+          actor_user_id: activeSession?.id || null,
+          summary: `Tentativa bloqueada de medição sem vínculo ativo (${data.equip_id || "sem-equip"}).`,
+          context: { user_id: activeSession?.id || null, equipamento_id: data.equip_id || "", reason: "NO_ACTIVE_LINK" }
+        });
+        await logError({
+          module: "medlux-reflective-control",
+          action: "RBAC_MEASUREMENT_BLOCKED",
+          message: "Tentativa de medição fora da permissão do usuário.",
+          context: { user_id: activeSession?.id || null, equipamento_id: data.equip_id || "" }
+        });
         showFeedback("Equipamento não vinculado ao operador.", "error");
         return;
       }
