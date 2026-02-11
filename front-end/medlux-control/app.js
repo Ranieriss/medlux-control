@@ -275,23 +275,6 @@ const getCalibrationBadgeStatus = (equipamento) => {
 };
 
 
-const getCalibrationTimeline = (equipamento) => {
-  const dataCalibracao = equipamento?.dataCalibracao || equipamento?.data_calibracao;
-  if (!dataCalibracao) return null;
-  const calibrationDate = new Date(dataCalibracao);
-  if (Number.isNaN(calibrationDate.getTime())) return null;
-  const vencimento = new Date(calibrationDate.getTime() + (365 * 24 * 60 * 60 * 1000));
-  const diasRestantes = Math.ceil((vencimento.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
-  return { vencimento, diasRestantes };
-};
-
-const formatDiasRestantes = (equipamento) => {
-  const timeline = getCalibrationTimeline(equipamento);
-  if (!timeline) return "-";
-  if (timeline.diasRestantes < 0) return `Vencido (${Math.abs(timeline.diasRestantes)}d)`;
-  return `${timeline.diasRestantes}d`;
-};
-
 const readPdfFile = async (file) => {
   if (!file) return null;
   if (file.type !== "application/pdf") throw new Error("Anexe um arquivo PDF válido.");
@@ -631,9 +614,8 @@ const renderEquipamentos = () => {
       null,
       equipamento.usuarioAtual || equipamento.usuarioResponsavel || "-",
       formatStatus(getEquipamentoStatus(equipamento)),
-getEquipamentoLocalidade(equipamento) || "-",
-formatDiasRestantes(equipamento)
-].forEach((text, index) => {
+      getEquipamentoLocalidade(equipamento) || "-"
+    ].forEach((text, index) => {
 
       const cell = document.createElement("td");
       if (index === 3) {
