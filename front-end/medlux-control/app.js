@@ -22,7 +22,8 @@ import {
   getStoreCounts,
   getRecentErrors,
   DB_VERSION,
-  getAllCriterios
+  getAllCriterios,
+  exportDiagnosticoCompleto
 } from "./db.js";
 import { ensureDefaultAdmin, authenticate, updatePin, createUserWithPin, logout, requireAuth, getSession } from "../shared/auth.js";
 import { AUDIT_ACTIONS, buildDiff, logAudit } from "../shared/audit.js";
@@ -2418,18 +2419,28 @@ generateObraPdf.addEventListener("click", buildObraPdf);
 if (generateUserPdf) generateUserPdf.addEventListener("click", buildUserPdf);
 if (diagnosticoExport) {
   diagnosticoExport.addEventListener("click", async () => {
-    const payload = {
-      created_at: new Date().toISOString(),
-      app_version: getAppVersion(),
-      db_version: DB_VERSION,
-      counts: await getStoreCounts(),
-      errors: await getRecentErrors(30)
-    };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `diagnostico-medlux-${new Date().toISOString().slice(0, 10)}.json`;
-    link.click();
+    try {
+      const visibleEquipamentosInUI = [...document.querySelectorAll("#vinculoEquip option")]
+        .map((option) => option.value)
+        .filter((value) => value && value !== "");
+
+      const payload = await exportDiagnosticoCompleto({
+        appModule: "medlux-control",
+        appVersion: getAppVersion(),
+        session: getSession(),
+        visibleEquipamentosInUI
+      });
+
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `diagnostico-turbo-medlux-control-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      setStatusMessage("Diagnóstico Turbo exportado com sucesso.");
+    } catch (error) {
+      setStatusMessage("Falha ao exportar diagnóstico completo.");
+      await logError({ module: "medlux-control", action: "EXPORT_DIAGNOSTICO_COMPLETO", message: error?.message || "Erro desconhecido", stack: error?.stack });
+    }
   });
 }
 

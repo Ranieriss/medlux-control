@@ -935,6 +935,314 @@ const getStoreCounts = async () => {
   });
 };
 
+const DIAGNOSTIC_SAMPLE_LIMIT = 8;
+const DIAGNOSTIC_LOG_LIMIT = 50;
+
+const isObject = (value) => value && typeof value === "object" && !Array.isArray(value);
+
+const maskValue = (value) => {
+  if (value == null) return value;
+  const raw = String(value).trim();
+  if (!raw) return "";
+  if (raw.includes("@")) {
+    const [name, domain = ""] = raw.split("@");
+    const safeName = name ? `${name[0]}***` : "***";
+    const safeDomain = domain ? `${domain[0]}***` : "***";
+    return `${safeName}@${safeDomain}`;
+  }
+  const words = raw.split(/\s+/).filter(Boolean);
+  if (words.length > 1) {
+    return `${words[0]} ${"*".repeat(Math.max(3, words.length - 1))}`;
+  }
+  if (raw.length <= 2) return `${raw[0] || ""}*`;
+  return `${raw.slice(0, 2)}***`;
+};
+
+const sanitizeRecord = (record) => {
+  if (!isObject(record)) return record;
+
+  const maskedKeyPattern = /(nome|name|email|mail|telefone|phone|celular|cpf|documento|senha|pin|password|salt|token)/i;
+
+  const sanitizeValue = (key, value) => {
+    if (Array.isArray(value)) {
+      return value.slice(0, DIAGNOSTIC_SAMPLE_LIMIT).map((item) => sanitizeValue(key, item));
+    }
+    if (isObject(value)) {
+      return Object.entries(value).reduce((acc, [nestedKey, nestedValue]) => {
+        acc[nestedKey] = sanitizeValue(nestedKey, nestedValue);
+        return acc;
+      }, {});
+    }
+    if (maskedKeyPattern.test(key)) return maskValue(value);
+    return value;
+  };
+
+  return Object.entries(record).reduce((acc, [key, value]) => {
+    acc[key] = sanitizeValue(key, value);
+    return acc;
+  }, {});
+};
+
+const getSessionSnapshot = (providedSession) => {
+  const readSessionFromStorage = () => {
+    const keys = Object.keys(sessionStorage || {});
+    const sessionKey = keys.find((key) => key.toLowerCase().includes("session")) || "medlux_session";
+    const raw = sessionStorage.getItem(sessionKey);
+    if (!raw) return { session: null, key: sessionKey };
+    try {
+      return { session: JSON.parse(raw), key: sessionKey };
+    } catch (_error) {
+      return { session: null, key: sessionKey };
+    }
+  };
+
+  const storageSnapshot = typeof sessionStorage !== "undefined" ? readSessionFromStorage() : { session: null, key: "" };
+  const session = providedSession || storageSnapshot.session || null;
+  const rawSessionKeys = Object.keys(session || {});
+  const roleDetected = String(session?.role || session?.perfil || session?.cargo || "").toUpperCase() || "UNKNOWN";
+  const isAdminDetected =
+    session?.isAdmin === true
+    || roleDetected === "ADMIN"
+    || String(session?.perfil || "").toUpperCase() === "ADMIN";
+
+  return {
+    session,
+    payload: {
+      userId: session?.id || session?.user_id || session?.userId || null,
+      usernameMasked: maskValue(session?.nome || session?.name || session?.username || ""),
+      isAdminDetected,
+      roleDetected,
+      rawSessionKeys,
+      sessionStorageKey: storageSnapshot.key
+    }
+  };
+};
+
+const detectKeysInRecords = (records = [], candidates = []) => {
+  const found = new Set();
+
+  const walk = (value) => {
+    if (!isObject(value) && !Array.isArray(value)) return;
+    if (Array.isArray(value)) {
+      value.forEach((item) => walk(item));
+      return;
+    }
+    Object.entries(value).forEach(([key, nestedValue]) => {
+      if (candidates.some((candidate) => key.toLowerCase() === candidate.toLowerCase())) found.add(key);
+      walk(nestedValue);
+    });
+  };
+
+  records.forEach((item) => walk(item));
+  return [...found];
+};
+
+const toTimestamp = (value) => {
+  const ts = new Date(value).getTime();
+  return Number.isFinite(ts) ? ts : null;
+};
+
+const computeCalibrationStatus = (equipamento) => {
+  const calibrationDate = equipamento?.dataCalibracao || equipamento?.data_calibracao;
+  const baseTs = toTimestamp(calibrationDate);
+  if (!baseTs) return null;
+
+  const expirationTs = baseTs + (365 * 24 * 60 * 60 * 1000);
+  const daysRemaining = Math.ceil((expirationTs - Date.now()) / (24 * 60 * 60 * 1000));
+
+  return {
+    equipamentoId: equipamento?.id || equipamento?.equipamento_id || equipamento?.equipId || null,
+    diasRestantes: daysRemaining,
+    vencimentoISO: new Date(expirationTs).toISOString()
+  };
+};
+
+const getDbSchema = async (db) => {
+  const stores = [...db.objectStoreNames];
+  return new Promise((resolve, reject) => {
+    if (!stores.length) {
+      resolve({ stores: [] });
+      return;
+    }
+
+    const transaction = db.transaction(stores, "readonly");
+    const schemaStores = stores.map((storeName) => {
+      const store = transaction.objectStore(storeName);
+      return {
+        name: store.name,
+        keyPath: store.keyPath,
+        autoIncrement: store.autoIncrement,
+        indexes: [...store.indexNames].map((indexName) => {
+          const index = store.index(indexName);
+          return {
+            name: index.name,
+            keyPath: index.keyPath,
+            unique: index.unique,
+            multiEntry: index.multiEntry
+          };
+        })
+      };
+    });
+
+    transaction.oncomplete = () => resolve({ stores: schemaStores });
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+};
+
+const exportDiagnosticoCompleto = async ({ appModule = "medlux-control", appVersion = "", visibleEquipamentosInUI = [], session = null } = {}) => {
+  try {
+    const db = await openDB();
+    const [
+      counts,
+      dbSchema,
+      equipamentos,
+      vinculos,
+      users,
+      medicoes,
+      criterios,
+      obras,
+      anexos,
+      recentErrors,
+      auditEntries
+    ] = await Promise.all([
+      getStoreCounts(),
+      getDbSchema(db),
+      getAllFromStore(STORE_EQUIPAMENTOS),
+      getAllFromStore(STORE_VINCULOS),
+      getAllFromStore(STORE_USERS),
+      getAllFromStore(STORE_MEDICOES),
+      getAllFromStore(STORE_CRITERIOS),
+      getAllFromStore(STORE_OBRAS),
+      getAllFromStore(STORE_ANEXOS),
+      getRecentErrors(DIAGNOSTIC_LOG_LIMIT),
+      getAllAuditoria()
+    ]);
+
+    const { session: sessionRaw, payload: sessionPayload } = getSessionSnapshot(session);
+
+    const userIdComparable = String(sessionRaw?.id || sessionRaw?.user_id || "").trim().toUpperCase();
+    const activeLinks = (vinculos || []).filter((item) => String(item.status || "").toUpperCase() === "ATIVO" || item.ativo === true);
+    const currentUserAllowedEquipamentos = sessionPayload.isAdminDetected
+      ? (equipamentos || []).map((item) => item.id).filter(Boolean)
+      : activeLinks
+        .filter((item) => String(item.user_id || item.usuarioId || "").trim().toUpperCase() === userIdComparable)
+        .map((item) => item.equipamento_id || item.equip_id || item.equipId)
+        .filter(Boolean);
+
+    const calibrationStates = (equipamentos || []).map((item) => computeCalibrationStatus(item)).filter(Boolean);
+    const expired = calibrationStates.filter((item) => item.diasRestantes < 0);
+    const expiringSoon = calibrationStates.filter((item) => item.diasRestantes >= 0 && item.diasRestantes < 30);
+
+    const laudoAttachments = (anexos || [])
+      .filter((item) => {
+        const tipo = String(item.tipo || "").toUpperCase();
+        return tipo.includes("LAUDO") || tipo.includes("LAUDO_EQUIPAMENTO");
+      })
+      .map((item) => ({
+        equipamentoId: item.equipamento_id || item.equipId || item.equip_id || item.target_id || null,
+        filename: item.filename || item.nome || item.name || "",
+        size: item.size || item.file_size || null,
+        created_at: item.created_at || item.createdAt || null
+      }));
+
+    const laudosByEquip = new Map();
+    laudoAttachments.forEach((item) => {
+      if (!item.equipamentoId) return;
+      if (!laudosByEquip.has(item.equipamentoId)) laudosByEquip.set(item.equipamentoId, []);
+      laudosByEquip.get(item.equipamentoId).push(item);
+    });
+
+    const equipamentosComLaudo = [...laudosByEquip.values()].flat();
+    const equipamentosSemLaudo = (equipamentos || [])
+      .map((item) => item.id)
+      .filter((id) => id && !laudosByEquip.has(id));
+
+    const visibleNormalized = (visibleEquipamentosInUI || []).map((item) => String(item).trim()).filter(Boolean);
+    const violations = [];
+    visibleNormalized.forEach((equipId) => {
+      if (!sessionPayload.isAdminDetected && !currentUserAllowedEquipamentos.includes(equipId)) {
+        violations.push({ type: "RBAC_EQUIPAMENTO_VISIVEL_NAO_ATRIBUIDO", details: { equipamentoId: equipId } });
+      }
+    });
+
+    const keyRecords = [...(users || []), ...(vinculos || []), ...(medicoes || []), ...(equipamentos || [])].slice(0, 50);
+
+    return {
+      diagnostic_version: "1.0",
+      created_at: new Date().toISOString(),
+      app_version: appVersion || "",
+      db_version: DB_VERSION,
+      app_module: appModule,
+      module: appModule,
+      env: {
+        url: typeof window !== "undefined" ? window.location.href : "",
+        userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
+        language: typeof navigator !== "undefined" ? navigator.language : "",
+        timezoneOffsetMin: new Date().getTimezoneOffset()
+      },
+      session: sessionPayload,
+      db_schema: dbSchema,
+      counts,
+      key_detection: {
+        user_role_keys_found: detectKeysInRecords(keyRecords, ["role", "isAdmin", "perfil", "cargo"]),
+        vinculo_user_keys_found: detectKeysInRecords(keyRecords, ["usuarioId", "userId", "user_id", "idUsuario"]),
+        vinculo_equip_keys_found: detectKeysInRecords(keyRecords, ["equipamentoId", "equipId", "equipamento_id", "equip_id"]),
+        medicao_position_keys_found: detectKeysInRecords(keyRecords, ["posicao_tipo", "posicao", "linha", "estacao", "tipoDeMarcacao"])
+      },
+      samples: {
+        users: (users || []).slice(0, DIAGNOSTIC_SAMPLE_LIMIT).map((item) => sanitizeRecord(item)),
+        vinculos: (vinculos || []).slice(0, DIAGNOSTIC_SAMPLE_LIMIT).map((item) => sanitizeRecord(item)),
+        equipamentos: (equipamentos || []).slice(0, DIAGNOSTIC_SAMPLE_LIMIT).map((item) => sanitizeRecord(item)),
+        medicoes: (medicoes || []).slice(0, DIAGNOSTIC_SAMPLE_LIMIT).map((item) => sanitizeRecord(item)),
+        criterios: (criterios || []).slice(0, DIAGNOSTIC_SAMPLE_LIMIT).map((item) => sanitizeRecord(item)),
+        anexos: (anexos || []).slice(0, DIAGNOSTIC_SAMPLE_LIMIT).map((item) => sanitizeRecord(item)),
+        obras: (obras || []).slice(0, DIAGNOSTIC_SAMPLE_LIMIT).map((item) => sanitizeRecord(item)),
+        audit_log: (auditEntries || []).slice(0, DIAGNOSTIC_SAMPLE_LIMIT).map((item) => sanitizeRecord(item))
+      },
+      rbac_check: {
+        currentUserAllowedEquipamentos,
+        visibleEquipamentosInUI: visibleNormalized,
+        violations
+      },
+      calibration_summary: {
+        expiringSoon,
+        expired,
+        stats: {
+          total: calibrationStates.length,
+          expiringSoonCount: expiringSoon.length,
+          expiredCount: expired.length
+        }
+      },
+      laudos_summary: {
+        equipamentosComLaudo,
+        equipamentosSemLaudo
+      },
+      errors: (recentErrors || []).slice(0, DIAGNOSTIC_LOG_LIMIT).map((item) => ({
+        created_at: item.created_at,
+        module: item.module,
+        action: item.action,
+        message: item.message,
+        stackTop: String(item.stack || "").split("\n")[0] || "",
+        context: sanitizeRecord(item.context || item.extra || {})
+      })),
+      audit_tail: (auditEntries || [])
+        .sort((a, b) => new Date(b.created_at || b.data_hora || 0) - new Date(a.created_at || a.data_hora || 0))
+        .slice(0, DIAGNOSTIC_LOG_LIMIT)
+        .map((item) => ({
+          at: item.created_at || item.data_hora || null,
+          actorId: item.actor_user_id || item.user_id || null,
+          action: item.action || item.acao || null,
+          targetType: item.entity_type || item.entity || null,
+          targetId: item.entity_id || item.target_id || null
+        }))
+    };
+  } catch (error) {
+    console.error("Falha em exportDiagnosticoCompleto", error);
+    throw error;
+  }
+};
+
 const exportSnapshot = async ({ appVersion = "" } = {}) => {
   const [equipamentos, usuarios, vinculos, medicoes, auditoria, obras, criterios] = await Promise.all([
     getAllEquipamentos(),
@@ -1219,6 +1527,7 @@ export {
   getRecentErrors,
 
   getStoreCounts,
+  exportDiagnosticoCompleto,
   exportSnapshot,
   importSnapshot,
   normalizeImportPayload,

@@ -5,13 +5,15 @@ import {
   getMedicoesByUser,
   getAllMedicoes,
   getAllObras,
-  getAllCriterios
+  getAllCriterios,
+  exportDiagnosticoCompleto
 } from "../shared/db.js";
 
 import { ensureDefaultAdmin, authenticate, logout, requireAuth, getSession } from "../shared/auth.js";
 import { AUDIT_ACTIONS, buildDiff, logAudit } from "../shared/audit.js";
 import { validateMedicao } from "../shared/validation.js";
 import { initGlobalErrorHandling, logError } from "../shared/errors.js";
+import { getAppVersion } from "../shared/utils.js";
 
 import {
   computeMeasurementStats,
@@ -70,6 +72,7 @@ const loginForm = document.getElementById("loginForm");
 const loginHint = document.getElementById("loginHint");
 const autoTestButton = document.getElementById("runAutoTest");
 const autoTestHint = document.getElementById("autoTestHint");
+const diagnosticoExport = document.getElementById("diagnosticoExport");
 
 let activeSession = null;
 let equipamentos = [];
@@ -1008,6 +1011,34 @@ bindEvent(logoutButton, "click", () => {
 });
 
 bindEvent(autoTestButton, "click", runAdminAutoTest);
+bindEvent(diagnosticoExport, "click", async () => {
+  try {
+    const visibleEquipamentosInUI = [...(medicaoEquip?.options || [])]
+      .map((option) => option.value)
+      .filter((value) => value && value !== "");
+    const payload = await exportDiagnosticoCompleto({
+      appModule: "medlux-reflective-control",
+      appVersion: getAppVersion(),
+      session: getSession(),
+      visibleEquipamentosInUI
+    });
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `diagnostico-turbo-medlux-reflective-control-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    setStatusMessage("Diagnóstico Turbo exportado com sucesso.");
+  } catch (error) {
+    setStatusMessage("Falha ao exportar diagnóstico completo.");
+    await logError({
+      module: "medlux-reflective-control",
+      action: "EXPORT_DIAGNOSTICO_COMPLETO",
+      message: error?.message || "Erro desconhecido",
+      stack: error?.stack
+    });
+  }
+});
 
 window.addEventListener("online", () => {
   syncStatus.textContent = "Online • IndexedDB";
