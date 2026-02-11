@@ -116,6 +116,43 @@ const resolvePageWidth = (doc, margin = 40) => {
 const totalColumnWidth = (columnWidths = []) =>
   (columnWidths || []).reduce((acc, width) => acc + (Number(width) || 0), 0);
 
+const estimateColumnWidths = ({ doc, head = [], body = [], minWidth = 28, maxWidth = 220, cellPadding = 3 }) => {
+  const rows = [...(head || []), ...(body || [])];
+  if (!rows.length) return [];
+  const totalCols = Math.max(...rows.map((row) => (Array.isArray(row) ? row.length : 0)), 0);
+  if (!totalCols) return [];
+
+  const widths = new Array(totalCols).fill(minWidth);
+  rows.forEach((row) => {
+    if (!Array.isArray(row)) return;
+    row.forEach((cell, index) => {
+      const text = String(cell ?? "");
+      const measured = doc.getTextWidth(text) + cellPadding * 4;
+      widths[index] = Math.max(widths[index], Math.min(maxWidth, Math.ceil(measured)));
+    });
+  });
+
+  return widths;
+};
+
+const fitWidthsToPage = ({ widths = [], availableWidth = 0, minWidth = 24 }) => {
+  if (!widths.length) return [];
+  const total = widths.reduce((acc, w) => acc + (Number(w) || 0), 0);
+  if (!total || total <= availableWidth) return widths;
+
+  const ratio = availableWidth / total;
+  let fitted = widths.map((w) => Math.max(minWidth, Math.floor((Number(w) || minWidth) * ratio)));
+  let fittedTotal = fitted.reduce((acc, w) => acc + w, 0);
+
+  while (fittedTotal > availableWidth) {
+    const idx = fitted.findIndex((w) => w > minWidth);
+    if (idx < 0) break;
+    fitted[idx] -= 1;
+    fittedTotal -= 1;
+  }
+  return fitted;
+};
+
 export function makePdfTableNoWrap({
   jsPDF,
   orientation = "portrait",
@@ -126,6 +163,7 @@ export function makePdfTableNoWrap({
   body = [],
   columnWidths = [],
   pageTitle = "",
+  autoColumnWidths = true,
   doc: incomingDoc = null,
   styles = {},
   headStyles = {},
@@ -137,7 +175,11 @@ export function makePdfTableNoWrap({
 
   const createDoc = (currentOrientation) => new jsPDF({ orientation: currentOrientation, unit: "pt", format });
   let doc = incomingDoc || createDoc(orientation);
-  const colTotal = totalColumnWidth(columnWidths);
+  const generatedWidths = (!columnWidths?.length && autoColumnWidths)
+    ? estimateColumnWidths({ doc, head, body, cellPadding: styles?.cellPadding ?? 3 })
+    : [];
+  const resolvedColumnWidths = columnWidths?.length ? columnWidths : generatedWidths;
+  const colTotal = totalColumnWidth(resolvedColumnWidths);
   const tryOrientations = orientation === "landscape" ? ["landscape"] : ["portrait", "landscape"];
 
   for (const currentOrientation of tryOrientations) {
@@ -161,8 +203,9 @@ export function makePdfTableNoWrap({
   const paddings = [styles?.cellPadding ?? 3, 2, 1.5, 1];
   const availableWidth = resolvePageWidth(doc, margin);
   const scale = colTotal > 0 && colTotal > availableWidth ? availableWidth / colTotal : 1;
-  const scaledColumnWidths = columnWidths.length
-    ? Object.fromEntries(columnWidths.map((width, index) => [index, { cellWidth: Math.max(24, Math.floor((Number(width) || 40) * scale)) }]))
+  const fittedBaseWidths = fitWidthsToPage({ widths: resolvedColumnWidths, availableWidth, minWidth: 24 });
+  const scaledColumnWidths = fittedBaseWidths.length
+    ? Object.fromEntries(fittedBaseWidths.map((width, index) => [index, { cellWidth: Math.max(24, Math.floor((Number(width) || 40) * scale)) }]))
     : undefined;
 
   const tableStyles = {

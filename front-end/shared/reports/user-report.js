@@ -196,10 +196,12 @@ export async function generateUserPdfReport({ obraId, startDate, endDate, curren
   {
     const rows = filtradas.map((medicao) => {
       const equipamento = equipamentos.find((item) => item.id === (medicao.equipamento_id || medicao.equip_id));
+      const posicao = textSafe(medicao.posicao_tipo || medicao.posicao || "—");
       return [
         formatDateTime(resolveTimestamp(medicao)),
         textSafe(medicao.equipamento_id || medicao.equip_id),
         textSafe(medicao.subtipo || medicao.tipoMedicao || medicao.tipo_medicao),
+        posicao,
         toFixedSafe(medicao.media_final ?? medicao.media),
         textSafe(medicao.minimo ?? medicao.criterio_minimo),
         textSafe(medicao.status_conformidade),
@@ -209,18 +211,19 @@ export async function generateUserPdfReport({ obraId, startDate, endDate, curren
 
     autoTable.call(doc, {
       startY: 126,
-      head: [["Data/Hora", "Equipamento", "Subtipo", "Média", "Mínimo/Critério", "Status", "Modelo"]],
+      head: [["Data/Hora", "Equipamento", "Subtipo", "Posição / Referência", "Média", "Mínimo/Critério", "Status", "Modelo"]],
       body: rows,
       styles: { fontSize: 8, cellPadding: 3, overflow: "ellipsize", lineWidth: 0.1 },
       headStyles: { halign: "center", valign: "middle", overflow: "ellipsize" },
       columnStyles: {
         0: { cellWidth: 82 },
         1: { cellWidth: 62 },
-        2: { cellWidth: 58 },
-        3: { cellWidth: 48 },
-        4: { cellWidth: 70 },
-        5: { cellWidth: 62 },
-        6: { cellWidth: "wrap" }
+        2: { cellWidth: 52 },
+        3: { cellWidth: 86 },
+        4: { cellWidth: 44 },
+        5: { cellWidth: 64 },
+        6: { cellWidth: 58 },
+        7: { cellWidth: "wrap" }
       }
     });
   }

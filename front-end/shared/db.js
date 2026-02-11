@@ -1390,13 +1390,22 @@ const normalizeImportPayload = (payload = {}) => {
 };
 
 const validateImportPayload = (normalized = {}) => {
-  if (!normalized.export_version || !normalized.schema_version) {
-    throw new Error("Backup inválido: export_version e schema_version são obrigatórios.");
+  if (!normalized || typeof normalized !== "object") {
+    throw new Error("Backup inválido: payload ausente ou malformado.");
   }
 };
 
+const applyLegacyImportDefaults = (normalized = {}) => {
+  const schema = Number(normalized.schema_version);
+  return {
+    ...normalized,
+    export_version: normalized.export_version || "legacy",
+    schema_version: Number.isFinite(schema) && schema > 0 ? schema : DB_VERSION
+  };
+};
+
 const buildImportPreview = async (payload) => {
-  const normalized = normalizeImportPayload(payload);
+  const normalized = applyLegacyImportDefaults(normalizeImportPayload(payload));
   validateImportPayload(normalized);
 
   const [equipamentos, usuarios, vinculos, medicoes, obras, auditoria, criterios, anexos] = await Promise.all([
@@ -1448,7 +1457,7 @@ const buildImportPreview = async (payload) => {
 };
 
 const importSnapshot = async (payload) => {
-  const normalized = normalizeImportPayload(payload);
+  const normalized = applyLegacyImportDefaults(normalizeImportPayload(payload));
   validateImportPayload(normalized);
 
   if (normalized.schema_version > DB_VERSION) {

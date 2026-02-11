@@ -124,18 +124,35 @@ const isAdmin = () => normalizeRole(activeSession?.role) === "ADMIN";
 const isVinculoAtivo = (item) => item.status === "ATIVO" || item.ativo === true;
 
 
+const getAllowedEquipamentosForSession = (sessionUserId, role, allVinculos = []) => {
+  if (normalizeRole(role) === "ADMIN") {
+    return [...new Set((equipamentos || []).map((item) => normalizeEquipId(item)).filter(Boolean))];
+  }
+
+  const userComparable = normalizeUserIdComparable(sessionUserId);
+  if (!userComparable) return [];
+
+  const ativos = (allVinculos || [])
+    .filter((item) => isVinculoAtivo(item))
+    .filter((item) => !normalizeText(item.fim || item.data_fim))
+    .filter((item) => normalizeUserIdComparable(item.user_id) === userComparable)
+    .sort((a, b) => {
+      const aTs = new Date(a.updated_at || a.created_at || a.inicio || a.data_inicio || 0).getTime();
+      const bTs = new Date(b.updated_at || b.created_at || b.inicio || b.data_inicio || 0).getTime();
+      return bTs - aTs;
+    });
+
+  const maisRecente = ativos[0];
+  const equipId = normalizeEquipId(maisRecente || {});
+  return equipId ? [equipId] : [];
+};
+
+
 const normalizeEquipId = (item = {}) => normalizeText(item.equipamento_id || item.equip_id || item.id);
 
 const getVisibleEquipamentos = (session, allVinculos = [], allEquipamentos = []) => {
   if (!session) return [];
-  if (String(session.role || "").toUpperCase() === "ADMIN") return allEquipamentos;
-
-  const equipPermitidos = new Set(
-    allVinculos
-      .filter((item) => isVinculoAtivo(item) && normalizeUserIdComparable(item.user_id) === normalizeUserIdComparable(session.id))
-      .map((item) => normalizeEquipId(item))
-      .filter(Boolean)
-  );
+  const equipPermitidos = new Set(getAllowedEquipamentosForSession(session.id, session.role, allVinculos));
 
   return allEquipamentos.filter((item) => equipPermitidos.has(normalizeEquipId(item)));
 };
@@ -158,7 +175,7 @@ const renderEquipamentos = () => {
   });
 
   if (!disponiveis.length && !isAdmin()) {
-    medicaoHint.textContent = "Sem equipamentos vinculados ao seu usuário. Solicite vínculo ao ADMIN.";
+    medicaoHint.textContent = "Você não tem equipamento atribuído.";
     medicaoEquip.disabled = true;
     return;
   }
@@ -701,13 +718,14 @@ const handleMedicaoSubmit = async (event) => {
     }
 
     if (!isAdmin()) {
+      const equipPermitidos = getAllowedEquipamentosForSession(activeSession.id, activeSession.role, vinculos);
       const vinculoAtivo = vinculos.find(
         (item) =>
           isVinculoAtivo(item) &&
           normalizeEquipId(item) === normalizeText(data.equip_id) &&
           normalizeUserIdComparable(item.user_id) === normalizeUserIdComparable(activeSession.id)
       );
-      if (!vinculoAtivo) {
+      if (!vinculoAtivo || !equipPermitidos.includes(normalizeText(data.equip_id))) {
         await logAudit({
           action: "RBAC_MEASUREMENT_BLOCKED",
           entity_type: "medicoes",
@@ -722,7 +740,7 @@ const handleMedicaoSubmit = async (event) => {
           message: "Tentativa de medição fora da permissão do usuário.",
           context: { user_id: activeSession?.id || null, equipamento_id: data.equip_id || "" }
         });
-        showFeedback("Equipamento não vinculado ao operador.", "error");
+        showFeedback("Você não tem equipamento atribuído.", "error");
         return;
       }
     }

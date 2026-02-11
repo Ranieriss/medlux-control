@@ -101,3 +101,12 @@ Sistema offline-first para gestão de equipamentos MEDLUX, usuários, vínculos 
 - [ ] Exportar JSON e importar em **Substituir tudo**.
 - [ ] Verificar auditoria sem duplicatas após operações.
 - [ ] Abrir “Diagnóstico” (ADMIN) e exportar JSON de diagnóstico.
+
+
+## Teste manual guiado — Novo vínculo (Vínculos/Cautelas)
+1. Acesse `front-end/medlux-control/index.html` e faça login como **ADMIN**.
+2. Abra a aba **Vínculos / Cautelas** e clique em **Novo vínculo**.
+3. Confirme que o modal abre com os campos: Equipamento, Usuário, Data início, Observações e Termo PDF opcional.
+4. Selecione um equipamento e um usuário ativos, preencha a data de início e salve.
+5. Valide que o vínculo aparece na tabela imediatamente (sem F5) e que o dashboard/listas refletem a atualização.
+6. Opcional: repita com anexo PDF de termo e abra o documento pelo link **Ver** na linha do vínculo.

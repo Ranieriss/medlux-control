@@ -396,6 +396,24 @@ const setStatusMessage = (message) => {
   statusMessage.textContent = message;
 };
 
+const safeBind = (element, eventName, handler, bindId) => {
+  if (!element) return false;
+  const key = bindId || `${eventName}:${handler?.name || "anonymous"}`;
+  const datasetKey = `bind${key.replace(/[^a-zA-Z0-9]/g, "_")}`;
+  if (element.dataset?.[datasetKey] === "1") return true;
+  element.addEventListener(eventName, async (event) => {
+    try {
+      await handler(event);
+    } catch (error) {
+      console.error(`Falha no evento ${key}`, error);
+      await logError({ module: "medlux-control", action: `EVENT_${key.toUpperCase()}`, message: error?.message || "Erro desconhecido", stack: error?.stack });
+      setStatusMessage("Ocorreu um erro ao processar a ação.");
+    }
+  });
+  if (element.dataset) element.dataset[datasetKey] = "1";
+  return true;
+};
+
 const openModal = (element) => {
   element.classList.add("active");
   element.setAttribute("aria-hidden", "false");
@@ -1328,8 +1346,9 @@ const handleEncerrarVinculo = async (vinculoId) => {
 };
 
 const openVinculoModal = (vinculoId = "") => {
-  vinculoForm.reset();
-  refreshSelectOptions();
+  try {
+    vinculoForm.reset();
+    refreshSelectOptions();
   vinculoHint.textContent = "Campos com * são obrigatórios.";
   editingVinculoId = null;
 
@@ -1354,6 +1373,11 @@ const openVinculoModal = (vinculoId = "") => {
   vinculoObservacoes.value = String(vinculo.observacoes || "");
   vinculoCpf.required = false;
   openModal(vinculoModal);
+  } catch (error) {
+    console.error("Falha ao abrir modal de vínculo", error);
+    void logError({ module: "medlux-control", action: "OPEN_VINCULO_MODAL", message: error?.message || "Erro desconhecido", stack: error?.stack });
+    setStatusMessage("Não foi possível abrir o modal de vínculo.");
+  }
 };
 
 const openObraModal = (obraId = "") => {
@@ -2454,6 +2478,7 @@ const buildUserPdf = async () => {
 };
 
 const renderAll = () => {
+  bindUiListeners();
   renderDashboard();
   renderEquipamentos();
   renderQuickSearch();
@@ -2592,7 +2617,15 @@ const initialize = async () => {
   syncStatus.textContent = navigator.onLine ? "Online • IndexedDB" : "Offline pronto • IndexedDB";
 };
 
-newEquipamento.addEventListener("click", openNewModal);
+const bindUiListeners = () => {
+  safeBind(newEquipamento, "click", openNewModal, "newEquipamento_click");
+  safeBind(newVinculo, "click", openVinculoModal, "newVinculo_click");
+  safeBind(newUsuario, "click", () => openUsuarioModal(), "newUsuario_click");
+  safeBind(newObra, "click", () => openObraModal(), "newObra_click");
+};
+
+
+bindUiListeners();
 closeModal.addEventListener("click", () => closeModalElement(modal));
 cancelModal.addEventListener("click", () => closeModalElement(modal));
 deleteModal.addEventListener("click", () => handleDelete(editingId));
@@ -2601,7 +2634,7 @@ formFields.funcao.addEventListener("change", updateGeometriaState);
 formFields.calibrado.addEventListener("change", () => { void handleCalibradoChange(); });
 if (equipLaudoInput) equipLaudoInput.addEventListener("change", handleLaudoInputChange);
 
-newUsuario.addEventListener("click", () => openUsuarioModal());
+
 closeUsuario.addEventListener("click", () => closeModalElement(usuarioModal));
 cancelUsuario.addEventListener("click", () => closeModalElement(usuarioModal));
 usuarioForm.addEventListener("submit", handleUsuarioSubmit);
@@ -2615,12 +2648,12 @@ vinculoCpf.addEventListener("input", (event) => {
   event.target.value = formatCpf(digits);
 });
 
-newVinculo.addEventListener("click", openVinculoModal);
+
 closeVinculo.addEventListener("click", () => { editingVinculoId = null; closeModalElement(vinculoModal); });
 cancelVinculo.addEventListener("click", () => { editingVinculoId = null; closeModalElement(vinculoModal); });
 vinculoForm.addEventListener("submit", handleVinculoSubmit);
 
-newObra.addEventListener("click", () => openObraModal());
+
 closeObra.addEventListener("click", () => closeModalElement(obraModal));
 cancelObra.addEventListener("click", () => closeModalElement(obraModal));
 obraForm.addEventListener("submit", handleObraSubmit);
