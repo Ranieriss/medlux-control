@@ -179,6 +179,12 @@ tr:hover{
   background: #f0fafc;
 }
 
+
+.recalibracao-column,
+.recalibracao-cell{
+  text-align:center;
+  white-space:nowrap;
+}
 .badge-warning{
   background: #fff3cd;
   color: #856404;
