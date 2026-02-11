@@ -39,6 +39,7 @@ const normalizeUserRecord = (record = {}) => {
   const created_at = record.created_at || record.createdAt || nowIso();
   const updated_at = record.updated_at || record.updatedAt || created_at;
   const pinHash = record.pinHash || record.pin_hash || "";
+  const cpf = String(record.cpf || record.cpf_usuario || "").replace(/\D/g, "");
 
   return {
     id,
@@ -48,13 +49,15 @@ const normalizeUserRecord = (record = {}) => {
     status,
     pinHash,
     salt: record.salt || "",
+    cpf,
     id_normalized,
     created_at,
     updated_at,
     // aliases p/ compat
     user_id: id,
     ativo: status === "ATIVO",
-    pin_hash: pinHash
+    pin_hash: pinHash,
+    cpf_usuario: cpf
   };
 };
 
@@ -518,8 +521,15 @@ const openDB = () =>
         return { ...record, uuid: record.uuid || crypto.randomUUID() };
       });
       ensureRecordUuids(usersStore, (record) => {
-        if (record.uuid) return null;
-        return { ...record, uuid: record.uuid || crypto.randomUUID() };
+        const cpf = String(record.cpf || record.cpf_usuario || "").replace(/\D/g, "");
+        const needsUpdate = !record.uuid || record.cpf !== cpf || record.cpf_usuario !== cpf;
+        if (!needsUpdate) return null;
+        return {
+          ...record,
+          uuid: record.uuid || crypto.randomUUID(),
+          cpf,
+          cpf_usuario: cpf
+        };
       });
       ensureRecordUuids(vinculosStore, (record) => {
         const cpfUsuario = String(record.cpfUsuario || record.cpf_usuario || "").replace(/\D/g, "");

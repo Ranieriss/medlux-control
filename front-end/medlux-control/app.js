@@ -104,6 +104,7 @@ const usuarioForm = document.getElementById("usuarioForm");
 const usuarioHint = document.getElementById("usuarioHint");
 const usuariosBody = document.getElementById("usuariosBody");
 const newUsuario = document.getElementById("newUsuario");
+const usuarioCpf = document.getElementById("usuarioCpf");
 
 const vinculoModal = document.getElementById("vinculoModal");
 const vinculoTitle = document.getElementById("vinculoTitle");
@@ -117,6 +118,7 @@ const vinculoEquip = document.getElementById("vinculoEquip");
 const vinculoUser = document.getElementById("vinculoUser");
 const vinculoTermo = document.getElementById("vinculoTermo");
 const vinculoCpf = document.getElementById("vinculoCpf");
+const vinculoStatus = document.getElementById("vinculoStatus");
 const vinculoObservacoes = document.getElementById("vinculoObservacoes");
 
 const obrasBody = document.getElementById("obrasBody");
@@ -544,40 +546,61 @@ const renderVinculos = () => {
   vinculosBody.textContent = "";
   vinculos.forEach((vinculo) => {
     const row = document.createElement("tr");
+    const vinculoId = vinculo.vinculo_id || vinculo.id;
     const equipamentoId = vinculo.equipamento_id || vinculo.equip_id;
     const equipamento = equipamentos.find((item) => item.id === equipamentoId);
     const usuario = usuarios.find((item) => normalizeUserIdComparable(item.user_id || item.id) === normalizeUserIdComparable(vinculo.user_id));
     const statusLabel = vinculo.status === "ATIVO" || vinculo.ativo ? "Ativo" : "Encerrado";
-    const termoLabel = vinculo.termo_pdf || vinculo.termo_cautela_pdf ? "Arquivo anexado" : "-";
+
     [
       `${equipamentoId}${equipamento?.modelo ? ` • ${equipamento.modelo}` : ""}`,
       `${vinculo.user_id}${usuario?.nome ? ` • ${usuario.nome}` : ""}`,
       formatDate(vinculo.inicio || vinculo.data_inicio),
-      statusLabel,
-      termoLabel
+      statusLabel
     ].forEach((text) => {
       const cell = document.createElement("td");
       cell.textContent = text;
       row.appendChild(cell);
     });
+
+    const termoCell = document.createElement("td");
+    if (vinculo.termo_pdf || vinculo.termo_cautela_pdf) {
+      const termoLink = document.createElement("a");
+      termoLink.href = "#";
+      termoLink.className = "termo-link";
+      termoLink.textContent = "Arquivo anexado";
+      termoLink.addEventListener("click", async (event) => {
+        event.preventDefault();
+        await openTermoAnexado(vinculoId);
+      });
+      termoCell.appendChild(termoLink);
+    } else {
+      termoCell.textContent = "-";
+    }
+    row.appendChild(termoCell);
+
     const actions = document.createElement("td");
-
-    const editButton = document.createElement("button");
-    editButton.className = "btn secondary";
-    editButton.type = "button";
-    editButton.textContent = "Editar";
-    editButton.addEventListener("click", () => openVinculoModal(vinculo.vinculo_id || vinculo.id));
-    actions.appendChild(editButton);
-
     if (vinculo.status === "ATIVO" || vinculo.ativo) {
       const endButton = document.createElement("button");
       endButton.className = "btn secondary";
       endButton.type = "button";
       endButton.textContent = "Encerrar";
-      endButton.addEventListener("click", () => handleEncerrarVinculo(vinculo.vinculo_id || vinculo.id));
+      endButton.addEventListener("click", () => handleEncerrarVinculo(vinculoId));
       actions.appendChild(endButton);
+    } else {
+      actions.textContent = "-";
     }
     row.appendChild(actions);
+
+    const editCell = document.createElement("td");
+    const editButton = document.createElement("button");
+    editButton.className = "btn secondary";
+    editButton.type = "button";
+    editButton.textContent = "Editar";
+    editButton.addEventListener("click", () => openVinculoModal(vinculoId));
+    editCell.appendChild(editButton);
+    row.appendChild(editCell);
+
     vinculosBody.appendChild(row);
   });
 };
@@ -757,6 +780,7 @@ const handleUsuarioSubmit = async (event) => {
   const data = Object.fromEntries(new FormData(usuarioForm).entries());
   const userId = normalizeUserId(data.user_id);
   const userIdComparable = normalizeUserIdComparable(userId);
+  const cpfDigits = onlyDigits(data.cpf || "");
   const validation = validateUser({ ...data, id: userId, user_id: userId });
   if (!validation.ok) {
     usuarioHint.textContent = validation.errors.map((item) => item.message).join(" ");
@@ -771,6 +795,14 @@ const handleUsuarioSubmit = async (event) => {
     usuarioHint.textContent = "PIN obrigatório para novo usuário.";
     return;
   }
+  if (!existing && !cpfDigits) {
+    usuarioHint.textContent = "CPF obrigatório para novo usuário.";
+    return;
+  }
+  if (cpfDigits && !isValidCpf(cpfDigits)) {
+    usuarioHint.textContent = "CPF inválido. Informe um CPF válido com 11 dígitos.";
+    return;
+  }
   const status = data.ativo === "false" ? "INATIVO" : "ATIVO";
   const updated = {
     ...existing,
@@ -778,6 +810,7 @@ const handleUsuarioSubmit = async (event) => {
     id: userId,
     nome: normalizeText(data.nome),
     role: data.role,
+    cpf: cpfDigits || (existing?.cpf || ""),
     ativo: data.ativo === "true",
     status,
     updated_at: new Date().toISOString(),
@@ -813,6 +846,7 @@ const openUsuarioModal = (userId = "") => {
     editingUserId = null;
     usuarioTitle.textContent = "Novo usuário";
     usuarioForm.querySelector("#usuarioId").disabled = false;
+    usuarioCpf.required = true;
     openModal(usuarioModal);
     return;
   }
@@ -824,8 +858,10 @@ const openUsuarioModal = (userId = "") => {
   usuarioTitle.textContent = `Editar ${resolvedUserId}`;
   usuarioForm.querySelector("#usuarioId").value = resolvedUserId;
   usuarioForm.querySelector("#usuarioId").disabled = true;
+  usuarioCpf.required = false;
   usuarioForm.querySelector("#usuarioNome").value = usuario.nome;
   usuarioForm.querySelector("#usuarioRole").value = usuario.role;
+  usuarioForm.querySelector("#usuarioCpf").value = formatCpf(usuario.cpf || "");
   usuarioForm.querySelector("#usuarioAtivo").value = isActive ? "true" : "false";
   usuarioForm.querySelector("#usuarioPin").value = "";
   openModal(usuarioModal);
@@ -863,6 +899,55 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
   reader.readAsDataURL(file);
 });
 
+const dataUrlToBlob = (dataUrl) => {
+  if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:")) return null;
+  const [meta, content] = dataUrl.split(",");
+  if (!meta || !content) return null;
+  const mimeMatch = meta.match(/^data:(.*?);base64$/);
+  const mimeType = mimeMatch?.[1] || "application/pdf";
+  const binary = atob(content);
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return new Blob([bytes], { type: mimeType });
+};
+
+const buildTermoBlob = (vinculo = {}) => {
+  const termo = vinculo.termo_pdf || vinculo.termo_cautela_pdf;
+  if (!termo) return null;
+  if (termo instanceof Blob) return termo;
+  if (typeof termo === "string") {
+    if (termo.startsWith("data:")) return dataUrlToBlob(termo);
+    return new Blob([termo], { type: "application/pdf" });
+  }
+  if (termo?.buffer) {
+    return new Blob([termo], { type: termo.type || "application/pdf" });
+  }
+  if (termo?.content && termo?.mimeType) {
+    if (typeof termo.content === "string" && termo.content.startsWith("data:")) return dataUrlToBlob(termo.content);
+    if (typeof termo.content === "string") {
+      const binary = atob(termo.content);
+      const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+      return new Blob([bytes], { type: termo.mimeType });
+    }
+  }
+  return null;
+};
+
+const openTermoAnexado = async (vinculoId) => {
+  const vinculo = vinculos.find((item) => item.id === vinculoId || item.vinculo_id === vinculoId);
+  if (!vinculo) {
+    vinculoHint.textContent = "Vínculo não encontrado.";
+    return;
+  }
+  const termoBlob = buildTermoBlob(vinculo);
+  if (!termoBlob) {
+    setStatusMessage("Nenhum arquivo anexado");
+    return;
+  }
+  const objectUrl = URL.createObjectURL(termoBlob);
+  window.open(objectUrl, "_blank", "noopener,noreferrer");
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 3 * 60 * 1000);
+};
+
 const handleVinculoSubmit = async (event) => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(vinculoForm).entries());
@@ -895,6 +980,7 @@ const handleVinculoSubmit = async (event) => {
   const termoFile = vinculoTermo.files[0];
   const now = new Date().toISOString();
   const parsedInicio = parseDateString(data.data_inicio).value;
+  const normalizedStatus = String(data.status || "ATIVO").toUpperCase() === "ENCERRADO" ? "ENCERRADO" : "ATIVO";
   const existing = editingVinculoId
     ? vinculos.find((item) => item.id === editingVinculoId || item.vinculo_id === editingVinculoId)
     : null;
@@ -910,10 +996,10 @@ const handleVinculoSubmit = async (event) => {
     user_id: data.user_id,
     inicio: parsedInicio,
     data_inicio: parsedInicio,
-    fim: existing?.fim || existing?.data_fim || null,
-    data_fim: existing?.fim || existing?.data_fim || null,
-    status: existing?.status || (existing?.ativo === false ? "ENCERRADO" : "ATIVO"),
-    ativo: existing ? (existing.status === "ATIVO" || existing.ativo) : true,
+    fim: normalizedStatus === "ENCERRADO" ? (existing?.fim || existing?.data_fim || now) : null,
+    data_fim: normalizedStatus === "ENCERRADO" ? (existing?.fim || existing?.data_fim || now) : null,
+    status: normalizedStatus,
+    ativo: normalizedStatus === "ATIVO",
     termo_pdf: termo,
     termo_cautela_pdf: termo,
     cpfUsuario,
@@ -993,6 +1079,7 @@ const openVinculoModal = (vinculoId = "") => {
   if (!vinculoId) {
     vinculoTitle.textContent = "Novo vínculo";
     vinculoCpf.required = false;
+    vinculoStatus.value = "ATIVO";
     openModal(vinculoModal);
     return;
   }
@@ -1005,6 +1092,7 @@ const openVinculoModal = (vinculoId = "") => {
   vinculoEquip.value = vinculo.equipamento_id || vinculo.equip_id || "";
   vinculoUser.value = vinculo.user_id || "";
   vinculoForm.querySelector("#vinculoInicio").value = toISODate(vinculo.inicio || vinculo.data_inicio);
+  vinculoStatus.value = vinculo.status === "ENCERRADO" || vinculo.ativo === false ? "ENCERRADO" : "ATIVO";
   vinculoCpf.value = formatCpf(vinculo.cpfUsuario || "");
   vinculoObservacoes.value = String(vinculo.observacoes || "");
   vinculoCpf.required = false;
@@ -2154,6 +2242,10 @@ newUsuario.addEventListener("click", () => openUsuarioModal());
 closeUsuario.addEventListener("click", () => closeModalElement(usuarioModal));
 cancelUsuario.addEventListener("click", () => closeModalElement(usuarioModal));
 usuarioForm.addEventListener("submit", handleUsuarioSubmit);
+
+usuarioCpf.addEventListener("input", (event) => {
+  event.target.value = formatCpf(event.target.value);
+});
 
 vinculoCpf.addEventListener("input", (event) => {
   const digits = onlyDigits(event.target.value).slice(0, 11);
