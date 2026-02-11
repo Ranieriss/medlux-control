@@ -21,6 +21,7 @@ import {
   clearAllStores,
   getStoreCounts,
   getRecentErrors,
+  getAllAuditoria,
   DB_VERSION,
   getAllCriterios,
   saveAnexo,
@@ -428,6 +429,7 @@ let equipamentos = [];
 let usuarios = [];
 let vinculos = [];
 let medicoes = [];
+let auditoria = [];
 let editingVinculoId = null;
 let obras = [];
 let criterios = [];
@@ -504,13 +506,14 @@ const validateObra = (obra) => {
 };
 
 const loadData = async () => {
-  [equipamentos, usuarios, vinculos, medicoes, obras, criterios] = await Promise.all([
+  [equipamentos, usuarios, vinculos, medicoes, obras, criterios, auditoria] = await Promise.all([
     getAllEquipamentos(),
     getAllUsuarios(),
     getAllVinculos(),
     getAllMedicoes(),
     getAllObras(),
-    getAllCriterios()
+    getAllCriterios(),
+    getAllAuditoria()
   ]);
 };
 
@@ -555,19 +558,21 @@ const renderDashboard = () => {
   });
 
   dueSoonList.textContent = "";
-  const active = getActiveVinculos();
-  if (!active.length) {
+  const expirando = equipamentos
+    .map((equipamento) => ({ equipamento, recalibracao: calcDiasParaRecalibrar(equipamento) }))
+    .filter(({ recalibracao }) => recalibracao.status === "warning" || recalibracao.status === "vencido")
+    .sort((a, b) => (a.recalibracao.diasRestantes || 0) - (b.recalibracao.diasRestantes || 0));
+
+  if (!expirando.length) {
     const empty = document.createElement("li");
-    empty.textContent = "Nenhum vínculo ativo no momento.";
+    empty.textContent = "Nenhum equipamento com recalibração para os próximos 30 dias.";
     dueSoonList.appendChild(empty);
     return;
   }
-  active.forEach((vinculo) => {
-    const equipamentoId = vinculo.equipamento_id || vinculo.equip_id;
-    const equipamento = equipamentos.find((item) => item.id === equipamentoId);
-    const usuario = usuarios.find((item) => (item.user_id || item.id) === vinculo.user_id);
+
+  expirando.forEach(({ equipamento, recalibracao }) => {
     const item = document.createElement("li");
-    item.textContent = `${equipamentoId} • ${equipamento?.modelo || "Sem modelo"} • ${usuario?.nome || vinculo.user_id}`;
+    item.textContent = `${equipamento.id} • ${equipamento.modelo || "Sem modelo"} • ${recalibracao.status === "vencido" ? "Vencido" : `${recalibracao.diasRestantes} dias`}`;
     dueSoonList.appendChild(item);
   });
 };
@@ -2102,6 +2107,34 @@ const buildGlobalPdf = async () => {
 
   cursorY = doc.lastAutoTable.finalY + 20;
   doc.setFontSize(12);
+  doc.text(toSafeText("Auditoria global"), 40, cursorY);
+  const auditRows = (auditoria || [])
+    .sort((a, b) => new Date(b.created_at || b.data_hora || 0).getTime() - new Date(a.created_at || a.data_hora || 0).getTime())
+    .slice(0, 120)
+    .map((item) => {
+      const actorId = item.actor_user_id || item.user_id || "-";
+      return [
+        toSafeText(formatDateTimeLocal(item.created_at || item.data_hora)),
+        toSafeText(`${resolveUserName(actorId)} (${actorId || "-"})`),
+        toSafeText(item.action || "-"),
+        toSafeText(item.entity_type || item.entity || "-"),
+        toSafeText(item.entity_id || "-"),
+        toSafeText(item.summary || "-")
+      ];
+    });
+
+  doc = makePdfTableNoWrap({
+    jsPDF,
+    doc,
+    startY: cursorY + 18,
+    head: [["Início", "Usuário", "Ação", "Entidade", "ID", "Resumo"]],
+    body: auditRows,
+    columnWidths: [90, 128, 80, 74, 62, 210],
+    styles: { fontSize: 8, cellPadding: 2 }
+  });
+
+  cursorY = doc.lastAutoTable.finalY + 20;
+  doc.setFontSize(12);
   doc.text(toSafeText("Histórico de medições"), 40, cursorY);
 const avaliacoes = medicoes.map((medicao) => {
   const equipamento =
@@ -2545,6 +2578,7 @@ const handleLogin = async (event) => {
 };
 
 const handleTabs = (event) => {
+  bindUiListeners();
   const { section } = event.target.dataset;
   if (!section) return;
   tabs.forEach((tab) => tab.setAttribute("aria-selected", tab === event.target ? "true" : "false"));

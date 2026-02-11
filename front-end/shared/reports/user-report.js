@@ -223,7 +223,7 @@ export async function generateUserPdfReport({ obraId, startDate, endDate, curren
         4: { cellWidth: 44 },
         5: { cellWidth: 64 },
         6: { cellWidth: 58 },
-        7: { cellWidth: "wrap" }
+        7: { cellWidth: 120 }
       }
     });
   }
