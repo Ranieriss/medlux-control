@@ -215,6 +215,7 @@
                   <th>Status</th>
                   <th>Termo</th>
                   <th>Ações</th>
+                  <th>Editar</th>
                 </tr>
               </thead>
               <tbody id="vinculosBody"></tbody>
@@ -526,6 +527,10 @@
             <input id="usuarioPin" name="pin" type="password" inputmode="numeric" required />
           </div>
           <div class="field">
+            <label for="usuarioCpf">CPF *</label>
+            <input id="usuarioCpf" name="cpf" inputmode="numeric" maxlength="14" placeholder="000.000.000-00" required />
+          </div>
+          <div class="field">
             <label for="usuarioAtivo">Ativo</label>
             <select id="usuarioAtivo" name="ativo">
               <option value="true">Sim</option>
@@ -566,6 +571,13 @@
           <div class="field">
             <label for="vinculoInicio">Data início *</label>
             <input id="vinculoInicio" name="data_inicio" type="date" required />
+          </div>
+          <div class="field">
+            <label for="vinculoStatus">Status *</label>
+            <select id="vinculoStatus" name="status" required>
+              <option value="ATIVO">Ativo</option>
+              <option value="ENCERRADO">Encerrado</option>
+            </select>
           </div>
           <div class="field">
             <label for="vinculoTermo">Termo cautela (PDF)</label>
