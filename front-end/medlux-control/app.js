@@ -9,6 +9,7 @@ import {
   deleteUsuario,
   getAllVinculos,
   saveVinculo,
+  deleteVinculo,
   encerrarVinculo,
   getAllMedicoes,
   saveMedicao,
@@ -372,6 +373,41 @@ const formatDate = (dateString) => {
   const [year, month, day] = dateString.split("-");
   if (!year || !month || !day) return "-";
   return `${day}/${month}/${year}`;
+};
+
+const parseDateAny = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  const raw = normalizeText(value);
+  if (!raw) return null;
+
+  const brMatch = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (brMatch) {
+    const parsedBr = new Date(`${brMatch[3]}-${brMatch[2]}-${brMatch[1]}T00:00:00`);
+    return Number.isNaN(parsedBr.getTime()) ? null : parsedBr;
+  }
+
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const getVinculoDataEntrega = (vinculo = {}) => vinculo.dataEntrega
+  || vinculo.data_entrega
+  || vinculo.entregaEm
+  || vinculo.inicio
+  || vinculo.data_inicio
+  || "";
+
+const calcDiasComUsuario = (vinculo = {}) => {
+  const dataEntrega = parseDateAny(getVinculoDataEntrega(vinculo));
+  if (!dataEntrega) return "—";
+
+  const status = String(vinculo.status || "").toUpperCase();
+  const dataFim = parseDateAny(vinculo.dataFim || vinculo.data_fim || vinculo.fim || vinculo.encerradoEm);
+  const referencia = status === "ENCERRADO" && dataFim ? dataFim : new Date();
+  const dias = Math.floor((referencia.getTime() - dataEntrega.getTime()) / 86400000);
+
+  return String(Math.max(0, dias));
 };
 
 const formatDateTimeLocal = (value) => {
@@ -758,6 +794,8 @@ const renderUsuarios = () => {
 
 const renderVinculos = () => {
   vinculosBody.textContent = "";
+  const canDeleteVinculo = String(activeSession?.role || getSession()?.role || "").toUpperCase() === "ADMIN";
+
   vinculos.forEach((vinculo) => {
     const row = document.createElement("tr");
     const vinculoId = vinculo.vinculo_id || vinculo.id;
@@ -766,10 +804,13 @@ const renderVinculos = () => {
     const usuario = usuarios.find((item) => normalizeUserIdComparable(item.user_id || item.id) === normalizeUserIdComparable(vinculo.user_id));
     const statusLabel = vinculo.status === "ATIVO" || vinculo.ativo ? "Ativo" : "Encerrado";
 
+    const entregaDate = parseDateAny(getVinculoDataEntrega(vinculo));
+
     [
       `${equipamentoId}${equipamento?.modelo ? ` • ${equipamento.modelo}` : ""}`,
       `${vinculo.user_id}${usuario?.nome ? ` • ${usuario.nome}` : ""}`,
-      formatDate(vinculo.inicio || vinculo.data_inicio),
+      entregaDate ? formatDate(toISODate(entregaDate)) : "-",
+      calcDiasComUsuario(vinculo),
       statusLabel
     ].forEach((text) => {
       const cell = document.createElement("td");
@@ -795,7 +836,7 @@ const renderVinculos = () => {
     const actions = document.createElement("td");
     if (vinculo.status === "ATIVO" || vinculo.ativo) {
       const endButton = document.createElement("button");
-      endButton.className = "btn secondary";
+      endButton.className = "btn secondary small";
       endButton.type = "button";
       endButton.textContent = "Encerrar";
       endButton.addEventListener("click", () => handleEncerrarVinculo(vinculoId));
@@ -813,6 +854,27 @@ const renderVinculos = () => {
     editButton.addEventListener("click", () => openVinculoModal(vinculoId));
     editCell.appendChild(editButton);
     row.appendChild(editCell);
+
+    const deleteCell = document.createElement("td");
+    if (canDeleteVinculo) {
+      const deleteButton = document.createElement("button");
+      deleteButton.className = "btn vinculo-delete";
+      deleteButton.type = "button";
+      deleteButton.textContent = "×";
+      deleteButton.setAttribute("aria-label", `Excluir vínculo ${vinculoId}`);
+      deleteButton.addEventListener("click", () => handleDeleteVinculo(vinculoId));
+      deleteCell.appendChild(deleteButton);
+    } else {
+      const disabledDelete = document.createElement("button");
+      disabledDelete.className = "btn vinculo-delete";
+      disabledDelete.type = "button";
+      disabledDelete.textContent = "×";
+      disabledDelete.disabled = true;
+      disabledDelete.title = "Apenas ADMIN";
+      disabledDelete.setAttribute("aria-label", "Apenas ADMIN");
+      deleteCell.appendChild(disabledDelete);
+    }
+    row.appendChild(deleteCell);
 
     vinculosBody.appendChild(row);
   });
@@ -1348,6 +1410,54 @@ const handleEncerrarVinculo = async (vinculoId) => {
     summary: `Vínculo ${vinculoId} encerrado.`,
     diff: buildDiff(existing, encerrado, ["id", "equipamento_id", "user_id", "status", "fim"])
   });
+};
+
+const handleDeleteVinculo = async (vinculoId) => {
+  const isAdmin = String(activeSession?.role || getSession()?.role || "").toUpperCase() === "ADMIN";
+  if (!isAdmin) {
+    setStatusMessage("Apenas ADMIN pode excluir vínculo.");
+    return;
+  }
+
+  const vinculo = vinculos.find((item) => item.id === vinculoId || item.vinculo_id === vinculoId);
+  if (!vinculo) return;
+
+  const confirmed = window.confirm("Excluir vínculo permanentemente?");
+  if (!confirmed) return;
+
+  await deleteVinculo(vinculoId);
+
+  if (String(vinculo.status || "").toUpperCase() === "ATIVO" || vinculo.ativo) {
+    const equipamentoId = vinculo.equipamento_id || vinculo.equip_id;
+    const equipamento = equipamentos.find((item) => item.id === equipamentoId);
+    if (equipamento) {
+      await saveEquipamento({
+        ...equipamento,
+        statusLocal: "STAND_BY",
+        statusOperacional: "STAND_BY",
+        status: "STAND_BY",
+        usuarioAtual: "",
+        usuarioResponsavel: ""
+      });
+    }
+  }
+
+  await logAudit({
+    action: AUDIT_ACTIONS.VINCULO_DELETE,
+    entity_type: "vinculos",
+    entity_id: vinculoId,
+    actor_user_id: activeSession?.user_id || null,
+    summary: `Vínculo ${vinculoId} excluído.`,
+    context: {
+      vinculo_id: vinculoId,
+      equipamento_id: vinculo.equipamento_id || vinculo.equip_id || null,
+      user_id: vinculo.user_id || null
+    }
+  });
+
+  await loadData();
+  renderAll();
+  setStatusMessage(`Vínculo ${vinculoId} removido.`);
 };
 
 const openVinculoModal = (vinculoId = "") => {
