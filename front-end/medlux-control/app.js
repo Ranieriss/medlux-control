@@ -213,6 +213,21 @@ const normalizeGeometria = (value, funcao) => {
   return GEOMETRIAS.includes(raw) ? raw : null;
 };
 
+
+const getCalibrationBadgeStatus = (equipamento) => {
+  const dataCalibracao = equipamento?.dataCalibracao || equipamento?.data_calibracao;
+  if (!dataCalibracao) return "";
+  const calibrationDate = new Date(dataCalibracao);
+  if (Number.isNaN(calibrationDate.getTime())) return "";
+  const expiration = new Date(calibrationDate);
+  expiration.setFullYear(expiration.getFullYear() + 1);
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const diasRestantes = Math.floor((expiration.getTime() - Date.now()) / msPerDay);
+  if (diasRestantes < 0) return "danger";
+  if (diasRestantes < 30) return "warning";
+  return "";
+};
+
 const toISODate = (date) => {
   if (!date) return "";
   const d = new Date(date);
@@ -494,8 +509,19 @@ const renderEquipamentos = () => {
   tableBody.textContent = "";
   pageItems.forEach((equipamento) => {
     const row = document.createElement("tr");
+    const idCell = document.createElement("td");
+    idCell.textContent = equipamento.id;
+    const calibrationBadgeStatus = getCalibrationBadgeStatus(equipamento);
+    if (calibrationBadgeStatus) {
+      const badge = document.createElement("span");
+      badge.className = calibrationBadgeStatus === "danger" ? "badge-danger" : "badge-warning";
+      badge.textContent = calibrationBadgeStatus === "danger" ? "Calibração vencida" : "Recalibrar em breve";
+      badge.style.marginLeft = "8px";
+      idCell.appendChild(badge);
+    }
+    row.appendChild(idCell);
+
     [
-      equipamento.id,
       formatFuncao(equipamento.funcao),
       equipamento.modelo || "-",
       equipamento.numeroSerie || "-",
