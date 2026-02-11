@@ -213,18 +213,58 @@ const normalizeGeometria = (value, funcao) => {
   return GEOMETRIAS.includes(raw) ? raw : null;
 };
 
+const parseCalibrationDate = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  if (typeof value === "number") {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  const raw = normalizeText(value);
+  if (!raw) return null;
+
+  const brMatch = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+\d{2}:\d{2}(?::\d{2})?)?$/);
+  if (brMatch) {
+    const [, day, month, year] = brMatch;
+    const date = new Date(`${year}-${month}-${day}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return null;
+    if (date.getDate() !== Number(day) || date.getMonth() + 1 !== Number(month) || date.getFullYear() !== Number(year)) return null;
+    return date;
+  }
+
+  const isoDate = new Date(raw);
+  return Number.isNaN(isoDate.getTime()) ? null : isoDate;
+};
+
+function calcDiasParaRecalibrar(equip) {
+  const dateValue = [
+    equip?.dataUltimaCalibracao,
+    equip?.ultimaCalibracao,
+    equip?.dataCalibracao,
+    equip?.calibracao,
+    equip?.calibracaoUltima,
+    equip?.calibracaoData,
+    equip?.lastCalibration
+  ].find((value) => normalizeText(value) || value instanceof Date || typeof value === "number");
+
+  const calibrationDate = parseCalibrationDate(dateValue);
+  if (!calibrationDate) return { status: "sem-data" };
+
+  const vencimento = new Date(calibrationDate);
+  vencimento.setDate(vencimento.getDate() + 365);
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const diasRestantes = Math.ceil((vencimento.getTime() - Date.now()) / msPerDay);
+
+  if (diasRestantes < 0) return { status: "vencido", diasRestantes };
+  if (diasRestantes < 30) return { status: "warning", diasRestantes };
+  return { status: "ok", diasRestantes };
+}
+
 
 const getCalibrationBadgeStatus = (equipamento) => {
-  const dataCalibracao = equipamento?.dataCalibracao || equipamento?.data_calibracao;
-  if (!dataCalibracao) return "";
-  const calibrationDate = new Date(dataCalibracao);
-  if (Number.isNaN(calibrationDate.getTime())) return "";
-  const expiration = new Date(calibrationDate);
-  expiration.setFullYear(expiration.getFullYear() + 1);
-  const msPerDay = 24 * 60 * 60 * 1000;
-  const diasRestantes = Math.floor((expiration.getTime() - Date.now()) / msPerDay);
-  if (diasRestantes < 0) return "danger";
-  if (diasRestantes < 30) return "warning";
+  const recalibracao = calcDiasParaRecalibrar(equipamento);
+  if (recalibracao.status === "vencido") return "danger";
+  if (recalibracao.status === "warning") return "warning";
   return "";
 };
 
@@ -525,12 +565,33 @@ const renderEquipamentos = () => {
       formatFuncao(equipamento.funcao),
       equipamento.modelo || "-",
       equipamento.numeroSerie || "-",
+      null,
       equipamento.usuarioAtual || equipamento.usuarioResponsavel || "-",
       formatStatus(getEquipamentoStatus(equipamento)),
       getEquipamentoLocalidade(equipamento) || "-"
-    ].forEach((text) => {
+    ].forEach((text, index) => {
       const cell = document.createElement("td");
-      cell.textContent = text;
+      if (index === 3) {
+        const recalibracao = calcDiasParaRecalibrar(equipamento);
+        cell.className = "recalibracao-cell";
+        if (recalibracao.status === "sem-data") {
+          cell.textContent = "—";
+        } else if (recalibracao.status === "vencido") {
+          const badge = document.createElement("span");
+          badge.className = "badge-danger";
+          badge.textContent = "VENCIDO";
+          cell.appendChild(badge);
+        } else if (recalibracao.status === "warning") {
+          const badge = document.createElement("span");
+          badge.className = "badge-warning";
+          badge.textContent = `${recalibracao.diasRestantes} dias`;
+          cell.appendChild(badge);
+        } else {
+          cell.textContent = String(recalibracao.diasRestantes);
+        }
+      } else {
+        cell.textContent = text;
+      }
       row.appendChild(cell);
     });
 
