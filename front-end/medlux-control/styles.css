@@ -233,6 +233,20 @@ body{
   font-size: 16px;
 }
 
+.compact-card{
+  padding: 10px;
+  gap: 6px;
+  align-content: start;
+}
+
+.compact-card h3{
+  font-size: 14px;
+}
+
+.compact-card .muted{
+  font-size: 12px;
+}
+
 .muted{
   color: var(--muted);
   font-size: 13px;
@@ -327,6 +341,12 @@ body{
 .btn.secondary{
   background: rgba(255,255,255,.02);
   color: var(--muted);
+}
+
+.btn.ghost{
+  background: transparent;
+  color: rgba(213,223,255,.9);
+  border-style: dashed;
 }
 
 .btn.danger{

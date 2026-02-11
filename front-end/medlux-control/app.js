@@ -66,6 +66,7 @@ const previewXlsx = document.getElementById("previewXlsx");
 const importXlsx = document.getElementById("importXlsx");
 const xlsxPreview = document.getElementById("xlsxPreview");
 const importPreview = document.getElementById("importPreview");
+const verifyIntegrity = document.getElementById("verifyIntegrity");
 const resetData = document.getElementById("resetData");
 const bulkPaste = document.getElementById("bulkPaste");
 const importBulk = document.getElementById("importBulk");
@@ -177,6 +178,12 @@ const normalizeText = normalizarTexto;
 const normalizeId = (value) => normalizeText(value).toUpperCase();
 const normalizeUserId = (value) => normalizeText(value);
 const normalizeUserIdComparable = (value) => normalizeText(value).toUpperCase();
+const importDebugEnabled = window.location.hostname === "localhost" || window.localStorage.getItem("medlux:debugImport") === "1";
+
+const debugImportLog = (...args) => {
+  if (!importDebugEnabled) return;
+  console.debug("[medlux-import]", ...args);
+};
 
 const normalizeFuncao = (value) => {
   const raw = normalizeText(value).toUpperCase();
@@ -367,6 +374,18 @@ const loadData = async () => {
     getAllObras(),
     getAllCriterios()
   ]);
+};
+
+const loadInitialData = async () => {
+  await loadData();
+};
+
+const safeRender = () => {
+  try {
+    renderAll();
+  } catch (error) {
+    console.error("Falha ao renderizar UI após import.", error);
+  }
 };
 
 const getActiveVinculos = () => vinculos.filter((item) => item.status === "ATIVO" || item.ativo);
@@ -1289,14 +1308,42 @@ const handleExportBackup = async () => {
 const renderImportPreview = (preview) => {
   if (!importPreview) return;
   const parts = [
-    `Equipamentos: ${preview.equipamentos.created} novos / ${preview.equipamentos.updated} atualizados`,
-    `Usuários: ${preview.users.created} novos / ${preview.users.updated} atualizados`,
-    `Vínculos: ${preview.vinculos.created} novos / ${preview.vinculos.updated} atualizados`,
-    `Medições: ${preview.medicoes.created} novos / ${preview.medicoes.updated} atualizados`,
-    `Obras: ${preview.obras.created} novas / ${preview.obras.updated} atualizadas`,
-    `Auditoria: ${preview.audit_log.created} novos / ${preview.audit_log.updated} atualizados`
+    `Equipamentos: ${preview.equipamentos.total_incoming} (${preview.equipamentos.created} novos / ${preview.equipamentos.updated} atualizados)`,
+    `Usuários: ${preview.users.total_incoming} (${preview.users.created} novos / ${preview.users.updated} atualizados)`,
+    `Vínculos: ${preview.vinculos.total_incoming} (${preview.vinculos.created} novos / ${preview.vinculos.updated} atualizados)`,
+    `Medições: ${preview.medicoes.total_incoming} (${preview.medicoes.created} novos / ${preview.medicoes.updated} atualizados)`,
+    `Obras: ${preview.obras.total_incoming} (${preview.obras.created} novas / ${preview.obras.updated} atualizadas)`,
+    `Auditoria: ${preview.audit_log.total_incoming} (${preview.audit_log.created} novos / ${preview.audit_log.updated} atualizados)`
   ];
-  importPreview.textContent = `Prévia: ${parts.join(" • ")}`;
+  const warningText = preview.warnings?.length ? ` • Avisos: ${preview.warnings.length}` : "";
+  importPreview.textContent = `Prévia: ${parts.join(" • ")}${warningText}`;
+};
+
+const getImportTotals = (preview) => {
+  const sections = ["equipamentos", "users", "vinculos", "medicoes", "obras", "audit_log", "criterios"];
+  return sections.reduce(
+    (acc, key) => {
+      const bucket = preview?.[key] || {};
+      acc.created += bucket.created || 0;
+      acc.updated += bucket.updated || 0;
+      acc.total += bucket.total_incoming || 0;
+      return acc;
+    },
+    { created: 0, updated: 0, total: 0 }
+  );
+};
+
+const runIntegrityChecks = async () => {
+  const counts = await getStoreCounts();
+  const issues = [];
+  if (!counts.equipamentos) issues.push("Nenhum equipamento cadastrado.");
+  if (!counts.users) issues.push("Nenhum usuário cadastrado.");
+  if (!counts.vinculos) issues.push("Nenhum vínculo cadastrado.");
+  const summary = issues.length
+    ? `Integridade: ${issues.length} alerta(s) (${issues.join(" ")})`
+    : "Integridade: OK. Stores essenciais com dados.";
+  setStatusMessage(summary);
+  alert(summary);
 };
 
 const handleImportBackup = async () => {
@@ -1311,13 +1358,24 @@ const handleImportBackup = async () => {
     payload = JSON.parse(text);
   } catch (error) {
     setStatusMessage("JSON inválido.");
+    alert("Não foi possível importar: JSON inválido.");
+    console.error("Falha ao fazer parse do backup JSON.", error);
+    await logError({ module: "medlux-control", action: "IMPORT_JSON_PARSE", message: error.message, stack: error.stack });
     return;
   }
+
+  debugImportLog("Arquivo de backup carregado", { filename: file.name, size: file.size });
+
+  let preview;
   try {
-    const preview = await buildImportPreview(payload);
+    preview = await buildImportPreview(payload);
+    debugImportLog("Prévia de importação", preview);
     renderImportPreview(preview);
   } catch (error) {
-    setStatusMessage("Falha ao gerar prévia do import.");
+    const message = error?.message || "Falha ao gerar prévia do import.";
+    setStatusMessage(message);
+    alert(message);
+    console.error("Erro na prévia do backup.", error);
     await logError({ module: "medlux-control", action: "IMPORT_PREVIEW", message: error.message, stack: error.stack });
     return;
   }
@@ -1325,23 +1383,40 @@ const handleImportBackup = async () => {
   if (mode === "replace") {
     await clearAllStores();
   }
+  let result;
   try {
-    await importSnapshot(payload);
+    result = await importSnapshot(payload);
+    debugImportLog("Resultado da importação", result);
   } catch (error) {
-    setStatusMessage("Falha ao importar (schema incompatível).");
+    const message = error?.message || "Falha ao importar backup.";
+    setStatusMessage(message);
+    alert(message);
+    console.error("Falha ao importar backup JSON.", error);
     await logError({ module: "medlux-control", action: "IMPORT_JSON", message: error.message, stack: error.stack });
     return;
   }
+  const totals = getImportTotals(result?.preview || preview);
   await logAudit({
-    action: AUDIT_ACTIONS.IMPORT_JSON,
+    action: AUDIT_ACTIONS.IMPORT_SNAPSHOT || "IMPORT_SNAPSHOT",
     entity_type: "backup",
     entity_id: "import",
     actor_user_id: activeSession?.user_id || null,
-    summary: `Importação JSON (${mode === "replace" ? "substituir" : "mesclar"}).`
+    summary: `Importação JSON (${mode === "replace" ? "substituir" : "mesclar"}) concluída. ${totals.total} registros processados.`,
+    context: { mode, totals, warnings: result?.warnings || [] }
   });
-  await loadData();
-  renderAll();
-  setStatusMessage("Importação concluída.");
+  if ((result?.warnings || []).length) {
+    await logError({
+      module: "medlux-control",
+      action: "IMPORT_JSON_WARNING",
+      message: `Importação com ${result.warnings.length} aviso(s).`,
+      context: { warnings: result.warnings.slice(0, 20) }
+    });
+  }
+  await loadInitialData();
+  safeRender();
+  const okMessage = `Importação concluída: ${totals.total} registros (${totals.created} novos / ${totals.updated} atualizados).`;
+  setStatusMessage(okMessage);
+  alert(okMessage);
 };
 
 const mapHeaders = (headers) => headers.map((header) => normalizeText(header)
@@ -2280,13 +2355,16 @@ importFile.addEventListener("change", async () => {
     renderImportPreview(preview);
   } catch (error) {
     setStatusMessage("Falha ao ler o JSON para prévia.");
+    console.error("Falha ao ler JSON de importação.", error);
+    await logError({ module: "medlux-control", action: "IMPORT_PREVIEW_FILE", message: error.message, stack: error.stack });
   }
 });
-previewXlsx.addEventListener("click", handlePreviewXlsx);
-importXlsx.addEventListener("click", handleImportXlsx);
-importCsv.addEventListener("click", handleImportCsv);
-importBulk.addEventListener("click", handleImportBulk);
-exportCsv.addEventListener("click", handleExportCsv);
+if (previewXlsx) previewXlsx.addEventListener("click", handlePreviewXlsx);
+if (importXlsx) importXlsx.addEventListener("click", handleImportXlsx);
+if (importCsv) importCsv.addEventListener("click", handleImportCsv);
+if (importBulk) importBulk.addEventListener("click", handleImportBulk);
+if (exportCsv) exportCsv.addEventListener("click", handleExportCsv);
+if (verifyIntegrity) verifyIntegrity.addEventListener("click", () => { void runIntegrityChecks(); });
 resetData.addEventListener("click", handleReset);
 
 generateGlobalPdf.addEventListener("click", buildGlobalPdf);

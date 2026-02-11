@@ -25,6 +25,36 @@ const toNumber = (value) => {
 
 const normalizeId = (value) => String(value || "").trim().toUpperCase();
 
+const parseTimestamp = (value) => {
+  if (!value) return 0;
+  const ts = new Date(value).getTime();
+  return Number.isFinite(ts) ? ts : 0;
+};
+
+const toIsoDateTime = (value) => {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString();
+};
+
+const isPdfDataUrl = (value) => typeof value === "string" && value.startsWith("data:application/pdf;base64,");
+
+const MAX_TERMO_PDF_SIZE = 10 * 1024 * 1024;
+
+const sanitizeTermoPdf = (value, warnings, contextKey) => {
+  if (value == null || value === "") return null;
+  if (!isPdfDataUrl(value)) {
+    warnings.push(`${contextKey}: termo_pdf inválido (tipo/formato); valor ignorado.`);
+    return null;
+  }
+  if (value.length > MAX_TERMO_PDF_SIZE) {
+    warnings.push(`${contextKey}: termo_pdf excede tamanho máximo; valor ignorado.`);
+    return null;
+  }
+  return value;
+};
+
 const resolveUuid = (record = {}) =>
   record.uuid || record.internal_id || record.user_uuid || "";
 
@@ -33,7 +63,8 @@ const resolveUuid = (record = {}) =>
 // ===========================
 
 const normalizeUserRecord = (record = {}) => {
-  const id = record.id || record.user_id || "";
+  const fallbackId = record.uuid || record.user_uuid || "";
+  const id = record.id || record.user_id || fallbackId || "";
   const id_normalized = record.id_normalized || normalizeId(id);
   const status = record.status || (record.ativo === false ? "INATIVO" : "ATIVO");
   const created_at = record.created_at || record.createdAt || nowIso();
@@ -103,7 +134,7 @@ const normalizeEquipamentoRecord = (record = {}) => {
   const certificado = record.certificado || record.numeroCertificado || record.numero_certificado || "";
 
   return {
-    id: record.id || "",
+    id: record.id || record.uuid || "",
     uuid: resolveUuid(record) || "",
     modelo: record.modelo || "",
     funcao,
@@ -130,10 +161,14 @@ const normalizeEquipamentoRecord = (record = {}) => {
 };
 
 const normalizeVinculoRecord = (record = {}) => {
-  const id = record.id || record.vinculo_id || "";
+  const id = record.id || record.uuid || record.vinculo_id || "";
   const status = record.status || (record.ativo === false ? "ENCERRADO" : "ATIVO");
-  const inicio = record.inicio || record.data_inicio || "";
-  const fim = record.fim || record.data_fim || "";
+  const inicio = toIsoDateTime(record.inicio || record.data_inicio) || "";
+  const fim = toIsoDateTime(record.fim || record.data_fim) || "";
+  const ativo = record.ativo === true
+    || String(record.ativo || "").toLowerCase() === "true"
+    || (String(status).toUpperCase() === "ATIVO" && !fim);
+  const statusNormalized = ativo ? "ATIVO" : "ENCERRADO";
   const created_at = record.created_at || record.createdAt || nowIso();
   const updated_at = record.updated_at || record.updatedAt || created_at;
 
@@ -144,7 +179,7 @@ const normalizeVinculoRecord = (record = {}) => {
     user_id: record.user_id || "",
     inicio,
     fim,
-    status,
+    status: statusNormalized,
     termo_pdf: record.termo_pdf || record.termo_cautela_pdf || record.termo || null,
     cpfUsuario: String(record.cpfUsuario || record.cpf_usuario || "").replace(/\D/g, ""),
     observacoes: String(record.observacoes || ""),
@@ -153,7 +188,7 @@ const normalizeVinculoRecord = (record = {}) => {
     // aliases
     vinculo_id: id,
     equip_id: record.equip_id || record.equipamento_id || "",
-    ativo: status === "ATIVO",
+    ativo,
     data_inicio: inicio,
     data_fim: fim,
     termo_cautela_pdf: record.termo_cautela_pdf || record.termo_pdf || null,
@@ -280,8 +315,12 @@ const normalizeMedicaoRecord = (record = {}) => {
 const prepareUserRecord = (record = {}) => {
   const normalized = normalizeUserRecord(record);
   const uuid = normalized.uuid || resolveUuid(record) || crypto.randomUUID();
+  const id = normalized.id || uuid;
   return {
     ...normalized,
+    id,
+    user_id: id,
+    id_normalized: normalized.id_normalized || normalizeId(id),
     uuid
   };
 };
@@ -289,8 +328,10 @@ const prepareUserRecord = (record = {}) => {
 const prepareEquipamentoRecord = (record = {}) => {
   const normalized = normalizeEquipamentoRecord(record);
   const uuid = normalized.uuid || resolveUuid(record) || crypto.randomUUID();
+  const id = normalized.id || uuid;
   return {
     ...normalized,
+    id,
     uuid,
     statusOperacional: normalized.statusLocal,
     statusLocal: normalized.statusLocal,
@@ -301,9 +342,12 @@ const prepareEquipamentoRecord = (record = {}) => {
 
 const prepareVinculoRecord = (record = {}) => {
   const normalized = normalizeVinculoRecord(record);
-  const uuid = normalized.uuid || resolveUuid(record) || normalized.id || crypto.randomUUID();
+  const uuid = normalized.uuid || resolveUuid(record) || normalized.id || record.vinculo_id || crypto.randomUUID();
+  const id = normalized.id || uuid;
   return {
     ...normalized,
+    id,
+    vinculo_id: id,
     uuid
   };
 };
@@ -910,22 +954,82 @@ const exportSnapshot = async ({ appVersion = "" } = {}) => {
   };
 };
 
+const asArray = (value) => (Array.isArray(value) ? value : []);
+
+const resolveImportKey = (item = {}, candidates = []) => {
+  for (const candidate of candidates) {
+    const value = item?.[candidate];
+    if (value !== undefined && value !== null && String(value).trim()) {
+      return String(value).trim();
+    }
+  }
+  return "";
+};
+
+const dedupeByMostRecent = (items = [], keyResolver) => {
+  const map = new Map();
+  items.forEach((item) => {
+    const key = keyResolver(item);
+    if (!key) return;
+    const current = map.get(key);
+    if (!current) {
+      map.set(key, item);
+      return;
+    }
+    const currentTs = parseTimestamp(current.updated_at || current.created_at);
+    const incomingTs = parseTimestamp(item.updated_at || item.created_at);
+    if (incomingTs >= currentTs) map.set(key, item);
+  });
+  return [...map.values()];
+};
+
 const normalizeImportPayload = (payload = {}) => {
-  const schemaVersion = Number(payload.schema_version || payload.version || 1);
+  const warnings = [];
+  const schemaVersion = Number(payload.schema_version || payload.version || 0);
+  const exportVersion = Number(payload.export_version || 0);
+
+  const rawUsers = [...asArray(payload.usuarios), ...asArray(payload.users)];
+  const users = dedupeByMostRecent(rawUsers, (item = {}) => {
+    const normalizedId = normalizeId(item.id_normalized || item.id || item.user_id || item.uuid);
+    return normalizedId || resolveImportKey(item, ["uuid", "user_uuid"]);
+  });
+
+  const vinculos = asArray(payload.vinculos).map((item = {}, index) => {
+    const contextKey = `vinculo[${index}]`;
+    const termo_pdf = sanitizeTermoPdf(item.termo_pdf ?? item.termo_cautela_pdf ?? item.termo, warnings, contextKey);
+    return {
+      ...item,
+      id: item.id || item.uuid || item.vinculo_id || "",
+      equipamento_id: item.equipamento_id || item.equip_id || "",
+      inicio: toIsoDateTime(item.inicio || item.data_inicio) || "",
+      fim: toIsoDateTime(item.fim || item.data_fim) || "",
+      termo_pdf
+    };
+  });
+
   return {
-    schema_version: Number.isFinite(schemaVersion) ? schemaVersion : 1,
-    equipamentos: payload.equipamentos || [],
-    users: payload.users || payload.usuarios || [],
-    vinculos: payload.vinculos || [],
-    medicoes: payload.medicoes || [],
-    obras: payload.obras || [],
-    audit_log: payload.audit_log || payload.auditoria || [],
-    criterios: payload.criterios || []
+    export_version: Number.isFinite(exportVersion) ? exportVersion : 0,
+    schema_version: Number.isFinite(schemaVersion) ? schemaVersion : 0,
+    equipamentos: asArray(payload.equipamentos),
+    users,
+    vinculos,
+    medicoes: asArray(payload.medicoes),
+    obras: asArray(payload.obras),
+    audit_log: asArray(payload.audit_log || payload.auditoria),
+    criterios: asArray(payload.criterios),
+    warnings
   };
+};
+
+const validateImportPayload = (normalized = {}) => {
+  if (!normalized.export_version || !normalized.schema_version) {
+    throw new Error("Backup inválido: export_version e schema_version são obrigatórios.");
+  }
 };
 
 const buildImportPreview = async (payload) => {
   const normalized = normalizeImportPayload(payload);
+  validateImportPayload(normalized);
 
   const [equipamentos, usuarios, vinculos, medicoes, obras, auditoria, criterios] = await Promise.all([
     getAllEquipamentos(),
@@ -951,29 +1055,39 @@ const buildImportPreview = async (payload) => {
       else created += 1;
     });
 
-    return { created, updated, ignored: (incoming || []).length - created - updated };
+    return {
+      total_incoming: (incoming || []).length,
+      created,
+      updated,
+      ignored: (incoming || []).length - created - updated
+    };
   };
 
   return {
+    export_version: normalized.export_version,
     schema_version: normalized.schema_version,
-    equipamentos: countById(equipamentos, normalized.equipamentos, (item) => item.id),
-    users: countById(usuarios, normalized.users, (item) => item.id || item.user_id),
-    vinculos: countById(vinculos, normalized.vinculos, (item) => item.id || item.vinculo_id),
+    equipamentos: countById(equipamentos, normalized.equipamentos, (item) => item.id || item.uuid),
+    users: countById(usuarios, normalized.users, (item) => item.id || item.uuid || item.user_id),
+    vinculos: countById(vinculos, normalized.vinculos, (item) => item.id || item.uuid || item.vinculo_id),
     medicoes: countById(medicoes, normalized.medicoes, (item) => item.id || item.medicao_id),
     obras: countById(obras, normalized.obras, (item) => item.id || item.idObra),
     audit_log: countById(auditoria, normalized.audit_log, (item) => item.auditoria_id || item.audit_id),
-    criterios: countById(criterios, normalized.criterios, (item) => item.id)
+    criterios: countById(criterios, normalized.criterios, (item) => item.id),
+    warnings: normalized.warnings
   };
 };
 
 const importSnapshot = async (payload) => {
   const normalized = normalizeImportPayload(payload);
+  validateImportPayload(normalized);
 
   if (normalized.schema_version > DB_VERSION) {
     throw new Error("Versão do schema não suportada.");
   }
 
-  return runTransaction(
+  const preview = await buildImportPreview(payload);
+
+  await runTransaction(
     [STORE_EQUIPAMENTOS, STORE_USERS, STORE_VINCULOS, STORE_MEDICOES, STORE_OBRAS, STORE_AUDIT_LOG, STORE_AUDITORIA, STORE_CRITERIOS],
     "readwrite",
     (transaction) => {
@@ -1000,6 +1114,11 @@ const importSnapshot = async (payload) => {
       });
     }
   );
+
+  return {
+    preview,
+    warnings: normalized.warnings
+  };
 };
 
 const clearAllStores = async () => {
