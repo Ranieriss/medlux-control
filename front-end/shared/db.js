@@ -877,6 +877,38 @@ const saveObra = (obra) => putInStore(STORE_OBRAS, prepareObraRecord(obra));
 const deleteObra = (id) => deleteFromStore(STORE_OBRAS, id);
 
 // ===========================
+// API - Anexos (laudos/termos)
+// ===========================
+
+const getAllAnexos = () => getAllFromStore(STORE_ANEXOS);
+
+const saveAnexo = (anexo) =>
+  putInStore(STORE_ANEXOS, {
+    id: anexo.id || crypto.randomUUID(),
+    equipamento_id: anexo.equipamento_id || anexo.equipId || anexo.target_id || null,
+    medicao_id: anexo.medicao_id || null,
+    tipo: anexo.tipo || "ANEXO",
+    filename: anexo.filename || anexo.name || "arquivo",
+    mime: anexo.mime || anexo.type || "application/octet-stream",
+    size: Number(anexo.size || anexo.file_size || 0),
+    created_at: anexo.created_at || nowIso(),
+    blob: anexo.blob || null
+  });
+
+const getAnexosByEquipamento = async (equipamentoId) => {
+  const normalizedId = String(equipamentoId || "").trim().toUpperCase();
+  const all = await getAllFromStore(STORE_ANEXOS);
+  return (all || []).filter((item) => String(item.equipamento_id || "").trim().toUpperCase() === normalizedId);
+};
+
+const getLatestLaudoByEquipamento = async (equipamentoId) => {
+  const anexos = await getAnexosByEquipamento(equipamentoId);
+  const laudos = anexos.filter((item) => String(item.tipo || "").toUpperCase().includes("LAUDO"));
+  laudos.sort((a, b) => parseTimestamp(b.created_at) - parseTimestamp(a.created_at));
+  return laudos[0] || null;
+};
+
+// ===========================
 // API - Criterios
 // ===========================
 
@@ -1244,14 +1276,15 @@ const exportDiagnosticoCompleto = async ({ appModule = "medlux-control", appVers
 };
 
 const exportSnapshot = async ({ appVersion = "" } = {}) => {
-  const [equipamentos, usuarios, vinculos, medicoes, auditoria, obras, criterios] = await Promise.all([
+  const [equipamentos, usuarios, vinculos, medicoes, auditoria, obras, criterios, anexos] = await Promise.all([
     getAllEquipamentos(),
     getAllUsers(),
     getAllVinculos(),
     getAllMedicoes(),
     getAllAuditoria(),
     getAllObras(),
-    getAllCriterios()
+    getAllCriterios(),
+    getAllAnexos()
   ]);
 
   const data = {
@@ -1262,7 +1295,8 @@ const exportSnapshot = async ({ appVersion = "" } = {}) => {
     medicoes,
     obras,
     audit_log: auditoria,
-    criterios
+    criterios,
+    anexos
   };
 
   return {
@@ -1339,6 +1373,7 @@ const normalizeImportPayload = (payload = {}) => {
     obras: asArray(source.obras),
     audit_log: asArray(source.audit_log || source.auditoria),
     criterios: asArray(source.criterios),
+    anexos: asArray(source.anexos),
     warnings
   };
 };
@@ -1353,14 +1388,15 @@ const buildImportPreview = async (payload) => {
   const normalized = normalizeImportPayload(payload);
   validateImportPayload(normalized);
 
-  const [equipamentos, usuarios, vinculos, medicoes, obras, auditoria, criterios] = await Promise.all([
+  const [equipamentos, usuarios, vinculos, medicoes, obras, auditoria, criterios, anexos] = await Promise.all([
     getAllEquipamentos(),
     getAllUsers(),
     getAllVinculos(),
     getAllMedicoes(),
     getAllObras(),
     getAllAuditoria(),
-    getAllCriterios()
+    getAllCriterios(),
+    getAllAnexos()
   ]);
 
   const countById = (existing, incoming, resolver) => {
@@ -1395,6 +1431,7 @@ const buildImportPreview = async (payload) => {
     obras: countById(obras, normalized.obras, (item) => item.id || item.idObra),
     audit_log: countById(auditoria, normalized.audit_log, (item) => item.auditoria_id || item.audit_id),
     criterios: countById(criterios, normalized.criterios, (item) => item.id),
+    anexos: countById(anexos, normalized.anexos, (item) => item.id),
     warnings: normalized.warnings
   };
 };
@@ -1410,7 +1447,7 @@ const importSnapshot = async (payload) => {
   const preview = await buildImportPreview(payload);
 
   await runTransaction(
-    [STORE_EQUIPAMENTOS, STORE_USERS, STORE_VINCULOS, STORE_MEDICOES, STORE_OBRAS, STORE_AUDIT_LOG, STORE_AUDITORIA, STORE_CRITERIOS],
+    [STORE_EQUIPAMENTOS, STORE_USERS, STORE_VINCULOS, STORE_MEDICOES, STORE_OBRAS, STORE_ANEXOS, STORE_AUDIT_LOG, STORE_AUDITORIA, STORE_CRITERIOS],
     "readwrite",
     (transaction) => {
       const equipStore = transaction.objectStore(STORE_EQUIPAMENTOS);
@@ -1419,6 +1456,7 @@ const importSnapshot = async (payload) => {
       const medStore = transaction.objectStore(STORE_MEDICOES);
       const obraStore = transaction.objectStore(STORE_OBRAS);
       const criterioStore = transaction.objectStore(STORE_CRITERIOS);
+      const anexosStore = transaction.objectStore(STORE_ANEXOS);
 
       const auditStore = transaction.objectStore(
         transaction.objectStoreNames.contains(STORE_AUDIT_LOG) ? STORE_AUDIT_LOG : STORE_AUDITORIA
@@ -1430,6 +1468,7 @@ const importSnapshot = async (payload) => {
       (normalized.medicoes || []).forEach((item) => medStore.put(prepareMedicaoRecord(item)));
       (normalized.obras || []).forEach((item) => obraStore.put(prepareObraRecord(item)));
       (normalized.criterios || []).forEach((item) => criterioStore.put(normalizeCriterioRecord(item)));
+      (normalized.anexos || []).forEach((item) => anexosStore.put({ ...item, id: item.id || crypto.randomUUID() }));
 
       uniqueAuditoria((normalized.audit_log || []).map(normalizeAuditRecord)).forEach((item) => {
         auditStore.put(item);
@@ -1517,6 +1556,11 @@ export {
   getObraById,
   saveObra,
   deleteObra,
+
+  getAllAnexos,
+  saveAnexo,
+  getAnexosByEquipamento,
+  getLatestLaudoByEquipamento,
 
   getAllCriterios,
   saveCriterio,
