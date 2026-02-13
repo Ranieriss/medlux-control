@@ -1307,7 +1307,7 @@ const handleDeleteUsuario = async (userId) => {
   const confirmed = safeConfirmDelete(`usuário ${userId}`);
   if (!confirmed) return;
   const existing = usuarios.find((item) => normalizeUserIdComparable(item.user_id || item.id) === normalizeUserIdComparable(userId));
-  await deleteUsuario(userId);
+  await deleteUsuario(userId, { actor_user_id: activeSession?.user_id || null, reason: "USER_REQUEST_DELETE" });
   await logAudit({
     action: AUDIT_ACTIONS.ENTITY_DELETED,
     entity_type: "users",
