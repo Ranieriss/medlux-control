@@ -1,7 +1,7 @@
 // front-end/shared/db.js
 
 const DB_NAME = "medlux_suite_db";
-const DB_VERSION = 9;
+const DB_VERSION = 8;
 const EXPORT_VERSION = 1;
 
 const STORE_EQUIPAMENTOS = "equipamentos";
@@ -15,9 +15,6 @@ const STORE_AUDITORIA = "auditoria"; // legado
 const STORE_AUDIT_LOG = "audit_log";
 const STORE_ERRORS_LOG = "errors_log";
 const STORE_CRITERIOS = "criterios";
-const STORE_CONSENT_LOGS = "consent_logs";
-
-const DEFAULT_ORGANIZATION_ID = "DEFAULT";
 
 const nowIso = () => new Date().toISOString();
 
@@ -27,36 +24,6 @@ const toNumber = (value) => {
 };
 
 const normalizeId = (value) => String(value || "").trim().toUpperCase();
-const normalizeOrganizationId = (value) => normalizeId(value || DEFAULT_ORGANIZATION_ID) || DEFAULT_ORGANIZATION_ID;
-
-const getCurrentOrganizationId = () => {
-  try {
-    if (typeof sessionStorage !== "undefined") {
-      const raw = sessionStorage.getItem("medlux_session");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        return normalizeOrganizationId(parsed?.organization_id || parsed?.org_id);
-      }
-    }
-  } catch (_) {
-    // noop
-  }
-  return DEFAULT_ORGANIZATION_ID;
-};
-
-const belongsToOrganization = (record = {}, organizationId = getCurrentOrganizationId()) =>
-  normalizeOrganizationId(record.organization_id) === normalizeOrganizationId(organizationId);
-
-const withRetentionDefaults = (record = {}, { retentionDays = 3650 } = {}) => {
-  const created = record.created_at || nowIso();
-  if (record.retention_until) return record;
-  const retentionDate = new Date(created);
-  retentionDate.setDate(retentionDate.getDate() + retentionDays);
-  return {
-    ...record,
-    retention_until: retentionDate.toISOString()
-  };
-};
 
 const parseTimestamp = (value) => {
   if (!value) return 0;
@@ -106,7 +73,6 @@ const normalizeUserRecord = (record = {}) => {
   const cpf = String(record.cpf || record.cpf_usuario || "").replace(/\D/g, "");
 
   return {
-    organization_id: normalizeOrganizationId(record.organization_id),
     id,
     uuid: resolveUuid(record) || "",
     nome: record.nome || "",
@@ -118,9 +84,6 @@ const normalizeUserRecord = (record = {}) => {
     id_normalized,
     created_at,
     updated_at,
-    deleted_at: record.deleted_at || null,
-    anonymized_at: record.anonymized_at || null,
-    retention_until: record.retention_until || "",
     // aliases p/ compat
     user_id: id,
     ativo: status === "ATIVO",
@@ -171,7 +134,6 @@ const normalizeEquipamentoRecord = (record = {}) => {
   const certificado = record.certificado || record.numeroCertificado || record.numero_certificado || "";
 
   return {
-    organization_id: normalizeOrganizationId(record.organization_id),
     id: record.id || record.uuid || "",
     uuid: resolveUuid(record) || "",
     modelo: record.modelo || "",
@@ -192,7 +154,6 @@ const normalizeEquipamentoRecord = (record = {}) => {
     observacoes: record.observacoes || "",
     created_at,
     updated_at,
-    retention_until: record.retention_until || "",
     // aliases
     statusOperacional: statusLocal,
     status: statusLocal,
@@ -216,7 +177,6 @@ const normalizeVinculoRecord = (record = {}) => {
   const updated_at = record.updated_at || record.updatedAt || created_at;
 
   return {
-    organization_id: normalizeOrganizationId(record.organization_id),
     id,
     uuid: resolveUuid(record) || id,
     equipamento_id: record.equipamento_id || record.equip_id || "",
@@ -229,7 +189,6 @@ const normalizeVinculoRecord = (record = {}) => {
     observacoes: String(record.observacoes || ""),
     created_at,
     updated_at,
-    retention_until: record.retention_until || "",
     // aliases
     vinculo_id: id,
     equip_id: record.equip_id || record.equipamento_id || "",
@@ -282,7 +241,6 @@ const normalizeMedicaoRecord = (record = {}) => {
     : toNumber(record.legenda_char_index ?? record.legendaCharIndex);
 
   return {
-    organization_id: normalizeOrganizationId(record.organization_id),
     id,
     uuid: resolveUuid(record) || id,
 
@@ -356,7 +314,6 @@ const normalizeMedicaoRecord = (record = {}) => {
     fotos,
 
     created_at,
-    retention_until: record.retention_until || "",
 
     // aliases p/ compat
     medicao_id: id,
@@ -371,23 +328,21 @@ const prepareUserRecord = (record = {}) => {
   const normalized = normalizeUserRecord(record);
   const uuid = normalized.uuid || resolveUuid(record) || crypto.randomUUID();
   const id = normalized.id || uuid;
-  return withRetentionDefaults({
+  return {
     ...normalized,
-    organization_id: normalizeOrganizationId(normalized.organization_id),
     id,
     user_id: id,
     id_normalized: normalized.id_normalized || normalizeId(id),
     uuid
-  }, { retentionDays: 3650 });
+  };
 };
 
 const prepareEquipamentoRecord = (record = {}) => {
   const normalized = normalizeEquipamentoRecord(record);
   const uuid = normalized.uuid || resolveUuid(record) || crypto.randomUUID();
   const id = normalized.id || uuid;
-  return withRetentionDefaults({
+  return {
     ...normalized,
-    organization_id: normalizeOrganizationId(normalized.organization_id),
     id,
     uuid,
     statusOperacional: normalized.statusLocal,
@@ -396,31 +351,29 @@ const prepareEquipamentoRecord = (record = {}) => {
     geometria: normalized.funcao === "HORIZONTAL" ? normalized.geometria : null,
     certificadoNumero: normalized.certificadoNumero || normalized.numeroCertificado || "",
     laudoId: normalized.laudoId || ""
-  }, { retentionDays: 3650 });
+  };
 };
 
 const prepareVinculoRecord = (record = {}) => {
   const normalized = normalizeVinculoRecord(record);
   const uuid = normalized.uuid || resolveUuid(record) || normalized.id || record.vinculo_id || crypto.randomUUID();
   const id = normalized.id || uuid;
-  return withRetentionDefaults({
+  return {
     ...normalized,
-    organization_id: normalizeOrganizationId(normalized.organization_id),
     id,
     vinculo_id: id,
     uuid
-  }, { retentionDays: 3650 });
+  };
 };
 
 const prepareMedicaoRecord = (record = {}) => {
   const normalized = normalizeMedicaoRecord(record);
   const uuid = normalized.uuid || resolveUuid(record) || normalized.id || crypto.randomUUID();
-  return withRetentionDefaults({
+  return {
     ...normalized,
-    organization_id: normalizeOrganizationId(normalized.organization_id),
     uuid,
     created_at: normalized.created_at || nowIso()
-  }, { retentionDays: 3650 });
+  };
 };
 
 const normalizeObraRecord = (record = {}) => {
@@ -429,7 +382,6 @@ const normalizeObraRecord = (record = {}) => {
   const updated_at = record.updated_at || record.updatedAt || created_at;
 
   return {
-    organization_id: normalizeOrganizationId(record.organization_id),
     id,
     idObra: id,
     nomeObra: record.nomeObra || record.nome_obra || record.nome || "",
@@ -441,8 +393,7 @@ const normalizeObraRecord = (record = {}) => {
     responsavelTecnico: record.responsavelTecnico || record.responsavel_tecnico || "",
     observacoes: record.observacoes || "",
     created_at,
-    updated_at,
-    retention_until: record.retention_until || ""
+    updated_at
   };
 };
 
@@ -454,13 +405,10 @@ const normalizeAuditRecord = (record = {}) => {
 
   return {
     ...record,
-    organization_id: normalizeOrganizationId(record.organization_id),
     audit_id,
     auditoria_id: record.auditoria_id || audit_id,
     created_at,
-    data_hora: record.data_hora || created_at,
-    retention_until: record.retention_until || "",
-    trace_ref: record.trace_ref || `${normalizeOrganizationId(record.organization_id)}:${record.actor_user_id || "SYSTEM"}:${audit_id}`
+    data_hora: record.data_hora || created_at
   };
 };
 
@@ -473,26 +421,6 @@ const normalizeErrorRecord = (record = {}) => ({
   stack: record.stack || "",
   context: record.context || null
 });
-
-
-const normalizeConsentRecord = (record = {}) => {
-  const consent_id = record.consent_id || record.id || crypto.randomUUID();
-  const created_at = record.created_at || nowIso();
-  return withRetentionDefaults({
-    consent_id,
-    organization_id: normalizeOrganizationId(record.organization_id),
-    user_id: record.user_id || record.actor_user_id || "",
-    consent_type: record.consent_type || record.type || "LGPD_DEFAULT",
-    consent_version: record.consent_version || record.version || "1.0",
-    granted: record.granted !== false,
-    legal_basis: record.legal_basis || "CONSENTIMENTO",
-    source: record.source || "APP",
-    created_at,
-    updated_at: record.updated_at || created_at,
-    revoked_at: record.revoked_at || null,
-    metadata: record.metadata || null
-  }, { retentionDays: 3650 });
-};
 
 // ✅ MANTER APENAS ESTE normalizeCriterioRecord (NOVO)
 const normalizeCriterioRecord = (record = {}) => ({
@@ -531,15 +459,6 @@ const ensureRecordUuids = (store, builder) => {
   };
 };
 
-
-const ensureComplianceFields = (record = {}, retentionDays = 3650) => {
-  const withOrg = {
-    ...record,
-    organization_id: normalizeOrganizationId(record.organization_id)
-  };
-  return withRetentionDefaults(withOrg, { retentionDays });
-};
-
 const openDB = () =>
   new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -553,8 +472,7 @@ const openDB = () =>
         : db.createObjectStore(STORE_EQUIPAMENTOS, { keyPath: "id" });
       ensureStoreIndexes(equipamentosStore, [
         { name: "funcao", keyPath: "funcao", options: { unique: false } },
-        { name: "statusOperacional", keyPath: "statusOperacional", options: { unique: false } },
-        { name: "by_org", keyPath: "organization_id", options: { unique: false } }
+        { name: "statusOperacional", keyPath: "statusOperacional", options: { unique: false } }
       ]);
 
       const usersStore = db.objectStoreNames.contains(STORE_USERS)
@@ -562,8 +480,7 @@ const openDB = () =>
         : db.createObjectStore(STORE_USERS, { keyPath: "id" });
       ensureStoreIndexes(usersStore, [
         { name: "role", keyPath: "role", options: { unique: false } },
-        { name: "status", keyPath: "status", options: { unique: false } },
-        { name: "by_org", keyPath: "organization_id", options: { unique: false } }
+        { name: "status", keyPath: "status", options: { unique: false } }
       ]);
 
       const vinculosStore = db.objectStoreNames.contains(STORE_VINCULOS)
@@ -575,8 +492,7 @@ const openDB = () =>
         { name: "status", keyPath: "status", options: { unique: false } },
         { name: "by_user_id", keyPath: "user_id", options: { unique: false } },
         { name: "by_equip_id", keyPath: "equipamento_id", options: { unique: false } },
-        { name: "by_status", keyPath: "status", options: { unique: false } },
-        { name: "by_org", keyPath: "organization_id", options: { unique: false } }
+        { name: "by_status", keyPath: "status", options: { unique: false } }
       ]);
 
       const medicoesStore = db.objectStoreNames.contains(STORE_MEDICOES)
@@ -589,8 +505,7 @@ const openDB = () =>
         { name: "by_user_id", keyPath: "user_id", options: { unique: false } },
         { name: "by_obra_id", keyPath: "obra_id", options: { unique: false } },
         { name: "by_relatorio_id", keyPath: "relatorio_id", options: { unique: false } },
-        { name: "by_created_at", keyPath: "created_at", options: { unique: false } },
-        { name: "by_org", keyPath: "organization_id", options: { unique: false } }
+        { name: "by_created_at", keyPath: "created_at", options: { unique: false } }
       ]);
 
       const obrasStore = db.objectStoreNames.contains(STORE_OBRAS)
@@ -598,8 +513,7 @@ const openDB = () =>
         : db.createObjectStore(STORE_OBRAS, { keyPath: "id" });
       ensureStoreIndexes(obrasStore, [
         { name: "idObra", keyPath: "idObra", options: { unique: false } },
-        { name: "cidadeUF", keyPath: "cidadeUF", options: { unique: false } },
-        { name: "by_org", keyPath: "organization_id", options: { unique: false } }
+        { name: "cidadeUF", keyPath: "cidadeUF", options: { unique: false } }
       ]);
 
       const anexosStore = db.objectStoreNames.contains(STORE_ANEXOS)
@@ -607,8 +521,7 @@ const openDB = () =>
         : db.createObjectStore(STORE_ANEXOS, { keyPath: "id" });
       ensureStoreIndexes(anexosStore, [
         { name: "medicao_id", keyPath: "medicao_id", options: { unique: false } },
-        { name: "tipo", keyPath: "tipo", options: { unique: false } },
-        { name: "by_org", keyPath: "organization_id", options: { unique: false } }
+        { name: "tipo", keyPath: "tipo", options: { unique: false } }
       ]);
 
       const auditoriaStore = db.objectStoreNames.contains(STORE_AUDITORIA)
@@ -616,8 +529,7 @@ const openDB = () =>
         : db.createObjectStore(STORE_AUDITORIA, { keyPath: "auditoria_id" });
       ensureStoreIndexes(auditoriaStore, [
         { name: "entity", keyPath: "entity", options: { unique: false } },
-        { name: "data_hora", keyPath: "data_hora", options: { unique: false } },
-        { name: "by_org", keyPath: "organization_id", options: { unique: false } }
+        { name: "data_hora", keyPath: "data_hora", options: { unique: false } }
       ]);
 
       const auditLogStore = db.objectStoreNames.contains(STORE_AUDIT_LOG)
@@ -649,16 +561,6 @@ const openDB = () =>
         { name: "by_updated_at", keyPath: "updated_at", options: { unique: false } }
       ]);
 
-      const consentLogsStore = db.objectStoreNames.contains(STORE_CONSENT_LOGS)
-        ? transaction.objectStore(STORE_CONSENT_LOGS)
-        : db.createObjectStore(STORE_CONSENT_LOGS, { keyPath: "consent_id" });
-      ensureStoreIndexes(consentLogsStore, [
-        { name: "by_user_id", keyPath: "user_id", options: { unique: false } },
-        { name: "by_consent_type", keyPath: "consent_type", options: { unique: false } },
-        { name: "by_created_at", keyPath: "created_at", options: { unique: false } },
-        { name: "by_org", keyPath: "organization_id", options: { unique: false } }
-      ]);
-
       // Migração legado: usuarios -> users
       if (db.objectStoreNames.contains(STORE_USUARIOS) && db.objectStoreNames.contains(STORE_USERS)) {
         const legacyStore = transaction.objectStore(STORE_USUARIOS);
@@ -674,42 +576,42 @@ const openDB = () =>
       // Garantir UUIDs
       ensureRecordUuids(equipamentosStore, (record) => {
         if (record.uuid) return null;
-        return ensureComplianceFields({ ...record, uuid: record.uuid || crypto.randomUUID() });
+        return { ...record, uuid: record.uuid || crypto.randomUUID() };
       });
       ensureRecordUuids(usersStore, (record) => {
         const cpf = String(record.cpf || record.cpf_usuario || "").replace(/\D/g, "");
         const needsUpdate = !record.uuid || record.cpf !== cpf || record.cpf_usuario !== cpf;
         if (!needsUpdate) return null;
-        return ensureComplianceFields({
+        return {
           ...record,
           uuid: record.uuid || crypto.randomUUID(),
           cpf,
           cpf_usuario: cpf
-        });
+        };
       });
       ensureRecordUuids(vinculosStore, (record) => {
         const cpfUsuario = String(record.cpfUsuario || record.cpf_usuario || "").replace(/\D/g, "");
         const observacoes = String(record.observacoes || "");
         const needsUpdate = !record.uuid || record.cpfUsuario !== cpfUsuario || record.observacoes !== observacoes;
         if (!needsUpdate) return null;
-        return ensureComplianceFields({
+        return {
           ...record,
           uuid: record.uuid || record.id || crypto.randomUUID(),
           cpfUsuario,
           cpf_usuario: cpfUsuario,
           observacoes
-        });
+        };
       });
       ensureRecordUuids(medicoesStore, (record) => {
         if (!record.created_at) {
-          return ensureComplianceFields({
+          return {
             ...record,
             uuid: record.uuid || record.id || crypto.randomUUID(),
             created_at: record.dataHora || record.data_hora || nowIso()
-          });
+          };
         }
         if (record.uuid) return null;
-        return ensureComplianceFields({ ...record, uuid: record.uuid || record.id || crypto.randomUUID() });
+        return { ...record, uuid: record.uuid || record.id || crypto.randomUUID() };
       });
       ensureRecordUuids(auditLogStore, (record, key) => {
         const normalized = normalizeAuditRecord({ ...record, auditoria_id: record.auditoria_id || key });
@@ -720,12 +622,8 @@ const openDB = () =>
         ) {
           return null;
         }
-        return ensureComplianceFields(normalized);
+        return normalized;
       });
-      ensureRecordUuids(obrasStore, (record) => ensureComplianceFields(record));
-      ensureRecordUuids(anexosStore, (record) => ensureComplianceFields(record));
-      ensureRecordUuids(criteriosStore, (record) => ensureComplianceFields(record));
-      ensureRecordUuids(consentLogsStore, (record) => ensureComplianceFields(normalizeConsentRecord(record)));
 
       // Migração legado: auditoria -> audit_log
       if (db.objectStoreNames.contains(STORE_AUDITORIA)) {
@@ -807,18 +705,12 @@ const clearStore = (storeName) =>
     return requestToPromise(store.clear());
   });
 
-
-const filterByOrganization = (items = [], { organization_id = getCurrentOrganizationId(), includeAllOrganizations = false } = {}) => {
-  if (includeAllOrganizations) return items;
-  return (items || []).filter((item) => belongsToOrganization(item, organization_id));
-};
-
 // ===========================
 // API - Equipamentos
 // ===========================
 
-const getAllEquipamentos = (options = {}) =>
-  getAllFromStore(STORE_EQUIPAMENTOS).then((items) => filterByOrganization((items || []).map(normalizeEquipamentoRecord), options));
+const getAllEquipamentos = () =>
+  getAllFromStore(STORE_EQUIPAMENTOS).then((items) => (items || []).map(normalizeEquipamentoRecord));
 
 const getEquipamentoById = (id) =>
   getByKey(STORE_EQUIPAMENTOS, id).then((item) => (item ? normalizeEquipamentoRecord(item) : null));
@@ -839,89 +731,35 @@ const bulkSaveEquipamentos = (items) =>
 // API - Users/Usuarios
 // ===========================
 
-const getAllUsers = async (options = {}) => {
+const getAllUsers = async () => {
   const items = await getAllFromStore(STORE_USERS).catch(() => []);
-  if (items && items.length) {
-    const filtered = filterByOrganization(items.map(normalizeUserRecord), options);
-    return options.includeAnonymized ? filtered : filtered.filter((item) => !item.anonymized_at);
-  }
+  if (items && items.length) return items.map(normalizeUserRecord);
   const legacy = await getAllFromStore(STORE_USUARIOS).catch(() => []);
-  const filtered = filterByOrganization((legacy || []).map(normalizeUserRecord), options);
-  return options.includeAnonymized ? filtered : filtered.filter((item) => !item.anonymized_at);
+  return (legacy || []).map(normalizeUserRecord);
 };
 
-const getUserById = async (id, options = {}) => {
+const getUserById = async (id) => {
   const item = await getByKey(STORE_USERS, id).catch(() => null);
-  if (item) {
-    const normalized = normalizeUserRecord(item);
-    return belongsToOrganization(normalized, options.organization_id) || options.includeAllOrganizations ? normalized : null;
-  }
+  if (item) return normalizeUserRecord(item);
   const legacy = await getByKey(STORE_USUARIOS, id).catch(() => null);
-  if (!legacy) return null;
-  const normalizedLegacy = normalizeUserRecord(legacy);
-  return belongsToOrganization(normalizedLegacy, options.organization_id) || options.includeAllOrganizations ? normalizedLegacy : null;
+  return legacy ? normalizeUserRecord(legacy) : null;
 };
 
 const saveUser = (usuario) => putInStore(STORE_USERS, prepareUserRecord(usuario));
-
-const saveConsentLog = (entry) => putInStore(STORE_CONSENT_LOGS, normalizeConsentRecord(entry));
-
-const getConsentLogsByUser = async (userId, options = {}) => {
-  const items = await getAllFromStore(STORE_CONSENT_LOGS).catch(() => []);
-  return filterByOrganization((items || []).map(normalizeConsentRecord), options)
-    .filter((item) => normalizeId(item.user_id) === normalizeId(userId));
-};
-
-const anonymizeUser = async (id, { actor_user_id = null, reason = 'LGPD_USER_DELETION' } = {}) => {
-  const existing = await getUserById(id);
-  if (!existing) return null;
-  const ts = nowIso();
-  const redactedId = `ANON-${normalizeId(id)}`;
-  const anonymized = prepareUserRecord({
-    ...existing,
-    nome: 'ANONIMIZADO',
-    cpf: '',
-    cpf_usuario: '',
-    pinHash: '',
-    pin_hash: '',
-    salt: '',
-    status: 'ANONIMIZADO',
-    ativo: false,
-    anonymized_at: ts,
-    deleted_at: ts,
-    updated_at: ts,
-    legal_hold_reason: reason,
-    pseudonym_ref: redactedId
-  });
-
-  await putInStore(STORE_USERS, anonymized);
-  await saveConsentLog({
-    organization_id: anonymized.organization_id,
-    user_id: id,
-    consent_type: 'DELETION_REQUEST',
-    consent_version: '1.0',
-    granted: true,
-    source: 'SYSTEM',
-    legal_basis: 'LGPD_ART_18',
-    metadata: { actor_user_id, reason, anonymized_user_id: anonymized.id }
-  });
-  return anonymized;
-};
-
-const deleteUser = (id, options = {}) => anonymizeUser(id, options);
+const deleteUser = (id) => deleteFromStore(STORE_USERS, id);
 
 // aliases
-const getAllUsuarios = (options = {}) => getAllUsers(options);
+const getAllUsuarios = () => getAllUsers();
 const getUsuarioById = (id) => getUserById(id);
 const saveUsuario = (usuario) => saveUser(usuario);
-const deleteUsuario = (id, options = {}) => deleteUser(id, options);
+const deleteUsuario = (id) => deleteUser(id);
 
 // ===========================
 // API - Vinculos
 // ===========================
 
-const getAllVinculos = (options = {}) =>
-  getAllFromStore(STORE_VINCULOS).then((items) => filterByOrganization((items || []).map(normalizeVinculoRecord), options));
+const getAllVinculos = () =>
+  getAllFromStore(STORE_VINCULOS).then((items) => (items || []).map(normalizeVinculoRecord));
 
 const saveVinculo = (vinculo) => putInStore(STORE_VINCULOS, prepareVinculoRecord(vinculo));
 const deleteVinculo = (id) => deleteFromStore(STORE_VINCULOS, id);
@@ -964,8 +802,8 @@ const encerrarVinculo = async (vinculoId, dataFim) => {
 // API - Medicoes
 // ===========================
 
-const getAllMedicoes = (options = {}) =>
-  getAllFromStore(STORE_MEDICOES).then((items) => filterByOrganization((items || []).map(normalizeMedicaoRecord), options));
+const getAllMedicoes = () =>
+  getAllFromStore(STORE_MEDICOES).then((items) => (items || []).map(normalizeMedicaoRecord));
 
 const saveMedicao = (medicao) => putInStore(STORE_MEDICOES, prepareMedicaoRecord(medicao));
 const deleteMedicao = (id) => deleteFromStore(STORE_MEDICOES, id);
@@ -997,11 +835,11 @@ const uniqueAuditoria = (items = []) => {
 
 const dedupeAuditoria = uniqueAuditoria;
 
-const getAllAuditoria = async (options = {}) => {
+const getAllAuditoria = async () => {
   const db = await openDB();
   const storeName = db.objectStoreNames.contains(STORE_AUDIT_LOG) ? STORE_AUDIT_LOG : STORE_AUDITORIA;
   const items = await getAllFromStore(storeName).catch(() => []);
-  return uniqueAuditoria(filterByOrganization(items || [], options).map(normalizeAuditRecord));
+  return uniqueAuditoria(items || []);
 };
 
 const saveAuditoria = async (entry) => {
@@ -1009,7 +847,7 @@ const saveAuditoria = async (entry) => {
   const primaryStore = db.objectStoreNames.contains(STORE_AUDIT_LOG) ? STORE_AUDIT_LOG : STORE_AUDITORIA;
   if (!primaryStore) return null;
 
-  const normalized = ensureComplianceFields(normalizeAuditRecord(entry));
+  const normalized = normalizeAuditRecord(entry);
 
   return new Promise((resolve, reject) => {
     const transaction = db.transaction([primaryStore], "readwrite");
@@ -1036,22 +874,22 @@ const saveAuditoria = async (entry) => {
 // API - Obras
 // ===========================
 
-const getAllObras = (options = {}) => getAllFromStore(STORE_OBRAS).then((items) => filterByOrganization((items || []).map(normalizeObraRecord), options));
+const getAllObras = () => getAllFromStore(STORE_OBRAS).then((items) => (items || []).map(normalizeObraRecord));
 
 const getObraById = (id) =>
   getByKey(STORE_OBRAS, id).then((item) => (item ? normalizeObraRecord(item) : null));
 
-const saveObra = (obra) => putInStore(STORE_OBRAS, withRetentionDefaults({ ...prepareObraRecord(obra), organization_id: normalizeOrganizationId(obra.organization_id) }, { retentionDays: 3650 }));
+const saveObra = (obra) => putInStore(STORE_OBRAS, prepareObraRecord(obra));
 const deleteObra = (id) => deleteFromStore(STORE_OBRAS, id);
 
 // ===========================
 // API - Anexos (laudos/termos)
 // ===========================
 
-const getAllAnexos = (options = {}) => getAllFromStore(STORE_ANEXOS).then((items) => filterByOrganization(items || [], options));
+const getAllAnexos = () => getAllFromStore(STORE_ANEXOS);
 
 const saveAnexo = (anexo) =>
-  putInStore(STORE_ANEXOS, withRetentionDefaults({
+  putInStore(STORE_ANEXOS, {
     id: anexo.id || crypto.randomUUID(),
     equipamento_id: anexo.equipamento_id || anexo.equipamentoId || anexo.equipId || anexo.target_id || null,
     medicao_id: anexo.medicao_id || null,
@@ -1060,9 +898,8 @@ const saveAnexo = (anexo) =>
     mime: anexo.mime || anexo.type || "application/octet-stream",
     size: Number(anexo.size || anexo.file_size || 0),
     created_at: anexo.created_at || anexo.createdAt || nowIso(),
-    blob: anexo.blob || anexo.data || null,
-    organization_id: normalizeOrganizationId(anexo.organization_id)
-  }, { retentionDays: 3650 }));
+    blob: anexo.blob || anexo.data || null
+  });
 
 const getAnexoById = async (anexoId) => {
   if (!anexoId) return null;
@@ -1086,9 +923,9 @@ const getLatestLaudoByEquipamento = async (equipamentoId) => {
 // API - Criterios
 // ===========================
 
-const getAllCriterios = (options = {}) => getAllFromStore(STORE_CRITERIOS).then((items) => filterByOrganization((items || []).map(normalizeCriterioRecord), options));
+const getAllCriterios = () => getAllFromStore(STORE_CRITERIOS).then((items) => (items || []).map(normalizeCriterioRecord));
 
-const saveCriterio = (criterio) => putInStore(STORE_CRITERIOS, withRetentionDefaults({ ...normalizeCriterioRecord(criterio), organization_id: normalizeOrganizationId(criterio.organization_id) }, { retentionDays: 3650 }));
+const saveCriterio = (criterio) => putInStore(STORE_CRITERIOS, normalizeCriterioRecord(criterio));
 const deleteCriterio = (id) => deleteFromStore(STORE_CRITERIOS, id);
 
 // ===========================
@@ -1121,7 +958,6 @@ const getStoreCounts = async () => {
     STORE_AUDIT_LOG,
     STORE_ERRORS_LOG,
     STORE_CRITERIOS,
-    STORE_CONSENT_LOGS,
     STORE_AUDITORIA
   ].filter((name) => db.objectStoreNames.contains(name));
 
@@ -1453,7 +1289,7 @@ const exportDiagnosticoCompleto = async ({ appModule = "medlux-control", appVers
 };
 
 const exportSnapshot = async ({ appVersion = "" } = {}) => {
-  const [equipamentos, usuarios, vinculos, medicoes, auditoria, obras, criterios, anexos, consent_logs] = await Promise.all([
+  const [equipamentos, usuarios, vinculos, medicoes, auditoria, obras, criterios, anexos] = await Promise.all([
     getAllEquipamentos(),
     getAllUsers(),
     getAllVinculos(),
@@ -1461,8 +1297,7 @@ const exportSnapshot = async ({ appVersion = "" } = {}) => {
     getAllAuditoria(),
     getAllObras(),
     getAllCriterios(),
-    getAllAnexos(),
-    getAllFromStore(STORE_CONSENT_LOGS).then((items) => filterByOrganization((items || []).map(normalizeConsentRecord)))
+    getAllAnexos()
   ]);
 
   const data = {
@@ -1474,8 +1309,7 @@ const exportSnapshot = async ({ appVersion = "" } = {}) => {
     obras,
     audit_log: auditoria,
     criterios,
-    anexos,
-    consent_logs
+    anexos
   };
 
   return {
@@ -1553,7 +1387,6 @@ const normalizeImportPayload = (payload = {}) => {
     audit_log: asArray(source.audit_log || source.auditoria),
     criterios: asArray(source.criterios),
     anexos: asArray(source.anexos),
-    consent_logs: asArray(source.consent_logs || source.consentimento_logs),
     warnings
   };
 };
@@ -1582,7 +1415,7 @@ const buildImportPreview = async (payload) => {
     normalized = applyLegacyImportDefaults({ warnings: ["Payload inválido. Prévia gerada em modo tolerante."] });
   }
 
-  const [equipamentos, usuarios, vinculos, medicoes, obras, auditoria, criterios, anexos, consentLogs] = await Promise.all([
+  const [equipamentos, usuarios, vinculos, medicoes, obras, auditoria, criterios, anexos] = await Promise.all([
     getAllEquipamentos(),
     getAllUsers(),
     getAllVinculos(),
@@ -1590,8 +1423,7 @@ const buildImportPreview = async (payload) => {
     getAllObras(),
     getAllAuditoria(),
     getAllCriterios(),
-    getAllAnexos(),
-    getAllFromStore(STORE_CONSENT_LOGS).then((items) => filterByOrganization((items || []).map(normalizeConsentRecord)))
+    getAllAnexos()
   ]);
 
   const countById = (existing, incoming, resolver) => {
@@ -1627,7 +1459,6 @@ const buildImportPreview = async (payload) => {
     audit_log: countById(auditoria, normalized.audit_log, (item) => item.auditoria_id || item.audit_id),
     criterios: countById(criterios, normalized.criterios, (item) => item.id),
     anexos: countById(anexos, normalized.anexos, (item) => item.id),
-    consent_logs: countById(consentLogs, normalized.consent_logs, (item) => item.consent_id || item.id),
     warnings: normalized.warnings
   };
 };
@@ -1643,7 +1474,7 @@ const importSnapshot = async (payload) => {
   const preview = await buildImportPreview(payload);
 
   await runTransaction(
-    [STORE_EQUIPAMENTOS, STORE_USERS, STORE_VINCULOS, STORE_MEDICOES, STORE_OBRAS, STORE_ANEXOS, STORE_AUDIT_LOG, STORE_AUDITORIA, STORE_CRITERIOS, STORE_CONSENT_LOGS],
+    [STORE_EQUIPAMENTOS, STORE_USERS, STORE_VINCULOS, STORE_MEDICOES, STORE_OBRAS, STORE_ANEXOS, STORE_AUDIT_LOG, STORE_AUDITORIA, STORE_CRITERIOS],
     "readwrite",
     (transaction) => {
       const equipStore = transaction.objectStore(STORE_EQUIPAMENTOS);
@@ -1653,7 +1484,6 @@ const importSnapshot = async (payload) => {
       const obraStore = transaction.objectStore(STORE_OBRAS);
       const criterioStore = transaction.objectStore(STORE_CRITERIOS);
       const anexosStore = transaction.objectStore(STORE_ANEXOS);
-      const consentStore = transaction.objectStore(STORE_CONSENT_LOGS);
 
       const auditStore = transaction.objectStore(
         transaction.objectStoreNames.contains(STORE_AUDIT_LOG) ? STORE_AUDIT_LOG : STORE_AUDITORIA
@@ -1666,7 +1496,6 @@ const importSnapshot = async (payload) => {
       (normalized.obras || []).forEach((item) => obraStore.put(prepareObraRecord(item)));
       (normalized.criterios || []).forEach((item) => criterioStore.put(normalizeCriterioRecord(item)));
       (normalized.anexos || []).forEach((item) => anexosStore.put({ ...item, id: item.id || crypto.randomUUID() }));
-      (normalized.consent_logs || []).forEach((item) => consentStore.put(normalizeConsentRecord(item)));
 
       uniqueAuditoria((normalized.audit_log || []).map(normalizeAuditRecord)).forEach((item) => {
         auditStore.put(item);
@@ -1727,9 +1556,6 @@ export {
   getUserById,
   saveUser,
   deleteUser,
-  anonymizeUser,
-  saveConsentLog,
-  getConsentLogsByUser,
 
   getAllUsuarios,
   getUsuarioById,

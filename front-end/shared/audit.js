@@ -30,16 +30,6 @@ const buildDiff = (before, after, fields = []) => ({
   after: pickFields(after, fields)
 });
 
-const resolveOrganizationId = () => {
-  try {
-    const raw = sessionStorage.getItem("medlux_session");
-    const parsed = raw ? JSON.parse(raw) : null;
-    return parsed?.organization_id || "DEFAULT";
-  } catch (_) {
-    return "DEFAULT";
-  }
-};
-
 const logAudit = async ({
   audit_id = crypto.randomUUID(),
   actor_user_id = null,
@@ -57,7 +47,6 @@ const logAudit = async ({
     auditoria_id: audit_id,
     created_at,
     actor_user_id,
-    organization_id: resolveOrganizationId(),
     action,
     entity_type,
     entity_id,

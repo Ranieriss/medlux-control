@@ -60,12 +60,11 @@ const ensureDefaultAdmin = async () => {
     salt: toBase64(salt),
     id_normalized: "ADMIN",
     created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    organization_id: "DEFAULT"
+    updated_at: new Date().toISOString()
   });
 };
 
-const createUserWithPin = async ({ user_id, id, nome, role, ativo, status, pin, organization_id = "DEFAULT" }) => {
+const createUserWithPin = async ({ user_id, id, nome, role, ativo, status, pin }) => {
   const salt = generateSalt();
   const pinHash = await hashPin(pin, salt);
   const resolvedStatus = status || (ativo === false ? "INATIVO" : "ATIVO");
@@ -83,8 +82,7 @@ const createUserWithPin = async ({ user_id, id, nome, role, ativo, status, pin, 
     salt: toBase64(salt),
     id_normalized: normalized,
     created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    organization_id
+    updated_at: new Date().toISOString()
   };
   await saveUser(usuario);
   return usuario;
@@ -144,7 +142,6 @@ const authenticate = async (userId, pin) => {
     nome: usuario.nome,
     role: normalizeRole(usuario.role),
     id_normalized: normalizeId(usuario.id),
-    organization_id: usuario.organization_id || "DEFAULT",
     loginAt: new Date().toISOString(),
     isAdmin: normalizeRole(usuario.role) === "ADMIN"
   };
