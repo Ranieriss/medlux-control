@@ -3,9 +3,7 @@ const sanitizeText = (value) => String(value ?? "")
   .replace(/\s+/g, " ")
   .trim();
 
-const APP_VERSION = "1.0.0";
-
-const getAppVersion = () => document.querySelector("meta[name='app-version']")?.content || APP_VERSION;
+const getAppVersion = () => document.querySelector("meta[name='app-version']")?.content || "unknown";
 
 const isValidDate = (value) => {
   if (!value) return false;
@@ -15,7 +13,6 @@ const isValidDate = (value) => {
 
 export {
   sanitizeText,
-  APP_VERSION,
   getAppVersion,
   isValidDate
 };
