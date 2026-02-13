@@ -34,7 +34,9 @@ import { ensureDefaultAdmin, authenticate, updatePin, createUserWithPin, logout,
 import { AUDIT_ACTIONS, buildDiff, logAudit } from "../shared/audit.js";
 import { validateUser, validateEquipamento, validateVinculo } from "../shared/validation.js";
 import { initGlobalErrorHandling, logError } from "../shared/errors.js";
-import { getAppVersion, sanitizeText } from "../shared/utils.js";
+import { nowUtcIso, formatUtcToLocale } from "../shared/time.js";
+import { APP_VERSION, sanitizeText } from "../shared/utils.js";
+import { writeLog } from "../shared/logger.js";
 import { computeMeasurementStats, evaluateMedicao, buildConformidadeResumo, computeLegendaStats } from "../shared/medicao-utils.js";
 import { generateUserIndividualPdf } from "./reports/user-report.js";
 import { ensurePdfLib, makePdfTableNoWrap } from "../shared/reports/pdf-lib.js";
@@ -91,6 +93,7 @@ const linhaFilter = document.getElementById("linhaFilter");
 const estacaoFilter = document.getElementById("estacaoFilter");
 const obraResumo = document.getElementById("obraResumo");
 const statusMessage = document.getElementById("statusMessage");
+const appVersionFooter = document.getElementById("appVersionFooter");
 const syncStatus = document.getElementById("syncStatus");
 const sortButtons = document.querySelectorAll("[data-sort]");
 const logoutButton = document.getElementById("logoutButton");
@@ -307,7 +310,7 @@ const saveLaudoEquipamento = async (equipamentoId, file) => {
     filename: file.name,
     mime: "application/pdf",
     size: file.size,
-    createdAt: new Date().toISOString(),
+    createdAt: nowUtcIso(),
     data: blob
   });
   return id;
@@ -410,19 +413,7 @@ const calcDiasComUsuario = (vinculo = {}) => {
   return String(Math.max(0, dias));
 };
 
-const formatDateTimeLocal = (value) => {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return new Intl.DateTimeFormat("pt-BR", {
-    timeZone: "America/Sao_Paulo",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(date);
-};
+const formatDateTimeLocal = (value) => formatUtcToLocale(value, "pt-BR", { timeZone: "America/Sao_Paulo" });
 
 const getEquipamentoStatus = (equipamento) => equipamento.statusLocal || equipamento.statusOperacional || equipamento.status || "STAND_BY";
 const getEquipamentoLocalidade = (equipamento) => equipamento.localidadeCidadeUF || equipamento.localidade || "";
@@ -431,6 +422,53 @@ const formatFuncao = (funcao) => FUNCAO_LABELS[funcao] || FUNCAO_LABELS[normaliz
 
 const setStatusMessage = (message) => {
   statusMessage.textContent = message;
+};
+
+const getCurrentRouteName = () => document.querySelector(".tab[aria-selected="true"]")?.dataset?.section || "dashboard";
+const isAdminUser = () => String(activeSession?.role || getSession()?.role || "").toUpperCase() === "ADMIN";
+const newCorrelationId = () => crypto.randomUUID();
+
+const safeConfirmDelete = (label) => {
+  const base = window.confirm(`Excluir ${label}?`);
+  if (!base) return false;
+  return window.confirm(`Confirmação final para excluir ${label}. Esta ação pode ser irreversível.`);
+};
+
+const precheckDeleteConstraints = async ({ entity, id }) => {
+  const ativos = vinculos.filter((item) => String(item.status || "").toUpperCase() === "ATIVO" || item.ativo);
+  if (entity === "equipamentos" && ativos.some((item) => (item.equipamento_id || item.equip_id) === id)) {
+    return "Equipamento possui vínculo ativo e não pode ser removido.";
+  }
+  if (entity === "users" && ativos.some((item) => normalizeUserIdComparable(item.user_id) === normalizeUserIdComparable(id))) {
+    return "Usuário possui vínculo ativo e não pode ser removido.";
+  }
+  if (entity === "obras" && medicoes.some((item) => normalizeId(item.obra_id) === normalizeId(id))) {
+    return "Obra possui vínculos de medição e não pode ser removida.";
+  }
+  return "";
+};
+
+const serverRecheckDeleteConstraints = async ({ entity, id }) => {
+  const supabase = window.supabaseClient || window.supabase;
+  if (!supabase?.from) return "";
+  try {
+    if (entity === "equipamentos") {
+      const { data } = await supabase.from("vinculos").select("id").eq("equipamento_id", id).eq("status", "ATIVO").limit(1);
+      if (data?.length) return "Exclusão bloqueada: vínculo ativo encontrado no servidor.";
+    }
+    if (entity === "users") {
+      const { data } = await supabase.from("vinculos").select("id").eq("user_id", id).eq("status", "ATIVO").limit(1);
+      if (data?.length) return "Exclusão bloqueada: vínculo ativo encontrado no servidor.";
+    }
+    if (entity === "obras") {
+      const { data } = await supabase.from("medicoes").select("id").eq("obra_id", id).limit(1);
+      if (data?.length) return "Exclusão bloqueada: registros vinculados encontrados no servidor.";
+    }
+  } catch (error) {
+    await logError({ module: "medlux-control", action: "SERVER_DELETE_RECHECK", message: error?.message || "Falha no recheck" });
+    return "Falha ao validar exclusão no servidor.";
+  }
+  return "";
 };
 
 const safeBind = (element, eventName, handler, bindId) => {
@@ -477,7 +515,12 @@ let sortState = { key: "id", direction: "asc" };
 let currentPage = 1;
 let currentLaudoMeta = null;
 
-initGlobalErrorHandling("medlux-control");
+initGlobalErrorHandling("medlux-control", {
+  isAdmin: () => isAdminUser(),
+  onUserError: ({ userMessage, technical, showTechnical }) => {
+    setStatusMessage(showTechnical ? `${userMessage} ${technical}` : userMessage);
+  }
+});
 
 const ensureLogin = async () => {
   await ensureDefaultAdmin();
@@ -975,7 +1018,17 @@ const refreshSelectOptions = () => {
 };
 
 const handleDelete = async (id) => {
-  const confirmed = window.confirm(`Excluir equipamento ${id}?`);
+  const precheck = await precheckDeleteConstraints({ entity: "equipamentos", id });
+  if (precheck) {
+    setStatusMessage(precheck);
+    return;
+  }
+  const serverCheck = await serverRecheckDeleteConstraints({ entity: "equipamentos", id });
+  if (serverCheck) {
+    setStatusMessage(serverCheck);
+    return;
+  }
+  const confirmed = safeConfirmDelete(`equipamento ${id}`);
   if (!confirmed) return;
   const existing = equipamentos.find((item) => item.id === id);
   await deleteEquipamento(id);
@@ -985,6 +1038,8 @@ const handleDelete = async (id) => {
     entity_id: id,
     actor_user_id: activeSession?.user_id || null,
     summary: `Equipamento ${id} removido.`,
+    route: getCurrentRouteName(),
+    severity: "WARN",
     diff: buildDiff(existing, null, ["id", "statusLocal", "funcao", "modelo", "numeroSerie"])
   });
   await loadData();
@@ -1102,7 +1157,7 @@ const handleFormSubmit = async (event) => {
     formHint.textContent = "ID já existe.";
     return;
   }
-  const now = new Date().toISOString();
+  const now = nowUtcIso();
   const existing = editingId ? equipamentos.find((item) => item.id === editingId) : null;
   const vinculoAtivo = getActiveVinculoByEquip(normalized.id);
   if (vinculoAtivo) {
@@ -1177,8 +1232,8 @@ const handleUsuarioSubmit = async (event) => {
     cpf: cpfDigits || (existing?.cpf || ""),
     ativo: data.ativo === "true",
     status,
-    updated_at: new Date().toISOString(),
-    created_at: existing?.created_at || new Date().toISOString()
+    updated_at: nowUtcIso(),
+    created_at: existing?.created_at || nowUtcIso()
   };
   if (!existing) {
     await createUserWithPin({ ...updated, pin: data.pin });
@@ -1239,7 +1294,17 @@ const handleResetPin = async (userId) => {
 };
 
 const handleDeleteUsuario = async (userId) => {
-  const confirmed = window.confirm(`Excluir usuário ${userId}?`);
+  const precheck = await precheckDeleteConstraints({ entity: "users", id: userId });
+  if (precheck) {
+    setStatusMessage(precheck);
+    return;
+  }
+  const serverCheck = await serverRecheckDeleteConstraints({ entity: "users", id: userId });
+  if (serverCheck) {
+    setStatusMessage(serverCheck);
+    return;
+  }
+  const confirmed = safeConfirmDelete(`usuário ${userId}`);
   if (!confirmed) return;
   const existing = usuarios.find((item) => normalizeUserIdComparable(item.user_id || item.id) === normalizeUserIdComparable(userId));
   await deleteUsuario(userId);
@@ -1249,6 +1314,8 @@ const handleDeleteUsuario = async (userId) => {
     entity_id: userId,
     actor_user_id: activeSession?.user_id || null,
     summary: `Usuário ${userId} removido.`,
+    route: getCurrentRouteName(),
+    severity: "WARN",
     diff: buildDiff(existing, null, ["id", "role", "status", "nome"])
   });
   await loadData();
@@ -1342,7 +1409,7 @@ const handleVinculoSubmit = async (event) => {
   }
 
   const termoFile = vinculoTermo.files[0];
-  const now = new Date().toISOString();
+  const now = nowUtcIso();
   const parsedInicio = parseDateString(data.data_inicio).value;
   const normalizedStatus = String(data.status || "ATIVO").toUpperCase() === "ENCERRADO" ? "ENCERRADO" : "ATIVO";
   const existing = editingVinculoId
@@ -1352,6 +1419,14 @@ const handleVinculoSubmit = async (event) => {
     ? await fileToBase64(termoFile)
     : existing?.termo_pdf || existing?.termo_cautela_pdf || "";
   const vinculoId = editingVinculoId || crypto.randomUUID();
+  if ((normalizedStatus === "ATIVO") && vinculos.some((item) =>
+    (item.id !== editingVinculoId && item.vinculo_id !== editingVinculoId)
+    && (item.equipamento_id || item.equip_id) === data.equip_id
+    && (String(item.status || "").toUpperCase() === "ATIVO" || item.ativo))) {
+    vinculoHint.textContent = "Já existe vínculo ativo para este equipamento.";
+    return;
+  }
+
   const vinculo = {
     id: vinculoId,
     vinculo_id: vinculoId,
@@ -1406,7 +1481,7 @@ const handleEncerrarVinculo = async (vinculoId) => {
   const confirmed = window.confirm("Encerrar vínculo? O equipamento volta para Stand-by.");
   if (!confirmed) return;
   const existing = vinculos.find((item) => item.id === vinculoId || item.vinculo_id === vinculoId);
-  const encerrado = await encerrarVinculo(vinculoId, new Date().toISOString());
+  const encerrado = await encerrarVinculo(vinculoId, nowUtcIso());
   if (encerrado) {
     const equipamentoId = encerrado.equipamento_id || encerrado.equip_id;
     const equipamento = equipamentos.find((item) => item.id === equipamentoId);
@@ -1584,7 +1659,7 @@ const handleObraSubmit = async (event) => {
     obraHint.textContent = "ID de obra já existe.";
     return;
   }
-  const now = new Date().toISOString();
+  const now = nowUtcIso();
   const existing = obras.find((item) => item.id === normalized.id);
   await saveObra({
     ...normalized,
@@ -1606,7 +1681,17 @@ const handleObraSubmit = async (event) => {
 };
 
 const handleDeleteObra = async (obraId) => {
-  const confirmed = window.confirm(`Excluir obra ${obraId}?`);
+  const precheck = await precheckDeleteConstraints({ entity: "obras", id: obraId });
+  if (precheck) {
+    setStatusMessage(precheck);
+    return;
+  }
+  const serverCheck = await serverRecheckDeleteConstraints({ entity: "obras", id: obraId });
+  if (serverCheck) {
+    setStatusMessage(serverCheck);
+    return;
+  }
+  const confirmed = safeConfirmDelete(`obra ${obraId}`);
   if (!confirmed) return;
   const existing = obras.find((item) => item.id === obraId || item.idObra === obraId);
   await deleteObra(obraId);
@@ -1616,6 +1701,8 @@ const handleDeleteObra = async (obraId) => {
     entity_id: obraId,
     actor_user_id: activeSession?.user_id || null,
     summary: `Obra ${obraId} removida.`,
+    route: getCurrentRouteName(),
+    severity: "WARN",
     diff: buildDiff(existing, null, ["id", "nomeObra", "cidadeUF"])
   });
   await loadData();
@@ -1624,7 +1711,7 @@ const handleDeleteObra = async (obraId) => {
 };
 
 const handleSeed = async () => {
-  const now = new Date().toISOString();
+  const now = nowUtcIso();
   await createUserWithPin({
     id: "ADMIN",
     nome: "Administrador",
@@ -1715,11 +1802,11 @@ const handleSeed = async () => {
 };
 
 const handleExportBackup = async () => {
-  const payload = await exportSnapshot({ appVersion: getAppVersion() });
+  const payload = await exportSnapshot({ appVersion: APP_VERSION });
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
-  link.download = `medlux-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  link.download = `medlux-backup-${nowUtcIso().slice(0, 10)}.json`;
   link.click();
   await logAudit({
     action: AUDIT_ACTIONS.EXPORT_JSON,
@@ -2144,7 +2231,7 @@ const handleExportCsv = async () => {
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
-  link.download = `medlux-equipamentos-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.download = `medlux-equipamentos-${nowUtcIso().slice(0, 10)}.csv`;
   link.click();
   await logAudit({
     action: AUDIT_ACTIONS.EXPORT_CSV,
@@ -2687,7 +2774,7 @@ const renderDiagnostico = async () => {
     return;
   }
   diagnosticoPanel.hidden = false;
-  diagnosticoVersion.textContent = `App ${getAppVersion()} • DB ${DB_VERSION}`;
+  diagnosticoVersion.textContent = `App ${APP_VERSION} • DB ${DB_VERSION}`;
   try {
     const counts = await getStoreCounts();
     diagnosticoCounts.textContent = "";
@@ -2803,6 +2890,8 @@ const updateGeometriaState = () => {
 };
 
 const initialize = async () => {
+  if (appVersionFooter) appVersionFooter.textContent = `Versão ${APP_VERSION}`;
+  writeLog({ level: "INFO", route: "bootstrap", action: "INIT", entity: "app", message: "Inicialização MEDLUX Control" }, { isAdmin: true });
   await ensureLogin();
   if (!activeSession) return;
   await loadData();
@@ -2893,7 +2982,7 @@ if (diagnosticoExport) {
 
       const payload = await exportDiagnosticoCompleto({
         appModule: "medlux-control",
-        appVersion: getAppVersion(),
+        appVersion: APP_VERSION,
         session: getSession(),
         commitHash: window.MEDLUX_COMMIT_HASH || "",
         criticalHandlers: { hasNewVinculoHandler: Boolean(newVinculo), hasVinculoModal: Boolean(vinculoModal), hasVinculoSubmitHandler: Boolean(vinculoForm) },
@@ -2903,7 +2992,7 @@ if (diagnosticoExport) {
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
-      link.download = `diagnostico-turbo-medlux-control-${new Date().toISOString().slice(0, 10)}.json`;
+      link.download = `diagnostico-turbo-medlux-control-${nowUtcIso().slice(0, 10)}.json`;
       link.click();
       setStatusMessage("Diagnóstico Turbo exportado com sucesso.");
     } catch (error) {
