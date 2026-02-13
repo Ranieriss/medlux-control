@@ -1,4 +1,5 @@
 // front-end/shared/db.js
+import { getCurrentOrgId } from "./org.js";
 
 const DB_NAME = "medlux_suite_db";
 const DB_VERSION = 8;
@@ -17,6 +18,11 @@ const STORE_ERRORS_LOG = "errors_log";
 const STORE_CRITERIOS = "criterios";
 
 const nowIso = () => new Date().toISOString(); // UTC ISO-8601
+const withOrgId = async (record = {}) => {
+  if (record.organization_id) return record;
+  const organization_id = await getCurrentOrgId().catch(() => "");
+  return organization_id ? { ...record, organization_id } : record;
+};
 
 const toNumber = (value) => {
   const num = Number(value);
@@ -81,6 +87,8 @@ const normalizeUserRecord = (record = {}) => {
     pinHash,
     salt: record.salt || "",
     cpf,
+    organization_id: record.organization_id || "",
+    deleted_at: record.deleted_at || null,
     id_normalized,
     created_at,
     updated_at,
@@ -152,6 +160,8 @@ const normalizeEquipamentoRecord = (record = {}) => {
     dataEntregaUsuario: record.dataEntregaUsuario || record.data_entrega_usuario || "",
     statusLocal,
     observacoes: record.observacoes || "",
+    organization_id: record.organization_id || "",
+    deleted_at: record.deleted_at || null,
     created_at,
     updated_at,
     // aliases
@@ -187,6 +197,11 @@ const normalizeVinculoRecord = (record = {}) => {
     termo_pdf: record.termo_pdf || record.termo_cautela_pdf || record.termo || null,
     cpfUsuario: String(record.cpfUsuario || record.cpf_usuario || "").replace(/\D/g, ""),
     observacoes: String(record.observacoes || ""),
+    obra_id: record.obra_id || "",
+    entrega_at: toIsoDateTime(record.entrega_at || record.inicio || record.data_inicio) || "",
+    encerrado_at: toIsoDateTime(record.encerrado_at || record.fim || record.data_fim) || "",
+    organization_id: record.organization_id || "",
+    deleted_at: record.deleted_at || null,
     created_at,
     updated_at,
     // aliases
@@ -247,6 +262,7 @@ const normalizeMedicaoRecord = (record = {}) => {
     equipamento_id: record.equipamento_id || record.equip_id || "",
     user_id: record.user_id || "",
     obra_id: record.obra_id || record.obraId || "",
+    medido_em: toIsoDateTime(record.medido_em || dataHora || record.data_hora || created_at) || "",
     relatorio_id: record.relatorio_id || record.relatorioId || record.identificadorRelatorio || "",
 
     tipoMedicao,
@@ -314,6 +330,9 @@ const normalizeMedicaoRecord = (record = {}) => {
     fotos,
 
     created_at,
+    updated_at: record.updated_at || record.updatedAt || created_at,
+    organization_id: record.organization_id || "",
+    deleted_at: record.deleted_at || null,
 
     // aliases p/ compat
     medicao_id: id,
@@ -392,6 +411,8 @@ const normalizeObraRecord = (record = {}) => {
     concessionariaCliente: record.concessionariaCliente || record.concessionaria_cliente || record.cliente || "",
     responsavelTecnico: record.responsavelTecnico || record.responsavel_tecnico || "",
     observacoes: record.observacoes || "",
+    organization_id: record.organization_id || "",
+    deleted_at: record.deleted_at || null,
     created_at,
     updated_at
   };
@@ -408,7 +429,8 @@ const normalizeAuditRecord = (record = {}) => {
     audit_id,
     auditoria_id: record.auditoria_id || audit_id,
     created_at,
-    data_hora: record.data_hora || created_at
+    data_hora: record.data_hora || created_at,
+    organization_id: record.organization_id || ""
   };
 };
 
@@ -709,16 +731,20 @@ const clearStore = (storeName) =>
 // API - Equipamentos
 // ===========================
 
-const getAllEquipamentos = () =>
-  getAllFromStore(STORE_EQUIPAMENTOS).then((items) => (items || []).map(normalizeEquipamentoRecord));
+const getAllEquipamentos = ({ includeDeleted = false } = {}) =>
+  getAllFromStore(STORE_EQUIPAMENTOS).then((items) => (items || []).map(normalizeEquipamentoRecord).filter((item) => includeDeleted || !item.deleted_at));
 
 const getEquipamentoById = (id) =>
   getByKey(STORE_EQUIPAMENTOS, id).then((item) => (item ? normalizeEquipamentoRecord(item) : null));
 
-const saveEquipamento = (equipamento) =>
-  putInStore(STORE_EQUIPAMENTOS, prepareEquipamentoRecord(equipamento));
+const saveEquipamento = async (equipamento) =>
+  putInStore(STORE_EQUIPAMENTOS, prepareEquipamentoRecord(await withOrgId(equipamento)));
 
-const deleteEquipamento = (id) => deleteFromStore(STORE_EQUIPAMENTOS, id);
+const deleteEquipamento = async (id) => {
+  const current = await getEquipamentoById(id);
+  if (!current) return null;
+  return saveEquipamento({ ...current, deleted_at: nowIso(), updated_at: nowIso() });
+};
 const clearEquipamentos = () => clearStore(STORE_EQUIPAMENTOS);
 
 const bulkSaveEquipamentos = (items) =>
@@ -745,8 +771,12 @@ const getUserById = async (id) => {
   return legacy ? normalizeUserRecord(legacy) : null;
 };
 
-const saveUser = (usuario) => putInStore(STORE_USERS, prepareUserRecord(usuario));
-const deleteUser = (id) => deleteFromStore(STORE_USERS, id);
+const saveUser = async (usuario) => putInStore(STORE_USERS, prepareUserRecord(await withOrgId(usuario)));
+const deleteUser = async (id) => {
+  const current = await getUserById(id);
+  if (!current) return null;
+  return saveUser({ ...current, deleted_at: nowIso(), updated_at: nowIso() });
+};
 
 // aliases
 const getAllUsuarios = () => getAllUsers();
@@ -758,11 +788,11 @@ const deleteUsuario = (id) => deleteUser(id);
 // API - Vinculos
 // ===========================
 
-const getAllVinculos = () =>
-  getAllFromStore(STORE_VINCULOS).then((items) => (items || []).map(normalizeVinculoRecord));
+const getAllVinculos = ({ includeDeleted = false } = {}) =>
+  getAllFromStore(STORE_VINCULOS).then((items) => (items || []).map(normalizeVinculoRecord).filter((item) => includeDeleted || !item.deleted_at));
 
 const saveVinculo = async (vinculo) => {
-  const prepared = prepareVinculoRecord(vinculo);
+  const prepared = prepareVinculoRecord(await withOrgId(vinculo));
   const isActive = String(prepared.status || "").toUpperCase() === "ATIVO" || prepared.ativo;
   if (isActive && prepared.equipamento_id) {
     const all = await getAllVinculos();
@@ -776,7 +806,11 @@ const saveVinculo = async (vinculo) => {
   }
   return putInStore(STORE_VINCULOS, prepared);
 };
-const deleteVinculo = (id) => deleteFromStore(STORE_VINCULOS, id);
+const deleteVinculo = async (id) => {
+  const vinculo = await getByKey(STORE_VINCULOS, id);
+  if (!vinculo) return null;
+  return saveVinculo({ ...vinculo, deleted_at: nowIso(), updated_at: nowIso(), status: "ENCERRADO", ativo: false });
+};
 
 const isVinculoAtivo = (item) => item.status === "ATIVO" || item.ativo === true;
 
@@ -816,11 +850,15 @@ const encerrarVinculo = async (vinculoId, dataFim) => {
 // API - Medicoes
 // ===========================
 
-const getAllMedicoes = () =>
-  getAllFromStore(STORE_MEDICOES).then((items) => (items || []).map(normalizeMedicaoRecord));
+const getAllMedicoes = ({ includeDeleted = false } = {}) =>
+  getAllFromStore(STORE_MEDICOES).then((items) => (items || []).map(normalizeMedicaoRecord).filter((item) => includeDeleted || !item.deleted_at));
 
-const saveMedicao = (medicao) => putInStore(STORE_MEDICOES, prepareMedicaoRecord(medicao));
-const deleteMedicao = (id) => deleteFromStore(STORE_MEDICOES, id);
+const saveMedicao = async (medicao) => putInStore(STORE_MEDICOES, prepareMedicaoRecord(await withOrgId(medicao)));
+const deleteMedicao = async (id) => {
+  const medicao = await getByKey(STORE_MEDICOES, id);
+  if (!medicao) return null;
+  return saveMedicao({ ...medicao, deleted_at: nowIso(), updated_at: nowIso() });
+};
 
 const getMedicoesByEquip = async (equipId) => {
   const items = await getAllMedicoes();
@@ -888,13 +926,17 @@ const saveAuditoria = async (entry) => {
 // API - Obras
 // ===========================
 
-const getAllObras = () => getAllFromStore(STORE_OBRAS).then((items) => (items || []).map(normalizeObraRecord));
+const getAllObras = ({ includeDeleted = false } = {}) => getAllFromStore(STORE_OBRAS).then((items) => (items || []).map(normalizeObraRecord).filter((item) => includeDeleted || !item.deleted_at));
 
 const getObraById = (id) =>
   getByKey(STORE_OBRAS, id).then((item) => (item ? normalizeObraRecord(item) : null));
 
-const saveObra = (obra) => putInStore(STORE_OBRAS, prepareObraRecord(obra));
-const deleteObra = (id) => deleteFromStore(STORE_OBRAS, id);
+const saveObra = async (obra) => putInStore(STORE_OBRAS, prepareObraRecord(await withOrgId(obra)));
+const deleteObra = async (id) => {
+  const obra = await getObraById(id);
+  if (!obra) return null;
+  return saveObra({ ...obra, deleted_at: nowIso(), updated_at: nowIso() });
+};
 
 // ===========================
 // API - Anexos (laudos/termos)

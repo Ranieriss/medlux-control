@@ -110,3 +110,19 @@ Sistema offline-first para gestão de equipamentos MEDLUX, usuários, vínculos 
 4. Selecione um equipamento e um usuário ativos, preencha a data de início e salve.
 5. Valide que o vínculo aparece na tabela imediatamente (sem F5) e que o dashboard/listas refletem a atualização.
 6. Opcional: repita com anexo PDF de termo e abra o documento pelo link **Ver** na linha do vínculo.
+
+## Supabase migrations (quando necessário)
+
+Se seu schema ainda não possui `organization_id` e `deleted_at`, execute:
+
+1. Abra o **Supabase SQL Editor**.
+2. Rode o arquivo `supabase/migrations/20260213_soft_delete_org_hardening.sql`.
+3. Confirme que as políticas RLS usam `public.current_org_id()`.
+
+## Smoke test rápido (5 min)
+
+1. Login ADMIN.
+2. Criar equipamento/obra/vínculo e validar que grava sem erro.
+3. Excluir equipamento com vínculo ativo → deve bloquear.
+4. Excluir sem referência → deve pedir confirmação digitando `DELETE`.
+5. Verificar auditoria para evento de criação/edição/exclusão.

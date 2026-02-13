@@ -2,13 +2,14 @@ import { saveErrorLog } from "./db.js";
 import { nowUtcIso } from "./time.js";
 import { APP_VERSION } from "./utils.js";
 import { logAudit } from "./audit.js";
+import { getSessionCorrelationId } from "./logger.js";
 
 const classifyError = (message = "") => {
   const msg = String(message || "").toLowerCase();
   if (msg.includes("401")) return { code: "401", userMessage: "Sua sessão expirou. Faça login novamente." };
   if (msg.includes("403")) return { code: "403", userMessage: "Você não tem permissão para esta ação." };
-  if (msg.includes("42703")) return { code: "42703", userMessage: "Erro de estrutura de dados. Contate o administrador." };
-  if (msg.includes("timeout")) return { code: "TIMEOUT", userMessage: "A operação demorou demais. Tente novamente." };
+  if (msg.includes("400")) return { code: "400", userMessage: "Dados inválidos. Revise os campos obrigatórios." };
+  if (msg.includes("42703")) return { code: "42703", userMessage: "Estrutura de dados incompatível. Acione o ADMIN." };
   if (msg.includes("network") || msg.includes("failed to fetch")) return { code: "NETWORK", userMessage: "Falha de rede. Verifique a conexão." };
   return { code: "UNKNOWN", userMessage: "Ocorreu um erro inesperado." };
 };
@@ -20,7 +21,7 @@ const logError = async ({
   stack = "",
   context = null,
   route = window.location?.pathname || "unknown",
-  correlation_id = crypto.randomUUID(),
+  correlation_id = getSessionCorrelationId(),
   severity = "ERROR"
 } = {}) => {
   const created_at = nowUtcIso();
@@ -42,11 +43,13 @@ const logError = async ({
   } catch (error) {
     console.error("Falha ao registrar erro local.", error);
   }
+
   await logAudit({
     action: "ERROR_EVENT",
     entity_type: "errors",
     entity_id: action || module,
     summary: message || "Erro desconhecido",
+    diff: { before: null, after: { code: classified.code, message } },
     context: { module, stack, ...(context || {}) },
     route,
     severity,
@@ -62,7 +65,8 @@ const initGlobalErrorHandling = (moduleName = "unknown", options = {}) => {
     onUserError({
       userMessage: classified.userMessage,
       technical: `${payload.message || "Erro"}${payload.stack ? `\n${payload.stack}` : ""}`,
-      showTechnical: Boolean(isAdmin())
+      showTechnical: Boolean(isAdmin()),
+      code: classified.code
     });
   };
 

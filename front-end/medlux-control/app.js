@@ -429,9 +429,8 @@ const isAdminUser = () => String(activeSession?.role || getSession()?.role || ""
 const newCorrelationId = () => crypto.randomUUID();
 
 const safeConfirmDelete = (label) => {
-  const base = window.confirm(`Excluir ${label}?`);
-  if (!base) return false;
-  return window.confirm(`Confirmação final para excluir ${label}. Esta ação pode ser irreversível.`);
+  const typed = window.prompt(`Para excluir ${label}, digite DELETE`);
+  return String(typed || "").trim().toUpperCase() === "DELETE";
 };
 
 const precheckDeleteConstraints = async ({ entity, id }) => {
@@ -439,11 +438,17 @@ const precheckDeleteConstraints = async ({ entity, id }) => {
   if (entity === "equipamentos" && ativos.some((item) => (item.equipamento_id || item.equip_id) === id)) {
     return "Equipamento possui vínculo ativo e não pode ser removido.";
   }
+  if (entity === "equipamentos" && medicoes.some((item) => normalizeId(item.equipamento_id || item.equip_id) === normalizeId(id))) {
+    return "Equipamento possui medições e não pode ser removido.";
+  }
   if (entity === "users" && ativos.some((item) => normalizeUserIdComparable(item.user_id) === normalizeUserIdComparable(id))) {
     return "Usuário possui vínculo ativo e não pode ser removido.";
   }
   if (entity === "obras" && medicoes.some((item) => normalizeId(item.obra_id) === normalizeId(id))) {
     return "Obra possui vínculos de medição e não pode ser removida.";
+  }
+  if (entity === "obras" && vinculos.some((item) => normalizeId(item.obra_id) === normalizeId(id) && String(item.status || "").toUpperCase() === "ATIVO")) {
+    return "Obra possui vínculo ativo e não pode ser removida.";
   }
   return "";
 };
@@ -463,6 +468,10 @@ const serverRecheckDeleteConstraints = async ({ entity, id }) => {
     if (entity === "obras") {
       const { data } = await supabase.from("medicoes").select("id").eq("obra_id", id).limit(1);
       if (data?.length) return "Exclusão bloqueada: registros vinculados encontrados no servidor.";
+    }
+    if (entity === "equipamentos") {
+      const { data } = await supabase.from("medicoes").select("id").eq("equipamento_id", id).limit(1);
+      if (data?.length) return "Exclusão bloqueada: medições vinculadas encontradas no servidor.";
     }
   } catch (error) {
     await logError({ module: "medlux-control", action: "SERVER_DELETE_RECHECK", message: error?.message || "Falha no recheck" });
@@ -514,6 +523,7 @@ let activeSession = null;
 let sortState = { key: "id", direction: "asc" };
 let currentPage = 1;
 let currentLaudoMeta = null;
+let showDeleted = false;
 
 initGlobalErrorHandling("medlux-control", {
   isAdmin: () => isAdminUser(),
@@ -534,6 +544,7 @@ const ensureLogin = async () => {
   });
   if (!authorized) return null;
   activeSession = getSession();
+  initShowDeletedToggle();
   return activeSession;
 };
 
@@ -586,11 +597,11 @@ const validateObra = (obra) => {
 
 const loadData = async () => {
   [equipamentos, usuarios, vinculos, medicoes, obras, criterios, auditoria] = await Promise.all([
-    getAllEquipamentos(),
+    getAllEquipamentos({ includeDeleted: showDeleted }),
     getAllUsuarios(),
-    getAllVinculos(),
-    getAllMedicoes(),
-    getAllObras(),
+    getAllVinculos({ includeDeleted: showDeleted }),
+    getAllMedicoes({ includeDeleted: showDeleted }),
+    getAllObras({ includeDeleted: showDeleted }),
     getAllCriterios(),
     getAllAuditoria()
   ]);
@@ -598,6 +609,21 @@ const loadData = async () => {
 
 const loadInitialData = async () => {
   await loadData();
+};
+
+const initShowDeletedToggle = () => {
+  if (!isAdminUser() || document.getElementById("showDeletedToggle")) return;
+  const wrapper = document.createElement("label");
+  wrapper.style.marginLeft = "8px";
+  wrapper.innerHTML = '<input id="showDeletedToggle" type="checkbox" /> Mostrar excluídos';
+  statusMessage.parentElement?.appendChild(wrapper);
+  const checkbox = document.getElementById("showDeletedToggle");
+  if (!checkbox) return;
+  checkbox.addEventListener("change", async (event) => {
+    showDeleted = Boolean(event.target.checked);
+    await loadData();
+    renderAll();
+  });
 };
 
 const safeRender = () => {

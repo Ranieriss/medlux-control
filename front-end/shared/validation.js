@@ -52,7 +52,9 @@ const validateUser = (data = {}) => {
 const validateEquipamento = (data = {}) => {
   const errors = [];
   const id = String(data.id || "").trim();
+  const nome = String(data.nome || data.modelo || "").trim();
   if (!id) addError(errors, "id", "ID obrigatório.");
+  if (!nome) addError(errors, "nome", "Nome/modelo obrigatório.");
   const funcao = String(data.funcao || "").trim().toUpperCase();
   if (!funcao) addError(errors, "funcao", "Função obrigatória.");
   if (funcao && !["HORIZONTAL", "VERTICAL", "TACHAS"].includes(funcao)) {
@@ -71,11 +73,14 @@ const validateEquipamento = (data = {}) => {
 };
 
 const validateVinculo = (data = {}) => {
+  const requireObra = data.requireObra === true;
   const errors = [];
   const equipId = String(data.equipamento_id || data.equip_id || "").trim();
   const userId = String(data.user_id || "").trim();
+  const obraId = String(data.obra_id || "").trim();
   if (!equipId) addError(errors, "equip_id", "Equipamento obrigatório.");
   if (!userId) addError(errors, "user_id", "Usuário obrigatório.");
+  if (requireObra && !obraId) addError(errors, "obra_id", "Obra obrigatória para vínculo.");
   if (!String(data.inicio || data.data_inicio || "").trim()) addError(errors, "data_inicio", "Data de início obrigatória.");
   const status = String(data.status || (data.ativo === false ? "ENCERRADO" : "ATIVO")).trim().toUpperCase();
   if (status && !["ATIVO", "ENCERRADO"].includes(status)) addError(errors, "status", "Status inválido.");
