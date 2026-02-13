@@ -19,7 +19,7 @@ const STORE_CONSENT_LOGS = "consent_logs";
 
 const DEFAULT_ORGANIZATION_ID = "DEFAULT";
 
-const nowIso = () => new Date().toISOString(); // UTC ISO-8601
+const nowIso = () => new Date().toISOString();
 
 const toNumber = (value) => {
   const num = Number(value);
@@ -923,21 +923,7 @@ const deleteUsuario = (id, options = {}) => deleteUser(id, options);
 const getAllVinculos = (options = {}) =>
   getAllFromStore(STORE_VINCULOS).then((items) => filterByOrganization((items || []).map(normalizeVinculoRecord), options));
 
-const saveVinculo = async (vinculo) => {
-  const prepared = prepareVinculoRecord(vinculo);
-  const isActive = String(prepared.status || "").toUpperCase() === "ATIVO" || prepared.ativo;
-  if (isActive && prepared.equipamento_id) {
-    const all = await getAllVinculos();
-    const duplicate = all.find((item) =>
-      (item.id !== prepared.id && item.vinculo_id !== prepared.vinculo_id)
-      && (item.equipamento_id === prepared.equipamento_id || item.equip_id === prepared.equipamento_id)
-      && (String(item.status || "").toUpperCase() === "ATIVO" || item.ativo));
-    if (duplicate) {
-      throw new Error(`Já existe vínculo ativo para o equipamento ${prepared.equipamento_id}.`);
-    }
-  }
-  return putInStore(STORE_VINCULOS, prepared);
-};
+const saveVinculo = (vinculo) => putInStore(STORE_VINCULOS, prepareVinculoRecord(vinculo));
 const deleteVinculo = (id) => deleteFromStore(STORE_VINCULOS, id);
 
 const isVinculoAtivo = (item) => item.status === "ATIVO" || item.ativo === true;

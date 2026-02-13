@@ -1,7 +1,5 @@
 import { saveAuditoria } from "./db.js";
-import { APP_VERSION, sanitizeText } from "./utils.js";
-import { nowUtcIso } from "./time.js";
-import { writeLog } from "./logger.js";
+import { sanitizeText } from "./utils.js";
 
 const AUDIT_ACTIONS = {
   ENTITY_CREATED: "ENTITY_CREATED",
@@ -50,13 +48,9 @@ const logAudit = async ({
   entity_id = "",
   summary = "",
   diff = null,
-  context = null,
-  route = window.location?.pathname || "unknown",
-  severity = "INFO",
-  correlation_id = crypto.randomUUID(),
-  app_version = APP_VERSION
+  context = null
 }) => {
-  const created_at = nowUtcIso();
+  const created_at = new Date().toISOString();
   const sanitizedSummary = sanitizeText(summary);
   const entry = {
     audit_id,
@@ -69,27 +63,12 @@ const logAudit = async ({
     entity_id,
     summary: sanitizedSummary,
     diff,
-    context: {
-      ...(context || {}),
-      route,
-      app_version,
-      correlation_id
-    },
-    severity,
-    correlation_id,
-    route,
-    app_version,
+    context,
     entity: entity_type,
     data_hora: created_at,
     payload: context || {}
   };
-
-  try {
-    await saveAuditoria(entry);
-    writeLog({ level: severity, route, action, entity: entity_type, message: sanitizedSummary, details: { entity_id, correlation_id } });
-  } catch (error) {
-    console.error("Falha ao salvar auditoria.", error);
-  }
+  return saveAuditoria(entry);
 };
 
 export {
